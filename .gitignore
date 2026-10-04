@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+
+# next.js / build output
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# env files - .env.example stays tracked
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+!.env.example
+
+# test and coverage output
+coverage/
+playwright-report/
+test-results/
+load-test-results/
+
+# local database data and runtime state
+.local/
+
+# agent workspaces
+.agents/
+
+# platform caches
+.vercel/
+.railway/
+.turbo/
+.eslintcache
+
+# logs and OS files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
