@@ -21,6 +21,13 @@ const actionLabels: Record<AuditLogItem["action"], string> = {
   RESERVATION_CREATED: "Reservación creada",
   RESERVATION_CANCELLED: "Reservación cancelada",
   ADMIN_SIGNED_IN: "Inicio de sesión administrativo",
+  ADMIN_USER_CREATED: "Administrador creado",
+  ADMIN_USER_UPDATED: "Administrador actualizado",
+  ADMIN_USER_DEACTIVATED: "Administrador desactivado",
+  ADMIN_USER_REACTIVATED: "Administrador reactivado",
+  ADMIN_PASSWORD_RESET: "Contraseña restablecida",
+  ADMIN_PASSWORD_CHANGED: "Contraseña cambiada",
+  ADMIN_SESSIONS_REVOKED: "Sesiones cerradas",
 };
 
 export function AuditLogTable({ items }: { items: AuditLogItem[] }) {

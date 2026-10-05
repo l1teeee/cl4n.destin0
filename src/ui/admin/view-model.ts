@@ -5,6 +5,7 @@ import type {
   ReservationStatus,
   SortDirection,
 } from "@/application/events/types";
+import type { AdminRole } from "@/domain/admin/admin-access";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 
 export type DashboardAction = "OPEN_NOW" | "CLOSE_NOW" | "EDIT" | "RESERVATIONS";
@@ -89,6 +90,14 @@ export function formatReservationNumber(number: number | null): string {
 
 export function formatCount(value: number): string {
   return new Intl.NumberFormat("es-SV").format(value);
+}
+
+export function adminRoleLabel(role: AdminRole): string {
+  return role === "SUPER_ADMIN" ? "Superadministrador" : "Administrador";
+}
+
+export function adminStatusLabel(isActive: boolean): string {
+  return isActive ? "Activo" : "Inactivo";
 }
 
 export function reservationStatusLabel(status: ReservationStatus): string {

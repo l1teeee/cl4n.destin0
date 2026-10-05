@@ -6,12 +6,12 @@ import type {
   AdminAuthRepository,
   CreatedAdminSession,
 } from "@/application/auth/admin-auth-repository";
-import type { AdminSession, AdminUser } from "@/application/auth/types";
+import type { AdminRole, AdminSession, AdminUser } from "@/application/auth/types";
 
 import { pool as applicationPool } from "../db/client";
 
 const ABSOLUTE_LIFETIME_HOURS = 12;
-const IDLE_TIMEOUT_HOURS = 2;
+export const ADMIN_SESSION_IDLE_TIMEOUT_HOURS = 2;
 const LAST_SEEN_REFRESH_MINUTES = 5;
 
 interface AdminUserRow extends QueryResultRow {
@@ -19,6 +19,7 @@ interface AdminUserRow extends QueryResultRow {
   email_normalized: string;
   display_name: string;
   password_hash: string;
+  role: AdminRole;
   is_active: boolean;
 }
 
@@ -27,6 +28,7 @@ interface SessionRow extends QueryResultRow {
   admin_user_id: string;
   email_normalized: string;
   display_name: string;
+  role: AdminRole;
   created_at: Date;
   last_seen_at: Date;
   expires_at: Date;
@@ -47,7 +49,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
 
   async findByEmail(emailNormalized: string): Promise<AdminUser | null> {
     const result = await this.pool.query<AdminUserRow>(
-      `SELECT id, email_normalized, display_name, password_hash, is_active
+      `SELECT id, email_normalized, display_name, password_hash, role, is_active
          FROM admin_users
         WHERE email_normalized = $1`,
       [emailNormalized],
@@ -59,6 +61,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
           emailNormalized: row.email_normalized,
           displayName: row.display_name,
           passwordHash: row.password_hash,
+          role: row.role,
           isActive: row.is_active,
         }
       : null;
@@ -71,7 +74,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
     try {
       await client.query("BEGIN");
       const admin = await client.query<AdminUserRow>(
-        `SELECT id, email_normalized, display_name, password_hash, is_active
+        `SELECT id, email_normalized, display_name, password_hash, role, is_active
            FROM admin_users
           WHERE id = $1 AND is_active = true
           FOR UPDATE`,
@@ -131,6 +134,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
           id: row.id,
           email: row.email_normalized,
           displayName: row.display_name,
+          role: row.role,
         },
         expiresAt: inserted.rows[0]!.expires_at,
       };
@@ -150,6 +154,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
          s.admin_user_id,
          a.email_normalized,
          a.display_name,
+         a.role,
          s.created_at,
          s.last_seen_at,
          s.expires_at,
@@ -163,7 +168,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
           AND s.expires_at > db_clock.db_now
           AND s.last_seen_at > db_clock.db_now - make_interval(hours => $3)
       `,
-      [hashSessionToken(token), LAST_SEEN_REFRESH_MINUTES, IDLE_TIMEOUT_HOURS],
+      [hashSessionToken(token), LAST_SEEN_REFRESH_MINUTES, ADMIN_SESSION_IDLE_TIMEOUT_HOURS],
     );
     const row = result.rows[0];
     if (!row) {
@@ -189,6 +194,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
         id: row.admin_user_id,
         email: row.email_normalized,
         displayName: row.display_name,
+        role: row.role,
       },
       createdAt: row.created_at,
       lastSeenAt,

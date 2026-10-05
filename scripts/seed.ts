@@ -45,8 +45,8 @@ export async function seedDatabase(
       log("El administrador local ya existe; no se modifico.");
     } else {
       const insertedAdmin = await client.query<{ id: string }>(
-        `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
-         VALUES ($1, $1, $2, 'Admin Local')
+        `INSERT INTO admin_users (email, email_normalized, password_hash, display_name, role)
+         VALUES ($1, $1, $2, 'Admin Local', 'SUPER_ADMIN')
          RETURNING id`,
         [DEV_ADMIN_EMAIL, await hashPassword(DEV_ADMIN_PASSWORD)],
       );

@@ -108,7 +108,14 @@ export interface AuditLogItem {
     | "CAPACITY_CHANGED"
     | "RESERVATION_CREATED"
     | "RESERVATION_CANCELLED"
-    | "ADMIN_SIGNED_IN";
+    | "ADMIN_SIGNED_IN"
+    | "ADMIN_USER_CREATED"
+    | "ADMIN_USER_UPDATED"
+    | "ADMIN_USER_DEACTIVATED"
+    | "ADMIN_USER_REACTIVATED"
+    | "ADMIN_PASSWORD_RESET"
+    | "ADMIN_PASSWORD_CHANGED"
+    | "ADMIN_SESSIONS_REVOKED";
   entityType: "EVENT" | "RESERVATION" | "ADMIN_USER";
   entityId: string;
   metadata: Record<string, unknown>;

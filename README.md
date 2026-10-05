@@ -56,7 +56,7 @@ Local URLs:
 These credentials and records are for local development only. Never reuse them in preview or
 production.
 
-- Admin email: `admin@clandestino.local`
+- Admin email: `admin@clandestino.local` (role `SUPER_ADMIN`, manages admins at `/admin/users`)
 - Admin password: `ClandestinoLocal-2026`
 - Demo event slug: `cena-clandestino-demo`
 - Demo event: capacity 20, maximum party size 2, open for 14 days after seeding
@@ -216,7 +216,7 @@ npm run check
 - `src/app`: thin Next.js pages, route handlers, server actions, and composition roots.
 - `src/ui`: presentational public, admin, and form components with no data access.
 
-Not deployed. Engineering status: READY FOR OWNER REVIEW.
+Test deployment (owner-approved): https://clandestino-nine.vercel.app. Turnstile keys are still provisional, so public reservations stay blocked until real keys are set.
 
 This GitHub repository is public. Never commit `.env.local`, credentials, API keys, tokens,
 certificates, or any other secret.

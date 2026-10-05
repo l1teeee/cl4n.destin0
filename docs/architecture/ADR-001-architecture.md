@@ -462,9 +462,17 @@ Mechanics:
 - **CSRF.** Admin mutations are Server Actions only. Next.js checks Origin against Host, and the cookie is SameSite=Lax.
 - **Logout** deletes the session row and clears the cookie.
 - **Admin creation.**
-  - `npm run admin:create` prompts for email and password. The password is never accepted as a CLI argument.
-  - `npm run db:seed` creates the local dev admin and refuses to run unless DATABASE_URL points at localhost or 127.0.0.1.
-- **Audit.** `ADMIN_SIGNED_IN` (actor ADMIN) records successful logins.
+  - `npm run admin:create` prompts for email and password and creates a `SUPER_ADMIN`. The password is never accepted as a CLI argument.
+  - `npm run db:seed` creates the local dev admin as `SUPER_ADMIN` and refuses to run unless DATABASE_URL points at localhost or 127.0.0.1.
+- **Roles.** `admin_users.role` is `SUPER_ADMIN` or `ADMIN` (default `ADMIN`; migration 0002 promoted every pre-existing admin to `SUPER_ADMIN`).
+  - `ADMIN` manages experiences, reservations and the audit log.
+  - `SUPER_ADMIN` also manages admins at `/admin/users`: create, rename, change role, deactivate, reactivate, reset password and revoke sessions. Every admin changes their own password at `/admin/account`, which requires the current password and closes their other sessions.
+  - Role and `is_active` are read from the DB on every request, so a demotion or deactivation takes effect on the next request. `requireSuperAdmin()` guards every user-management page and Server Action.
+  - Admins are never deleted (audit rows reference them); deactivation is the removal. Deactivation and password reset delete the target's sessions in the same transaction.
+  - Nobody can change their own role, deactivate themselves, or reset or revoke their own access through user management.
+  - **Invariant: at least one active `SUPER_ADMIN` always exists.** Every user-management mutation first locks the active `SUPER_ADMIN` rows (`ORDER BY id FOR UPDATE`) and requires the actor to be one of them, then locks the target. Mutations therefore serialize, and an actor demoted by a concurrent transaction gets `FORBIDDEN`.
+  - Rate limits: 30 user-management mutations and 5 own-password attempts per admin per 15 minutes.
+- **Audit.** `ADMIN_SIGNED_IN` (actor ADMIN) records successful logins. User management records `ADMIN_USER_CREATED`, `ADMIN_USER_UPDATED`, `ADMIN_USER_DEACTIVATED`, `ADMIN_USER_REACTIVATED`, `ADMIN_PASSWORD_RESET`, `ADMIN_PASSWORD_CHANGED` and `ADMIN_SESSIONS_REVOKED`, never with passwords or hashes.
 
 ## 11. Bot protection strategy
 
@@ -610,3 +618,4 @@ Parallel worktrees use distinct test database names on the same local server.
   - section 6: `idle_in_transaction_session_timeout`.
   - section 7: email and phone limits consumed after Turnstile; `EVENT_FULL` only when seats are really gone, otherwise unstored `TRY_AGAIN`.
   - sections 8 and 11: no siteverify `idempotency_key`; raw IP for `remoteip`.
+- 2026-10-05: section 10. Admin roles (`SUPER_ADMIN`, `ADMIN`), admin-user management with the at-least-one-super-admin invariant, own password change, and the related audit actions (migration 0002). The owner asked Claude to implement this directly because Codex was not available in that session.

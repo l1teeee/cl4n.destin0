@@ -80,31 +80,65 @@ function firstAwaitExpression(body: ts.Block): ts.AwaitExpression | undefined {
   return firstAwait;
 }
 
+function firstAwaitedCallName(body: ts.Block): string | undefined {
+  const firstAwait = firstAwaitExpression(body);
+  return firstAwait &&
+    ts.isCallExpression(firstAwait.expression) &&
+    ts.isIdentifier(firstAwait.expression.expression)
+    ? firstAwait.expression.expression.text
+    : undefined;
+}
+
+function isUserManagementFile(file: string): boolean {
+  return file.split(path.sep).includes("users");
+}
+
 describe("admin Server Action authorization", () => {
+  const adminDirectory = path.join(process.cwd(), "src", "app", "admin");
+
   it("requires authorization as the first awaited call in every action except sign-in", () => {
-    const adminDirectory = path.join(process.cwd(), "src", "app", "admin");
     const violations: string[] = [];
 
     for (const file of actionFiles(adminDirectory)) {
       const source = readFileSync(file, "utf8");
       const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+      const allowedGuards = isUserManagementFile(file)
+        ? ["requireSuperAdmin"]
+        : ["requireAdmin", "requireSuperAdmin"];
 
       for (const action of exportedAsyncFunctions(sourceFile)) {
         if (action.name === "signInAction") continue;
 
-        const firstAwait = firstAwaitExpression(action.body);
-        const isRequireAdminCall =
-          firstAwait &&
-          ts.isCallExpression(firstAwait.expression) &&
-          ts.isIdentifier(firstAwait.expression.expression) &&
-          firstAwait.expression.expression.text === "requireAdmin";
-
-        if (!isRequireAdminCall) {
+        const guard = firstAwaitedCallName(action.body);
+        if (!guard || !allowedGuards.includes(guard)) {
           violations.push(`${path.relative(process.cwd(), file)}:${action.name}`);
         }
       }
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it("guards every user-management action with requireSuperAdmin", () => {
+    const file = path.join(adminDirectory, "(protected)", "users", "actions.ts");
+    const sourceFile = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const guards = exportedAsyncFunctions(sourceFile).map((action) => [
+      action.name,
+      firstAwaitedCallName(action.body),
+    ]);
+
+    expect(guards).toEqual([
+      ["createAdminUserAction", "requireSuperAdmin"],
+      ["updateAdminUserAction", "requireSuperAdmin"],
+      ["deactivateAdminUserAction", "requireSuperAdmin"],
+      ["reactivateAdminUserAction", "requireSuperAdmin"],
+      ["resetAdminPasswordAction", "requireSuperAdmin"],
+      ["revokeAdminSessionsAction", "requireSuperAdmin"],
+    ]);
   });
 });

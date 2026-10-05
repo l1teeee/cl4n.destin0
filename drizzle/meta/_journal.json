@@ -15,6 +15,13 @@
       "when": 1791160580462,
       "tag": "0001_audit_append_only_and_unlogged_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791236546821,
+      "tag": "0002_admin_roles",
+      "breakpoints": true
     }
   ]
 }
