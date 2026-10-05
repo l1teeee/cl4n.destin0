@@ -11,6 +11,15 @@ import {
   parseDatabaseEnv,
 } from "../src/infrastructure/config/database-env.ts";
 
+function redactDatabaseCredentials(message: string): string {
+  return message.replace(/\b(postgres(?:ql)?:\/\/)[^@\s]+@/gi, "$1***@");
+}
+
+function operatorErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactDatabaseCredentials(message);
+}
+
 function prompt(question: string): Promise<string> {
   const interface_ = createInterface({ input: stdin, output: stdout });
   return new Promise((resolve) => {
@@ -104,8 +113,9 @@ export async function createAdmin(): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  createAdmin().catch(() => {
+  createAdmin().catch((error: unknown) => {
     console.error("No se pudo crear el administrador.");
+    console.error(operatorErrorMessage(error));
     process.exitCode = 1;
   });
 }

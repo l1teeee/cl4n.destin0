@@ -3,6 +3,15 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+function redactDatabaseCredentials(message) {
+  return message.replace(/\b(postgres(?:ql)?:\/\/)[^@\s]+@/gi, "$1***@");
+}
+
+function operatorErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactDatabaseCredentials(message);
+}
+
 function localTestDatabaseUrl() {
   const value = process.env.TEST_DATABASE_URL;
   if (!value) {
@@ -45,8 +54,9 @@ function stop(signal) {
 process.on("SIGINT", () => stop("SIGINT"));
 process.on("SIGTERM", () => stop("SIGTERM"));
 
-child.on("error", () => {
+child.on("error", (error) => {
   console.error("Load-test server failed to start.");
+  console.error(operatorErrorMessage(error));
   process.exitCode = 1;
 });
 

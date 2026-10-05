@@ -8,6 +8,15 @@ const DEV_ADMIN_EMAIL = "admin@clandestino.local";
 const DEV_ADMIN_PASSWORD = "ClandestinoLocal-2026";
 const DEMO_EVENT_SLUG = "cena-clandestino-demo";
 
+function redactDatabaseCredentials(message: string): string {
+  return message.replace(/\b(postgres(?:ql)?:\/\/)[^@\s]+@/gi, "$1***@");
+}
+
+function operatorErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactDatabaseCredentials(message);
+}
+
 export function assertLocalDatabaseUrl(databaseUrlValue: string): URL {
   const databaseUrl = new URL(databaseUrlValue);
   if (databaseUrl.hostname !== "127.0.0.1" && databaseUrl.hostname !== "localhost") {
@@ -108,8 +117,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error("DATABASE_URL es obligatoria");
     process.exitCode = 1;
   } else {
-    seedDatabase(databaseUrlValue).catch(() => {
+    seedDatabase(databaseUrlValue).catch((error: unknown) => {
       console.error("No se pudo ejecutar el seed.");
+      console.error(operatorErrorMessage(error));
       process.exitCode = 1;
     });
   }
