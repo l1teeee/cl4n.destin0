@@ -14,16 +14,21 @@ interface TurnstileResponse {
   hostname?: string;
   cdata?: string;
   "error-codes"?: string[];
+  metadata?: {
+    result_with_testing_key?: boolean;
+  };
 }
 
 export interface TurnstileVerifierOptions {
   secret: string;
   allowedHostnames: readonly string[];
+  acceptTestingKeyResults: boolean;
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
 
 export class TurnstileVerifier implements BotVerifier {
+  private readonly acceptTestingKeyResults: boolean;
   private readonly allowedHostnames: ReadonlySet<string>;
   private readonly fetch: typeof fetch;
   private readonly secret: string;
@@ -31,6 +36,7 @@ export class TurnstileVerifier implements BotVerifier {
 
   constructor(options: TurnstileVerifierOptions) {
     this.secret = options.secret;
+    this.acceptTestingKeyResults = options.acceptTestingKeyResults;
     this.allowedHostnames = new Set(options.allowedHostnames);
     this.fetch = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? 5_000;
@@ -69,6 +75,10 @@ export class TurnstileVerifier implements BotVerifier {
         return { ok: false, reason: expired ? "TOKEN_EXPIRED_OR_SPENT" : "INVALID" };
       }
 
+      if (result.metadata?.result_with_testing_key === true) {
+        return this.acceptTestingKeyResults ? { ok: true } : { ok: false, reason: "INVALID" };
+      }
+
       const matchesRequest =
         result.action === "reserve" &&
         result.hostname !== undefined &&
@@ -100,6 +110,7 @@ export function createBotVerifier(
   return new TurnstileVerifier({
     secret: env.TURNSTILE_SECRET_KEY!,
     allowedHostnames: env.TURNSTILE_ALLOWED_HOSTNAMES,
+    acceptTestingKeyResults: env.APP_ENV === "local" || env.APP_ENV === "test",
     fetch: fetchImplementation,
   });
 }

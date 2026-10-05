@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createBotVerifier,
   DisabledBotVerifier,
   TurnstileVerifier,
 } from "@/infrastructure/bot-protection/turnstile-verifier";
+import { env } from "@/infrastructure/config/env";
 
 const request = {
   token: "turnstile-token",
@@ -18,13 +20,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function verifier(response: unknown, fetchMock = vi.fn<typeof fetch>()) {
+function verifier(
+  response: unknown,
+  acceptTestingKeyResults = false,
+  fetchMock = vi.fn<typeof fetch>(),
+) {
   fetchMock.mockResolvedValue(jsonResponse(response));
   return {
     fetchMock,
     verifier: new TurnstileVerifier({
       secret: "secret",
       allowedHostnames: ["clandestino.example"],
+      acceptTestingKeyResults,
       fetch: fetchMock,
     }),
   };
@@ -48,8 +55,31 @@ describe("TurnstileVerifier", () => {
     ["wrong hostname", { ...successResponse, hostname: "evil.example" }],
     ["cdata mismatch", { ...successResponse, cdata: "another-key" }],
   ])("returns MISMATCH for %s", async (_case, response) => {
-    const { verifier: turnstile } = verifier(response);
+    const { verifier: turnstile } = verifier(response, true);
     await expect(turnstile.verify(request)).resolves.toEqual({ ok: false, reason: "MISMATCH" });
+  });
+
+  it("accepts a testing-key result when explicitly allowed", async () => {
+    const { verifier: turnstile } = verifier(
+      {
+        success: true,
+        hostname: "example.com",
+        metadata: { result_with_testing_key: true },
+      },
+      true,
+    );
+
+    await expect(turnstile.verify(request)).resolves.toEqual({ ok: true });
+  });
+
+  it("rejects a testing-key result when not allowed", async () => {
+    const { verifier: turnstile } = verifier({
+      success: true,
+      hostname: "example.com",
+      metadata: { result_with_testing_key: true },
+    });
+
+    await expect(turnstile.verify(request)).resolves.toEqual({ ok: false, reason: "INVALID" });
   });
 
   it("classifies timeout-or-duplicate separately", async () => {
@@ -68,6 +98,7 @@ describe("TurnstileVerifier", () => {
     const turnstile = new TurnstileVerifier({
       secret: "secret",
       allowedHostnames: ["clandestino.example"],
+      acceptTestingKeyResults: false,
       fetch: fetchMock,
     });
     await expect(turnstile.verify(request)).resolves.toEqual({ ok: false, reason: "UNAVAILABLE" });
@@ -82,6 +113,7 @@ describe("TurnstileVerifier", () => {
     const turnstile = new TurnstileVerifier({
       secret: "secret",
       allowedHostnames: ["clandestino.example"],
+      acceptTestingKeyResults: false,
       fetch: fetchMock,
       timeoutMs: 5,
     });
@@ -93,6 +125,7 @@ describe("TurnstileVerifier", () => {
     const turnstile = new TurnstileVerifier({
       secret: "secret",
       allowedHostnames: ["clandestino.example"],
+      acceptTestingKeyResults: false,
       fetch: fetchMock,
     });
     await expect(turnstile.verify(request)).resolves.toEqual({ ok: false, reason: "UNAVAILABLE" });
@@ -116,6 +149,38 @@ describe("TurnstileVerifier", () => {
 
     const body = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
     expect(body.has("remoteip")).toBe(false);
+  });
+});
+
+describe("createBotVerifier", () => {
+  it.each([
+    ["local", true],
+    ["test", true],
+    ["preview", false],
+    ["production", false],
+  ] as const)("sets testing-key acceptance for APP_ENV=%s", async (appEnvironment, accepted) => {
+    const originalAppEnvironment = env.APP_ENV;
+    const originalBotProtectionMode = env.BOT_PROTECTION_MODE;
+    env.APP_ENV = appEnvironment;
+    env.BOT_PROTECTION_MODE = "turnstile";
+
+    try {
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          success: true,
+          hostname: "example.com",
+          metadata: { result_with_testing_key: true },
+        }),
+      );
+      const turnstile = createBotVerifier(fetchMock);
+
+      await expect(turnstile.verify(request)).resolves.toEqual(
+        accepted ? { ok: true } : { ok: false, reason: "INVALID" },
+      );
+    } finally {
+      env.APP_ENV = originalAppEnvironment;
+      env.BOT_PROTECTION_MODE = originalBotProtectionMode;
+    }
   });
 });
 

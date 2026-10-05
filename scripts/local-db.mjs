@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -157,7 +157,14 @@ async function start() {
       );
     } catch (error) {
       if (existsSync(logFile)) {
-        console.error("PostgreSQL failed to start. Inspect the local PostgreSQL log.");
+        console.error(`PostgreSQL log: ${logFile}`);
+        try {
+          const log = await readFile(logFile, "utf8");
+          const tail = log.trimEnd().split(/\r?\n/).slice(-20).join("\n");
+          console.error(tail || "(log file is empty)");
+        } catch (logError) {
+          console.error(`Could not read PostgreSQL log: ${String(logError)}`);
+        }
       } else {
         console.error("PostgreSQL failed to start and did not create a log file.");
       }
