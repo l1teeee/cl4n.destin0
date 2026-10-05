@@ -63,6 +63,7 @@ codex exec -m gpt-5.6-sol -c model_reasoning_effort=<medium|high> -c approval_po
 ```
 
 - The default elevated Windows sandbox fails here with `helper_unknown_error`, so use the unelevated one.
+- `codex exec resume <session-id>` (for example after a usage limit) does not accept `-s`, `-C` or `--add-dir`. `cd` into the worktree and pass `-c sandbox_mode=workspace-write -c 'sandbox_workspace_write.writable_roots=["C:/Users/aleja/AppData/Local/npm-cache"]'` instead.
 - Never use `--dangerously-bypass-approvals-and-sandbox`, because the Vercel and Railway CLIs are installed and logged in on this machine.
 - Always set the effort explicitly, because the global Codex config defaults to high.
 

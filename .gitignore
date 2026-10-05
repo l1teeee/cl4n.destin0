@@ -40,3 +40,6 @@ load-test-results/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
