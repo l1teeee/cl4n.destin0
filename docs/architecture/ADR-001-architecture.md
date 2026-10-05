@@ -485,6 +485,9 @@ Verification sits behind a `BotVerifier` port. Tests inject a fake.
 
 **Local and test:**
 - Local uses Cloudflare's official test keys: site key `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`, which always pass.
+- A test-key siteverify result is `{ success: true, hostname: "example.com", metadata: { result_with_testing_key: true } }`, with no `action` or `cdata`, verified 2026-10-05. The binding checks cannot be applied to it.
+  - It is accepted only when `APP_ENV` is `local` or `test`.
+  - In preview and production it is rejected, as defense in depth on top of the startup guard that forbids test keys there.
 - `BOT_PROTECTION_MODE=disabled` is allowed only when `APP_ENV` is `local` or `test`. Startup fails fast otherwise.
 
 ## 12. Rate limiting approach
@@ -595,3 +598,4 @@ Parallel worktrees use distinct test database names on the same local server.
 - 2026-10-04: initial version.
 - 2026-10-04: section 8. The client key is now per attempt series, created at form mount, instead of derived from the payload hash at submit. Turnstile `cData` must equal the key and is fixed at widget render, so the key has to exist before any payload does.
 - 2026-10-04: section 7 step e. Failure classification also treats a CLOSED event that is sold out (for example auto-closed on full) inside its window as `EVENT_FULL`, not `EVENT_NOT_OPEN`.
+- 2026-10-05: section 11. Testing-key siteverify results carry no `action`, `hostname` binding or `cdata`. They are accepted only in local and test, and rejected elsewhere.
