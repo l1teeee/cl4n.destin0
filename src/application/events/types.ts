@@ -81,6 +81,7 @@ export interface AdminReservationItem {
   status: ReservationStatus;
   submittedAt: Date;
   acceptedAt: Date | null;
+  notes: string | null;
 }
 
 export type ReservationSortKey = "number" | "submittedAt" | "name";
@@ -116,6 +117,7 @@ export interface AuditLogItem {
 export interface AuditLogQuery {
   entityType?: AuditLogItem["entityType"];
   entityId?: string;
+  eventId?: string;
   page?: number;
   pageSize?: number;
 }

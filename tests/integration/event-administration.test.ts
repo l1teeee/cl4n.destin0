@@ -416,6 +416,18 @@ describe("event read models", () => {
     expect(slash.value.map((row) => row.fullName)).toEqual(["Slash\\Guest"]);
   });
 
+  it("returns reservation notes in the admin read model", async () => {
+    const eventId = await insertEvent("SCHEDULED");
+    await insertReservation(eventId, "Guest With Notes", new Date());
+    await pool.query("UPDATE reservations SET notes = $2 WHERE event_id = $1", [
+      eventId,
+      "Alergia a los mariscos",
+    ]);
+
+    const reservations = await repository.listAdminReservations({ eventId });
+    expect(reservations.value[0]?.notes).toBe("Alergia a los mariscos");
+  });
+
   it("allow-lists sorting and defaults to newest submissions first", async () => {
     const eventId = await insertEvent("SCHEDULED");
     await insertReservation(
@@ -489,5 +501,23 @@ describe("event read models", () => {
     expect(page.value).toMatchObject({ page: 1, pageSize: 1, total: 2 });
     expect(page.value.items[0]).toMatchObject({ action: "CAPACITY_CHANGED" });
     expect(page.databaseTime).toBeInstanceOf(Date);
+  });
+
+  it("returns event and related reservation entries for an event audit", async () => {
+    const created = await repository.create({ ...baseCommand, slug: "audit-related" }, adminId);
+    if (!created.ok) throw new Error("fixture creation failed");
+    const reservationId = randomUUID();
+    await pool.query(
+      `INSERT INTO audit_logs (
+         actor_type, action, entity_type, entity_id, metadata
+       ) VALUES ('PUBLIC', 'RESERVATION_CREATED', 'RESERVATION', $1, $2::jsonb)`,
+      [reservationId, JSON.stringify({ eventId: created.value.id, partySize: 2 })],
+    );
+
+    const audit = await repository.listAuditLogs({ eventId: created.value.id });
+    expect(audit.value.items.map((item) => item.action)).toEqual([
+      "RESERVATION_CREATED",
+      "EVENT_CREATED",
+    ]);
   });
 });
