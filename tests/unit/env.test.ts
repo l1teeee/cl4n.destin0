@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { parseDatabaseEnv } from "@/infrastructure/config/database-env";
 import { parseServerEnv } from "@/infrastructure/config/env";
 
 const validEnvironment: Record<string, string | undefined> = {
@@ -26,6 +27,20 @@ const validProductionEnvironment: Record<string, string | undefined> = {
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: "0x4AAAAAA-valid-production-site-key",
   TURNSTILE_ALLOWED_HOSTNAMES: "clandestino.example.com",
 };
+
+describe("parseDatabaseEnv", () => {
+  it("parses only the database variables without requiring the app environment", () => {
+    expect(
+      parseDatabaseEnv({
+        DATABASE_URL: validEnvironment.DATABASE_URL,
+        DATABASE_SSL_MODE: validEnvironment.DATABASE_SSL_MODE,
+      }),
+    ).toEqual({
+      DATABASE_URL: validEnvironment.DATABASE_URL,
+      DATABASE_SSL_MODE: "disable",
+    });
+  });
+});
 
 describe("parseServerEnv", () => {
   it("parses valid local configuration", () => {
@@ -61,6 +76,62 @@ describe("parseServerEnv", () => {
       APP_ENV: "production",
       DATABASE_SSL_MODE: "verify-ca",
     });
+  });
+
+  it.each([
+    ["production", "production"],
+    ["preview", "preview"],
+  ] as const)("accepts APP_ENV=%s when VERCEL_ENV=%s", (appEnvironment, vercelEnvironment) => {
+    expect(
+      parseServerEnv({
+        ...validProductionEnvironment,
+        APP_ENV: appEnvironment,
+        VERCEL_ENV: vercelEnvironment,
+      }).APP_ENV,
+    ).toBe(appEnvironment);
+  });
+
+  it("maps VERCEL_ENV=development to APP_ENV=local", () => {
+    expect(parseServerEnv({ ...validEnvironment, VERCEL_ENV: "development" }).APP_ENV).toBe(
+      "local",
+    );
+  });
+
+  it.each([
+    ["production", "preview"],
+    ["preview", "production"],
+    ["development", "test"],
+  ] as const)("rejects VERCEL_ENV=%s with APP_ENV=%s", (vercelEnvironment, appEnvironment) => {
+    const base =
+      vercelEnvironment === "development" ? validEnvironment : validProductionEnvironment;
+    expect(() =>
+      parseServerEnv({
+        ...base,
+        APP_ENV: appEnvironment,
+        VERCEL_ENV: vercelEnvironment,
+      }),
+    ).toThrow(/APP_ENV[\s\S]*VERCEL_ENV/);
+  });
+
+  it.each(["ssl", "sslmode", "sslrootcert", "sslcert", "sslkey", "uselibpqcompat"])(
+    "rejects the DATABASE_URL TLS query parameter %s",
+    (parameter) => {
+      expect(() =>
+        parseServerEnv({
+          ...validEnvironment,
+          DATABASE_URL: `${validEnvironment.DATABASE_URL}?${parameter}=require`,
+        }),
+      ).toThrow(new RegExp(`DATABASE_URL[\\s\\S]*${parameter}`));
+    },
+  );
+
+  it("rejects DATABASE_URL TLS query parameter names case-insensitively", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validEnvironment,
+        DATABASE_URL: `${validEnvironment.DATABASE_URL}?SslMode=require`,
+      }),
+    ).toThrow(/DATABASE_URL[\s\S]*sslmode/);
   });
 
   it("rejects local-only application secrets in protected environments", () => {

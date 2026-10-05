@@ -46,10 +46,9 @@ export class TurnstileVerifier implements BotVerifier {
     const body = new URLSearchParams({
       secret: this.secret,
       response: request.token,
-      idempotency_key: request.idempotencyKey,
     });
 
-    if (request.remoteIp !== "local") {
+    if (request.remoteIp && request.remoteIp !== "local") {
       body.set("remoteip", request.remoteIp);
     }
 

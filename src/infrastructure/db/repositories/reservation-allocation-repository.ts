@@ -42,7 +42,19 @@ interface AcquiredEventRow {
   accepted_at: Date;
 }
 
-const retryableDatabaseCodes = new Set(["55P03", "57014", "40P01", "40001"]);
+const retryableDatabaseCodes = new Set([
+  "55P03",
+  "57014",
+  "40P01",
+  "40001",
+  "53300",
+  "57P01",
+  "57P02",
+  "57P03",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+]);
 const duplicateConstraints = new Set([
   "reservations_one_confirmed_per_email_uq",
   "reservations_one_confirmed_per_phone_uq",
@@ -50,6 +62,23 @@ const duplicateConstraints = new Set([
 
 function databaseError(error: unknown): DatabaseError {
   return typeof error === "object" && error !== null ? (error as DatabaseError) : {};
+}
+
+function isRetryableDatabaseError(error: unknown): boolean {
+  const details = databaseError(error);
+  if (details.code && retryableDatabaseCodes.has(details.code)) {
+    return true;
+  }
+
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("connection timeout") ||
+    message.includes("timeout exceeded when trying to connect")
+  );
 }
 
 async function rollback(client: PoolClient): Promise<void> {
@@ -119,13 +148,15 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
   }
 
   async allocate(command: AllocationCommand): Promise<AllocationResult> {
-    const client = await this.pool.connect();
+    let client: PoolClient | undefined;
     let releaseError: Error | boolean | undefined;
 
     try {
+      client = await this.pool.connect();
       await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
       await client.query("SET LOCAL lock_timeout = '3s'");
       await client.query("SET LOCAL statement_timeout = '5s'");
+      await client.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
 
       const claim = await client.query<{ key: string }>(
         `INSERT INTO idempotency_records (key, scope, request_fingerprint)
@@ -228,6 +259,14 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           failedEvent.database_now,
         );
 
+        if (failure === "TRY_AGAIN") {
+          await rollback(client);
+          return {
+            ...command.mapOutcome({ code: "TRY_AGAIN" }),
+            replayed: false,
+          };
+        }
+
         if (failure !== "EVENT_FULL") {
           return await commitResult(client, command, { code: failure });
         }
@@ -329,11 +368,13 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         reservationId,
       );
     } catch (error) {
-      try {
-        await rollback(client);
-      } catch {
-        releaseError = error instanceof Error ? error : true;
-        throw error;
+      if (client) {
+        try {
+          await rollback(client);
+        } catch {
+          releaseError = error instanceof Error ? error : true;
+          throw error;
+        }
       }
       const details = databaseError(error);
 
@@ -344,7 +385,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         };
       }
 
-      if (details.code && retryableDatabaseCodes.has(details.code)) {
+      if (isRetryableDatabaseError(error)) {
         return {
           ...command.mapOutcome({ code: "TRY_AGAIN" }),
           replayed: false,
@@ -353,7 +394,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
 
       throw error;
     } finally {
-      client.release(releaseError);
+      client?.release(releaseError);
     }
   }
 
@@ -363,6 +404,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
 
     try {
       await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+      await client.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
       const eventResult = await client.query<{ event_id: string }>(
         `SELECT e.id AS event_id
            FROM reservations r

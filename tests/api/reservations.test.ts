@@ -248,7 +248,7 @@ describe("POST /api/reservations", () => {
     });
   });
 
-  it("returns 429 with Retry-After and does not reach bot or database", async () => {
+  it("checks Turnstile before consuming an email or phone limit", async () => {
     const event = await insertTestEvent(pool);
     const key = randomUUID();
     const rateLimiter = {
@@ -263,12 +263,35 @@ describe("POST /api/reservations", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("Retry-After")).toBe("37");
     await expect(response.json()).resolves.toMatchObject({ error: { code: "RATE_LIMITED" } });
-    expect(setup.botVerifier.verify).not.toHaveBeenCalled();
+    expect(setup.botVerifier.verify).toHaveBeenCalledOnce();
+    expect(rateLimiter.consume.mock.calls.map(([input]) => input.scope)).toEqual([
+      "reservation:ip",
+      "reservation:email",
+      "reservation:phone",
+    ]);
     const state = await pool.query(
       "SELECT COUNT(*)::int AS count FROM idempotency_records WHERE key = $1",
       [key],
     );
     expect(state.rows[0]!.count).toBe(0);
+  });
+
+  it("stops at the IP limit before Turnstile and identity limits", async () => {
+    const event = await insertTestEvent(pool);
+    const rateLimiter = {
+      consume: vi.fn(async () => ({ allowed: false, retryAfterSeconds: 19 })),
+    };
+    const setup = dependencies({ rateLimiter });
+
+    const response = await setup.handler(request(reservationBody(event.slug, 145)));
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("19");
+    expect(rateLimiter.consume).toHaveBeenCalledOnce();
+    expect(rateLimiter.consume).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "reservation:ip", subject: "unknown" }),
+    );
+    expect(setup.botVerifier.verify).not.toHaveBeenCalled();
   });
 
   it("returns bot failure with the spent-token reason", async () => {
@@ -287,6 +310,10 @@ describe("POST /api/reservations", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "BOT_CHECK_FAILED", reason: "TOKEN_EXPIRED_OR_SPENT" },
     });
+    expect(setup.rateLimiter.consume).toHaveBeenCalledOnce();
+    expect(setup.rateLimiter.consume).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "reservation:ip" }),
+    );
     const state = await pool.query(
       "SELECT COUNT(*)::int AS count FROM idempotency_records WHERE key = $1",
       [key],

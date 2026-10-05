@@ -5,6 +5,11 @@ import { pathToFileURL } from "node:url";
 import { Pool } from "pg";
 
 import { hashPassword, MINIMUM_PASSWORD_LENGTH } from "../src/infrastructure/auth/password.ts";
+import {
+  databaseSsl,
+  isLocalDatabaseHost,
+  parseDatabaseEnv,
+} from "../src/infrastructure/config/database-env.ts";
 
 function prompt(question: string): Promise<string> {
   const interface_ = createInterface({ input: stdin, output: stdout });
@@ -58,11 +63,14 @@ function promptHidden(question: string): Promise<string> {
 }
 
 export async function createAdmin(): Promise<void> {
-  const databaseUrlValue = process.env.DATABASE_URL;
-  if (!databaseUrlValue) {
-    throw new Error("DATABASE_URL es obligatoria");
+  const databaseEnvironment = parseDatabaseEnv(process.env);
+  const databaseUrl = new URL(databaseEnvironment.DATABASE_URL);
+  if (
+    databaseEnvironment.DATABASE_SSL_MODE === "disable" &&
+    !isLocalDatabaseHost(databaseUrl.hostname)
+  ) {
+    throw new Error("DATABASE_SSL_MODE=disable solo se permite para una base de datos local");
   }
-  const databaseUrl = new URL(databaseUrlValue);
   stdout.write(
     `Destino: ${databaseUrl.hostname}:${databaseUrl.port || "5432"}${databaseUrl.pathname}\n`,
   );
@@ -78,7 +86,11 @@ export async function createAdmin(): Promise<void> {
     throw new Error("Las contraseñas no coinciden");
   }
 
-  const pool = new Pool({ connectionString: databaseUrlValue, ssl: false });
+  const pool = new Pool({
+    connectionString: databaseEnvironment.DATABASE_URL,
+    connectionTimeoutMillis: 3_000,
+    ssl: databaseSsl(databaseEnvironment),
+  });
   try {
     await pool.query(
       `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)

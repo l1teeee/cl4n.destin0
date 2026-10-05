@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { databaseEnvFields, validateDatabaseConfiguration } from "./database-env";
+
 const optionalString = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.string().optional(),
@@ -13,14 +15,9 @@ function isTurnstileTestKey(value: string | undefined): boolean {
 
 const serverEnvSchema = z
   .object({
+    ...databaseEnvFields,
     APP_ENV: z.enum(["local", "test", "preview", "production"]),
-    DATABASE_URL: z
-      .url()
-      .refine((value) => ["postgres:", "postgresql:"].includes(new URL(value).protocol), {
-        message: "must use the postgres or postgresql protocol",
-      }),
-    DATABASE_SSL_MODE: z.enum(["disable", "require-no-verify", "verify-ca"]).default("disable"),
-    DATABASE_CA_CERT: optionalString,
+    VERCEL_ENV: z.enum(["production", "preview", "development"]).optional(),
     DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
     APP_SECRET: z.string().min(32),
     BOT_PROTECTION_MODE: z.enum(["turnstile", "disabled"]),
@@ -37,7 +34,22 @@ const serverEnvSchema = z
     NEXT_PUBLIC_SENTRY_DSN: optionalString,
   })
   .superRefine((value, context) => {
+    validateDatabaseConfiguration(value, context);
     const protectedEnvironment = value.APP_ENV === "preview" || value.APP_ENV === "production";
+
+    const expectedAppEnvironment = {
+      production: "production",
+      preview: "preview",
+      development: "local",
+    } as const;
+
+    if (value.VERCEL_ENV && value.APP_ENV !== expectedAppEnvironment[value.VERCEL_ENV]) {
+      context.addIssue({
+        code: "custom",
+        path: ["APP_ENV"],
+        message: `must be ${expectedAppEnvironment[value.VERCEL_ENV]} when VERCEL_ENV is ${value.VERCEL_ENV}`,
+      });
+    }
 
     if (protectedEnvironment && value.APP_SECRET.startsWith("local-only")) {
       context.addIssue({
@@ -116,14 +128,6 @@ const serverEnvSchema = z
         code: "custom",
         path: ["RATE_LIMIT_MODE"],
         message: "cannot be disabled in preview or production",
-      });
-    }
-
-    if (value.DATABASE_SSL_MODE === "verify-ca" && !value.DATABASE_CA_CERT) {
-      context.addIssue({
-        code: "custom",
-        path: ["DATABASE_CA_CERT"],
-        message: "is required when DATABASE_SSL_MODE is verify-ca",
       });
     }
 

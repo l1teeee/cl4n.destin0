@@ -122,6 +122,7 @@ async function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promis
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
     const result = await work(client);
     await client.query("COMMIT");
     return result;

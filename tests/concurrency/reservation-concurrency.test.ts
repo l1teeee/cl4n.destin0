@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import type { PostgresEventRepository as EventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 
 import { resetTestDatabase } from "../helpers/test-db";
@@ -32,6 +33,8 @@ interface InvariantSummary {
 
 let pool: Pool;
 let repository: Repository;
+let EventRepositoryClass: typeof import("@/infrastructure/db/repositories/postgres-event-repository").PostgresEventRepository;
+let eventRepository: EventRepository;
 let submitReservation: ReturnType<typeof createSubmitReservation>;
 let cancelReservation: ReturnType<typeof createCancelReservation>;
 
@@ -40,8 +43,12 @@ beforeAll(async () => {
   const database = await import("@/infrastructure/db/client");
   const repositoryModule =
     await import("@/infrastructure/db/repositories/reservation-allocation-repository");
+  const eventRepositoryModule =
+    await import("@/infrastructure/db/repositories/postgres-event-repository");
   pool = database.pool;
   repository = new repositoryModule.PostgresReservationAllocationRepository(pool);
+  EventRepositoryClass = eventRepositoryModule.PostgresEventRepository;
+  eventRepository = new EventRepositoryClass(pool);
   submitReservation = createSubmitReservation({
     repository,
     rateLimiter: allowAllRateLimiter,
@@ -73,7 +80,8 @@ async function fireTogether(
     const result = await submitReservation({
       idempotencyKey: key,
       body: reservationBody(eventSlug, request.sequence, request.overrides),
-      remoteIp: "local",
+      remoteIp: null,
+      rateLimitSubject: "unknown",
     });
     return { key, status: result.status, body: result.body };
   });
@@ -194,10 +202,20 @@ async function seedReservations(eventSlug: string, count: number, offset: number
     const result = await submitReservation({
       idempotencyKey: randomUUID(),
       body: reservationBody(eventSlug, offset + index),
-      remoteIp: "local",
+      remoteIp: null,
+      rateLimitSubject: "unknown",
     });
     expect(result.status).toBe(201);
   }
+}
+
+async function insertConcurrencyAdmin(): Promise<string> {
+  const admin = await pool.query<{ id: string }>(
+    `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
+     VALUES ($1, $1, 'hash', 'Concurrency Admin') RETURNING id`,
+    [`${randomUUID()}@example.com`],
+  );
+  return admin.rows[0]!.id;
 }
 
 describe("reservation allocation concurrency", () => {
@@ -345,7 +363,8 @@ describe("reservation allocation concurrency", () => {
       const result = await submitReservation({
         idempotencyKey: key,
         body: reservationBody(event.slug, request.sequence),
-        remoteIp: "local",
+        remoteIp: null,
+        rateLimitSubject: "unknown",
       });
       return { key, status: result.status, body: result.body };
     });
@@ -367,5 +386,181 @@ describe("reservation allocation concurrency", () => {
     const summary = await assertInvariants(event.id, results);
     expect(summary.oversold).toBe(0);
     printSummary("G", requests.length, results, summary, durationMs);
+  });
+
+  it("H: preserves capacity during simultaneous allocation and a decrease to 12", async () => {
+    const event = await insertTestEvent(pool, { capacity: 20, maxPartySize: 1 });
+    await seedReservations(event.slug, 10, 800_000);
+    const adminId = await insertConcurrencyAdmin();
+    const requests = Array.from({ length: 30 }, (_, index) => ({
+      sequence: 810_000 + index,
+    }));
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const startedAt = performance.now();
+    const submissions = requests.map(async (request) => {
+      const key = randomUUID();
+      await barrier;
+      const result = await submitReservation({
+        idempotencyKey: key,
+        body: reservationBody(event.slug, request.sequence),
+        remoteIp: null,
+        rateLimitSubject: "unknown",
+      });
+      return { key, status: result.status, body: result.body };
+    });
+    const capacityChange = (async () => {
+      await barrier;
+      return eventRepository.changeCapacity(event.id, 12, adminId);
+    })();
+
+    release();
+    const [results, capacityResult] = await Promise.all([Promise.all(submissions), capacityChange]);
+    const durationMs = Math.round(performance.now() - startedAt);
+    const summary = await assertInvariants(event.id, results);
+
+    expect([12, 20]).toContain(summary.capacity);
+    expect(summary.oversold).toBe(0);
+    if (summary.capacity === 12) {
+      expect(capacityResult.ok).toBe(true);
+    } else {
+      expect(capacityResult).toEqual({ ok: false, error: "CAPACITY_BELOW_ALLOCATED" });
+    }
+    printSummary("H", requests.length, results, summary, durationMs);
+  });
+
+  it("I: accepts no reservation after a concurrent CLOSE NOW commits", async () => {
+    const event = await insertTestEvent(pool, { capacity: 50, maxPartySize: 1 });
+    const adminId = await insertConcurrencyAdmin();
+    const requests = Array.from({ length: 50 }, (_, index) => ({
+      sequence: 900_000 + index,
+    }));
+    let closeCommitBoundary: Date | undefined;
+    const observedClosePool = {
+      async connect() {
+        const client = await pool.connect();
+        return new Proxy(client, {
+          get(target, property) {
+            if (property === "query") {
+              return async (...arguments_: unknown[]) => {
+                const query = arguments_[0];
+                if (typeof query === "string" && query.includes("FOR UPDATE")) {
+                  let confirmedExists = false;
+                  for (let attempt = 0; attempt < 500 && !confirmedExists; attempt += 1) {
+                    const state = await target.query<{ confirmed_exists: boolean }>(
+                      `SELECT EXISTS (
+                         SELECT 1 FROM reservations
+                          WHERE event_id = $1 AND status = 'CONFIRMED'
+                       ) AS confirmed_exists`,
+                      [event.id],
+                    );
+                    confirmedExists = state.rows[0]!.confirmed_exists;
+                    if (!confirmedExists) {
+                      await target.query("SELECT pg_sleep(0.001)");
+                    }
+                  }
+                  if (!confirmedExists) {
+                    throw new Error("No allocation reached CONFIRMED before CLOSE NOW");
+                  }
+                }
+                if (query === "COMMIT") {
+                  const boundary = await target.query<{ database_now: Date }>(
+                    "SELECT pg_sleep(0.01), clock_timestamp() AS database_now",
+                  );
+                  closeCommitBoundary = boundary.rows[0]!.database_now;
+                }
+                return Reflect.apply(target.query, target, arguments_);
+              };
+            }
+
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    } as unknown as Pool;
+    const observedEventRepository = new EventRepositoryClass(observedClosePool);
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const startedAt = performance.now();
+    const submissions = requests.map(async (request) => {
+      const key = randomUUID();
+      await barrier;
+      const result = await submitReservation({
+        idempotencyKey: key,
+        body: reservationBody(event.slug, request.sequence),
+        remoteIp: null,
+        rateLimitSubject: "unknown",
+      });
+      return { key, status: result.status, body: result.body };
+    });
+    const close = (async () => {
+      await barrier;
+      return observedEventRepository.closeNow(event.id, adminId);
+    })();
+
+    release();
+    const [results, closeResult] = await Promise.all([Promise.all(submissions), close]);
+    const durationMs = Math.round(performance.now() - startedAt);
+    const summary = await assertInvariants(event.id, results);
+
+    expect(closeResult.ok).toBe(true);
+    expect(closeCommitBoundary).toBeInstanceOf(Date);
+    const confirmed = await pool.query<{ accepted_at: Date }>(
+      "SELECT accepted_at FROM reservations WHERE event_id = $1 AND status = 'CONFIRMED'",
+      [event.id],
+    );
+    expect(confirmed.rows.length).toBeGreaterThan(0);
+    expect(
+      confirmed.rows.every(
+        (reservation) => reservation.accepted_at.getTime() < closeCommitBoundary!.getTime(),
+      ),
+    ).toBe(true);
+    const afterClose = await submitReservation({
+      idempotencyKey: randomUUID(),
+      body: reservationBody(event.slug, 950_000),
+      remoteIp: null,
+      rateLimitSubject: "unknown",
+    });
+    expect(afterClose.status).not.toBe(201);
+    expect(summary.oversold).toBe(0);
+    printSummary("I", requests.length, results, summary, durationMs);
+  });
+
+  it("J: auto-closes exactly once when 100 requests fill 20 seats", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 20,
+      maxPartySize: 1,
+      autoCloseOnFull: true,
+    });
+    const requests = Array.from({ length: 100 }, (_, index) => ({
+      sequence: 1_000_000 + index,
+    }));
+    const startedAt = performance.now();
+    const results = await fireTogether(event.slug, requests);
+    const durationMs = Math.round(performance.now() - startedAt);
+    const summary = await assertInvariants(event.id, results);
+    const finalState = await pool.query<{ status: string; closed_audits: number }>(
+      `SELECT e.status,
+              COUNT(a.id)::int AS closed_audits
+         FROM events e
+         LEFT JOIN audit_logs a
+           ON a.entity_id = e.id
+          AND a.actor_type = 'SYSTEM'
+          AND a.action = 'EVENT_CLOSED'
+        WHERE e.id = $1
+        GROUP BY e.id`,
+      [event.id],
+    );
+
+    expect(results.filter((result) => resultCode(result) === "CONFIRMED")).toHaveLength(20);
+    expect(summary.confirmed).toBe(20);
+    expect(finalState.rows[0]).toEqual({ status: "CLOSED", closed_audits: 1 });
+    expect(summary.oversold).toBe(0);
+    printSummary("J", requests.length, results, summary, durationMs);
   });
 });

@@ -1,10 +1,18 @@
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 
-import { db, pool } from "../src/infrastructure/db/client.ts";
-import { env } from "../src/infrastructure/config/env.ts";
+import { databaseSsl, parseDatabaseEnv } from "../src/infrastructure/config/database-env.ts";
 
-const target = new URL(env.DATABASE_URL);
+const environment = parseDatabaseEnv(process.env);
+const target = new URL(environment.DATABASE_URL);
 const database = target.pathname.slice(1);
+const pool = new Pool({
+  connectionString: environment.DATABASE_URL,
+  connectionTimeoutMillis: 3_000,
+  ssl: databaseSsl(environment),
+});
+const db = drizzle(pool);
 
 console.log(`Migrating ${target.hostname}:${target.port || "5432"}/${database}`);
 

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { SubmitReservationDependencies } from "@/application/reservations/submit-reservation";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { mapReservationOutcome } from "@/application/reservations/reservation-response";
-import { getClientIp } from "@/infrastructure/http/client-ip";
+import { getRateLimitSubject, getRawClientIp } from "@/infrastructure/http/client-ip";
 
 interface HandlerObservability {
   log(level: "info" | "error", message: string, fields: Record<string, string | number>): void;
@@ -146,10 +146,12 @@ export function createReservationHandler(dependencies: ReservationHandlerDepende
         return jsonResponse(invalidJson.status, invalidJson.body);
       }
 
+      const remoteIp = getRawClientIp(request.headers);
       const result = await submitReservation({
         idempotencyKey: request.headers.get("Idempotency-Key"),
         body,
-        remoteIp: getClientIp(request.headers),
+        remoteIp,
+        rateLimitSubject: getRateLimitSubject(remoteIp),
       });
       const outcome = outcomeCode(result.body);
       dependencies.observability.log("info", "reservation_submission", {

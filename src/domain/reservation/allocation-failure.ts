@@ -1,6 +1,7 @@
 import type { EventLifecycleStatus } from "../event/event-phase";
 
-export type AllocationFailure = "EVENT_NOT_OPEN" | "PARTY_SIZE_NOT_ALLOWED" | "EVENT_FULL";
+export type AllocationFailure =
+  "EVENT_NOT_OPEN" | "PARTY_SIZE_NOT_ALLOWED" | "EVENT_FULL" | "TRY_AGAIN";
 
 export interface AllocationFailureSnapshot {
   status: EventLifecycleStatus;
@@ -27,7 +28,11 @@ export function classifyAllocationFailure(
       return "PARTY_SIZE_NOT_ALLOWED";
     }
 
-    return "EVENT_FULL";
+    if (snapshot.reservedSeats + partySize > snapshot.capacity) {
+      return "EVENT_FULL";
+    }
+
+    return "TRY_AGAIN";
   }
 
   if (snapshot.status === "CLOSED" && snapshot.reservedSeats >= snapshot.capacity) {

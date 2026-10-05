@@ -131,21 +131,21 @@ describe("TurnstileVerifier", () => {
     await expect(turnstile.verify(request)).resolves.toEqual({ ok: false, reason: "UNAVAILABLE" });
   });
 
-  it("sends the idempotency key and remote IP", async () => {
+  it("sends the token and raw remote IP without an idempotency parameter", async () => {
     const { verifier: turnstile, fetchMock } = verifier(successResponse);
     await turnstile.verify(request);
 
     const init = fetchMock.mock.calls[0]?.[1];
     const body = init?.body as URLSearchParams;
-    expect(body.get("idempotency_key")).toBe(request.idempotencyKey);
+    expect(body.has("idempotency_key")).toBe(false);
     expect(body.get("remoteip")).toBe(request.remoteIp);
     expect(body.get("response")).toBe(request.token);
     expect(body.get("secret")).toBe("secret");
   });
 
-  it("omits remoteip for local requests", async () => {
+  it.each([null, "local"])("omits remoteip for %s requests", async (remoteIp) => {
     const { verifier: turnstile, fetchMock } = verifier(successResponse);
-    await turnstile.verify({ ...request, remoteIp: "local" });
+    await turnstile.verify({ ...request, remoteIp });
 
     const body = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
     expect(body.has("remoteip")).toBe(false);

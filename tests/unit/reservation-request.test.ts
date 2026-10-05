@@ -57,4 +57,70 @@ describe("reservationRequestSchema", () => {
       );
     },
   );
+
+  it.each(["eventSlug", "fullName", "instagram", "phone", "email", "notes", "turnstileToken"])(
+    "rejects NUL in %s with the control-character message",
+    (field) => {
+      const result = reservationRequestSchema.safeParse({
+        ...validRequest,
+        [field]: `${validRequest[field as keyof typeof validRequest]}\0`,
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues).toContainEqual(
+          expect.objectContaining({
+            path: [field],
+            message: "No se permiten caracteres de control.",
+          }),
+        );
+      }
+    },
+  );
+
+  it.each(["\n", "\t", "\r", "\u001f", "\u007f"])(
+    "rejects ASCII control character %j in ordinary text fields",
+    (character) => {
+      const result = reservationRequestSchema.safeParse({
+        ...validRequest,
+        fullName: `Ana${character}Lopez`,
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues).toContainEqual(
+          expect.objectContaining({
+            path: ["fullName"],
+            message: "No se permiten caracteres de control.",
+          }),
+        );
+      }
+    },
+  );
+
+  it.each(["\nAna", "Ana\n", "\tAna", "Ana\t"])(
+    "rejects control characters even when trimming could remove them from %j",
+    (fullName) => {
+      const result = reservationRequestSchema.safeParse({ ...validRequest, fullName });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues).toContainEqual(
+          expect.objectContaining({
+            path: ["fullName"],
+            message: "No se permiten caracteres de control.",
+          }),
+        );
+      }
+    },
+  );
+
+  it("allows newline and tab in notes", () => {
+    const result = reservationRequestSchema.safeParse({
+      ...validRequest,
+      notes: "Primera linea\n\tSegunda linea",
+    });
+
+    expect(result.success).toBe(true);
+  });
 });

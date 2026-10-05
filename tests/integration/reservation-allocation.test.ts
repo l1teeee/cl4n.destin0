@@ -4,7 +4,9 @@ import { Client, type Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
+import { mapReservationOutcome } from "@/application/reservations/reservation-response";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
+import type { AllocationCommand } from "@/application/ports/reservation-allocation-repository";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
 
@@ -18,6 +20,7 @@ import {
 
 let pool: Pool;
 let repository: Repository;
+let RepositoryClass: typeof import("@/infrastructure/db/repositories/reservation-allocation-repository").PostgresReservationAllocationRepository;
 let submitReservation: ReturnType<typeof createSubmitReservation>;
 
 beforeAll(async () => {
@@ -26,7 +29,8 @@ beforeAll(async () => {
   const repositoryModule =
     await import("@/infrastructure/db/repositories/reservation-allocation-repository");
   pool = database.pool;
-  repository = new repositoryModule.PostgresReservationAllocationRepository(pool);
+  RepositoryClass = repositoryModule.PostgresReservationAllocationRepository;
+  repository = new RepositoryClass(pool);
   submitReservation = createSubmitReservation({
     repository,
     rateLimiter: allowAllRateLimiter,
@@ -48,8 +52,25 @@ async function submit(
   return submitReservation({
     idempotencyKey: key,
     body: reservationBody(eventSlug, sequence, bodyOverrides),
-    remoteIp: "local",
+    remoteIp: null,
+    rateLimitSubject: "unknown",
   });
+}
+
+function allocationCommand(eventSlug: string, key = randomUUID()): AllocationCommand {
+  return {
+    idempotencyKey: key,
+    fingerprint: `fingerprint-${key}`,
+    eventSlug,
+    fullName: "Retry Guest",
+    instagramHandle: "retry.guest",
+    phoneE164: "+50371009999",
+    email: "retry@example.com",
+    emailNormalized: "retry@example.com",
+    partySize: 1,
+    notes: "Retry test",
+    mapOutcome: mapReservationOutcome,
+  };
 }
 
 describe("reservation allocation repository", () => {
@@ -262,6 +283,75 @@ describe("reservation allocation repository", () => {
       [event.id, key],
     );
     expect(state.rows[0]).toEqual({ reservations: 0, idempotency: 0, reserved_seats: 0 });
+  });
+
+  it("rolls back and returns unstored TRY_AGAIN when an UPDATE miss re-reads free seats", async () => {
+    const event = await insertTestEvent(pool);
+    const key = randomUUID();
+    const updateMissPool = {
+      async connect() {
+        const client = await pool.connect();
+        return new Proxy(client, {
+          get(target, property) {
+            if (property === "query") {
+              return (...arguments_: unknown[]) => {
+                const query = arguments_[0];
+                if (
+                  typeof query === "string" &&
+                  query.includes("SET reserved_seats = reserved_seats +")
+                ) {
+                  return Promise.resolve({
+                    command: "UPDATE",
+                    rowCount: 0,
+                    oid: 0,
+                    fields: [],
+                    rows: [],
+                  });
+                }
+                return Reflect.apply(target.query, target, arguments_);
+              };
+            }
+
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    } as unknown as Pool;
+    const forcedMissRepository = new RepositoryClass(updateMissPool);
+
+    const result = await forcedMissRepository.allocate(allocationCommand(event.slug, key));
+
+    expect(result.status).toBe(503);
+    expect(result.body).toMatchObject({ error: { code: "TRY_AGAIN" } });
+    const state = await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM reservations WHERE event_id = $1) AS reservations,
+         (SELECT COUNT(*)::int FROM idempotency_records WHERE key = $2) AS idempotency,
+         (SELECT reserved_seats FROM events WHERE id = $1) AS reserved_seats`,
+      [event.id, key],
+    );
+    expect(state.rows[0]).toEqual({ reservations: 0, idempotency: 0, reserved_seats: 0 });
+  });
+
+  it.each([
+    ["pool connect timeout", new Error("timeout exceeded when trying to connect")],
+    ["connection refused", Object.assign(new Error("refused"), { code: "ECONNREFUSED" })],
+    ["connection reset", Object.assign(new Error("reset"), { code: "ECONNRESET" })],
+    ["too many connections", Object.assign(new Error("too many"), { code: "53300" })],
+    ["admin shutdown", Object.assign(new Error("shutdown"), { code: "57P01" })],
+    ["crash shutdown", Object.assign(new Error("crash"), { code: "57P02" })],
+    ["cannot connect now", Object.assign(new Error("unavailable"), { code: "57P03" })],
+  ])("maps %s acquisition failures to TRY_AGAIN", async (_case, connectionError) => {
+    const failingPool = {
+      connect: () => Promise.reject(connectionError),
+    } as unknown as Pool;
+    const failingRepository = new RepositoryClass(failingPool);
+
+    const result = await failingRepository.allocate(allocationCommand("unused-event"));
+
+    expect(result.status).toBe(503);
+    expect(result.body).toMatchObject({ error: { code: "TRY_AGAIN" } });
   });
 });
 

@@ -7,7 +7,7 @@ export type BotVerificationResult =
 
 export interface BotVerificationRequest {
   token: string;
-  remoteIp: string;
+  remoteIp: string | null;
   idempotencyKey: string;
 }
 

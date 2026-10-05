@@ -33,9 +33,14 @@ describe("classifyAllocationFailure", () => {
     expect(classifyAllocationFailure(snapshot(), 3, now)).toBe("PARTY_SIZE_NOT_ALLOWED");
   });
 
-  it("classifies a scheduled allocation failure within the window as full", () => {
+  it("classifies a scheduled allocation failure as full only when the party does not fit", () => {
     expect(classifyAllocationFailure(snapshot(), 2, now)).toBe("EVENT_FULL");
     expect(classifyAllocationFailure(snapshot(), 2, opensAt)).toBe("EVENT_FULL");
+  });
+
+  it("returns TRY_AGAIN when a scheduled in-window snapshot still has capacity", () => {
+    expect(classifyAllocationFailure(snapshot(), 1, now)).toBe("TRY_AGAIN");
+    expect(classifyAllocationFailure(snapshot({ reservedSeats: 0 }), 2, now)).toBe("TRY_AGAIN");
   });
 
   it("classifies an auto-closed sold-out event as full", () => {

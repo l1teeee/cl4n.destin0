@@ -48,7 +48,8 @@ export interface SubmitReservationDependencies {
 export interface SubmitReservationInput {
   idempotencyKey: string | null;
   body: unknown;
-  remoteIp: string;
+  remoteIp: string | null;
+  rateLimitSubject: string;
 }
 
 export interface SubmitReservationResult extends ReservationResponse {
@@ -128,25 +129,16 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       return { ...completed.response, replayed: true };
     }
 
-    const limits = await Promise.all([
-      dependencies.rateLimiter.consume({
-        ...RESERVATION_IP_RATE_LIMIT,
-        subject: input.remoteIp,
-      }),
-      dependencies.rateLimiter.consume({
-        ...RESERVATION_EMAIL_RATE_LIMIT,
-        subject: email.value,
-      }),
-      dependencies.rateLimiter.consume({
-        ...RESERVATION_PHONE_RATE_LIMIT,
-        subject: phone.value,
-      }),
-    ]);
-    const blocked = limits.filter((result) => !result.allowed);
-    if (blocked.length > 0) {
-      const retryAfterSeconds = Math.max(...blocked.map((result) => result.retryAfterSeconds));
+    const ipLimit = await dependencies.rateLimiter.consume({
+      ...RESERVATION_IP_RATE_LIMIT,
+      subject: input.rateLimitSubject,
+    });
+    if (!ipLimit.allowed) {
       return {
-        ...mapReservationOutcome({ code: "RATE_LIMITED", retryAfterSeconds }),
+        ...mapReservationOutcome({
+          code: "RATE_LIMITED",
+          retryAfterSeconds: ipLimit.retryAfterSeconds,
+        }),
         replayed: false,
       };
     }
@@ -162,6 +154,27 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
           code: "BOT_CHECK_FAILED",
           ...(botResult.reason === "TOKEN_EXPIRED_OR_SPENT" ? { reason: botResult.reason } : {}),
         }),
+        replayed: false,
+      };
+    }
+
+    const identityLimits = await Promise.all([
+      dependencies.rateLimiter.consume({
+        ...RESERVATION_EMAIL_RATE_LIMIT,
+        subject: email.value,
+      }),
+      dependencies.rateLimiter.consume({
+        ...RESERVATION_PHONE_RATE_LIMIT,
+        subject: phone.value,
+      }),
+    ]);
+    const blockedIdentityLimits = identityLimits.filter((result) => !result.allowed);
+    if (blockedIdentityLimits.length > 0) {
+      const retryAfterSeconds = Math.max(
+        ...blockedIdentityLimits.map((result) => result.retryAfterSeconds),
+      );
+      return {
+        ...mapReservationOutcome({ code: "RATE_LIMITED", retryAfterSeconds }),
         replayed: false,
       };
     }

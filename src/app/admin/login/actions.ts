@@ -8,7 +8,7 @@ import { adminSignInSchema } from "@/contracts/admin-auth";
 import { DUMMY_PASSWORD_HASH, verifyPassword } from "@/infrastructure/auth/password";
 import { setSessionCookie } from "@/infrastructure/auth/cookie";
 import { env } from "@/infrastructure/config/env";
-import { getClientIp } from "@/infrastructure/http/client-ip";
+import { getRateLimitSubject, getRawClientIp } from "@/infrastructure/http/client-ip";
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
 
@@ -22,10 +22,11 @@ export async function signInAction(formData: FormData): Promise<void> {
   }
 
   const requestHeaders = await headers();
+  const clientIp = getRawClientIp(requestHeaders);
   const result = await signIn(
     {
       ...parsed.data,
-      clientIp: getClientIp(requestHeaders),
+      clientIp: getRateLimitSubject(clientIp),
     },
     {
       repository: postgresAdminAuthRepository,

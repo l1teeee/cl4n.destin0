@@ -4,27 +4,18 @@ import { env, type ServerEnv } from "../config/env";
 
 type AppEnvironment = ServerEnv["APP_ENV"];
 
-function expandEmbeddedIpv4(address: string): string {
-  const lastColon = address.lastIndexOf(":");
-  const ipv4 = address.slice(lastColon + 1);
-
-  if (isIP(ipv4) !== 4) {
-    return address;
-  }
-
-  const octets = ipv4.split(".").map(Number);
-  const high = ((octets[0] ?? 0) << 8) | (octets[1] ?? 0);
-  const low = ((octets[2] ?? 0) << 8) | (octets[3] ?? 0);
-  return `${address.slice(0, lastColon)}:${high.toString(16)}:${low.toString(16)}`;
+function mappedIpv4(address: string): string | null {
+  const match = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
+  const candidate = match?.[1];
+  return candidate && isIP(candidate) === 4 ? candidate : null;
 }
 
 function collapseIpv6To64(address: string): string {
-  const expandedAddress = expandEmbeddedIpv4(address);
-  const [left = "", right = ""] = expandedAddress.split("::");
+  const [left = "", right = ""] = address.split("::");
   const leftParts = left ? left.split(":") : [];
   const rightParts = right ? right.split(":") : [];
   const omittedCount = 8 - leftParts.length - rightParts.length;
-  const parts = expandedAddress.includes("::")
+  const parts = address.includes("::")
     ? [...leftParts, ...Array.from({ length: omittedCount }, () => "0"), ...rightParts]
     : leftParts;
   const prefix = parts.slice(0, 4).map((part) => Number.parseInt(part, 16).toString(16));
@@ -32,18 +23,18 @@ function collapseIpv6To64(address: string): string {
   return `${prefix.join(":")}::/64`;
 }
 
-export function getClientIp(
+export function getRawClientIp(
   headers: Pick<Headers, "get">,
   appEnvironment: AppEnvironment = env.APP_ENV,
-): string {
+): string | null {
   if (appEnvironment !== "preview" && appEnvironment !== "production") {
-    return "local";
+    return null;
   }
 
   const firstForwardedAddress = headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim();
 
   if (!firstForwardedAddress) {
-    return "unknown";
+    return null;
   }
 
   const ipVersion = isIP(firstForwardedAddress);
@@ -53,7 +44,29 @@ export function getClientIp(
   }
 
   if (ipVersion === 6) {
-    return collapseIpv6To64(firstForwardedAddress);
+    return mappedIpv4(firstForwardedAddress) ?? firstForwardedAddress;
+  }
+
+  return null;
+}
+
+export function getRateLimitSubject(clientIp: string | null): string {
+  if (!clientIp) {
+    return "unknown";
+  }
+
+  const ipv4 = mappedIpv4(clientIp);
+  if (ipv4) {
+    return ipv4;
+  }
+
+  const ipVersion = isIP(clientIp);
+  if (ipVersion === 4) {
+    return clientIp;
+  }
+
+  if (ipVersion === 6) {
+    return collapseIpv6To64(clientIp);
   }
 
   return "unknown";
