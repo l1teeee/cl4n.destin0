@@ -10,11 +10,13 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
-    exclude: ["tests/concurrency/**"],
+    include: ["tests/concurrency/**/*.test.ts"],
     setupFiles: ["./tests/setup/test-env.ts"],
     fileParallelism: false,
-    pool: "threads",
-    maxWorkers: 1,
+    testTimeout: 120000,
+    hookTimeout: 120000,
+    env: {
+      DATABASE_POOL_MAX: "50",
+    },
   },
 });
