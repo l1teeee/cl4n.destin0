@@ -41,15 +41,21 @@ Set the variable only for this single command.
 3. Settings > Networking: enable the **TCP proxy**. This is needed because Vercel cannot reach Railway private networking.
 4. Database > Config > **Connection Pooling**: enable PgBouncer in **transaction** mode, with 2 replicas.
 5. Enable **backups** (daily) and **point-in-time recovery**. Test one restore before launch.
-6. Record these values. They go into Vercel and into a local `.env.production.local` (gitignored) for migrations only.
-   - `DATABASE_PUBLIC_URL`: pooled. The app uses this.
-   - `DATABASE_PUBLIC_UNPOOLED_URL`: used for migrations and admin creation.
-   - The server root CA (`root.crt` from the volume) for `DATABASE_SSL_MODE=verify-ca`. If it cannot be extracted, fall back to `require-no-verify` and note it as a known limitation.
+6. Record these values.
+   - `DATABASE_PUBLIC_URL`: the pooled URL. Vercel's `DATABASE_URL` uses this.
+   - `DATABASE_PUBLIC_UNPOOLED_URL`: used for migrations and admin creation. The scripts read it as `DATABASE_URL` from a local `.env.production.local` (gitignored). That file holds only `DATABASE_URL`, `DATABASE_SSL_MODE` and `DATABASE_CA_CERT`, never the app secrets.
+   - **TLS check.** The CA must belong to the endpoint the app actually connects to. Verify first whether the PgBouncer endpoint offers TLS, and which certificate it presents.
+     - Use `verify-ca` with that CA when possible.
+     - Otherwise use `require-no-verify`, which encrypts but does not verify, and record it as a known limitation.
+   - Never put `sslmode` or other `ssl*` parameters in the URL. The app rejects them because they silently override the TLS settings.
 7. Verify the server:
    ```sql
    SHOW server_version;   -- 18.x
    SHOW max_connections;
    ```
+8. **Recommended hardening:** an application role with least privilege, so the app does not run as the `postgres` superuser.
+   - Grant SELECT/INSERT/UPDATE/DELETE on the app tables, and only SELECT/INSERT on `audit_logs`, so the append-only rule cannot be bypassed. Migrations keep using the owner role.
+   - This needs PgBouncer to authenticate the new role. Confirm Railway's pooler supports it before switching. Until then it is a known limitation.
 
 ## 4. Migrations and first admin (from this machine, against the UNPOOLED URL)
 
@@ -65,7 +71,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 
 1. Import the GitHub repo `l1teeee/cl4n.destin0` into the owner's team. Framework: Next.js.
 2. Function region `iad1`, from `vercel.json`.
-3. Production environment variables:
+3. Production environment variables. When adding them in the Vercel UI, untick Preview and Development so each one is scoped to **Production only**. The app also refuses to start when `APP_ENV` does not match `VERCEL_ENV`.
 
 | Variable | Value |
 |---|---|

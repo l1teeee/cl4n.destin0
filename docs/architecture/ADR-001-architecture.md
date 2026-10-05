@@ -130,7 +130,8 @@ Rules:
 
    The CHECKs never fire on the correct path. They exist to turn any future bug into an error instead of an overbooking.
 4. **Global lock order:** idempotency record, then event row, then reservation rows. Admin cancellation locks the event row (`SELECT ... FOR UPDATE`) before touching the reservation, which prevents a cancel-vs-resubmit deadlock through the partial unique index.
-5. **Timeouts.** Each allocation transaction runs `SET LOCAL lock_timeout = '3s'` and `SET LOCAL statement_timeout = '5s'`. A timeout, deadlock (40P01) or serialization error (40001) rolls back and returns `503 TRY_AGAIN`. Retrying with the same Idempotency-Key is always safe.
+5. **Timeouts.** Each allocation transaction runs `SET LOCAL lock_timeout = '3s'`, `SET LOCAL statement_timeout = '5s'` and `SET LOCAL idle_in_transaction_session_timeout = '5s'`. Admin transactions that lock an event row use the same idle timeout.
+   - The idle timeout covers a client that stalls or dies after taking the event row lock. Without it, every later allocation would hit `lock_timeout` until Postgres noticed the dead client. A timeout, deadlock (40P01) or serialization error (40001) rolls back and returns `503 TRY_AGAIN`. Retrying with the same Idempotency-Key is always safe.
 6. **No external I/O inside the transaction.** Turnstile and rate limiting happen before BEGIN.
 
 ## 7. Capacity allocation strategy
@@ -154,8 +155,9 @@ The invariant `reserved_seats = SUM(party_size) of CONFIRMED reservations` is as
    - Otherwise return the stored status and body with the header `Idempotent-Replayed: true`.
 
    This runs before Turnstile, because a retry carries an already-spent token.
-6. **Rate limits** (section 12). Exceeding one returns 429 `RATE_LIMITED` with `Retry-After`.
+6. **IP rate limit** (section 12). Exceeding it returns 429 `RATE_LIMITED` with `Retry-After`.
 7. **Turnstile verification** (section 11). A failure returns 403 `BOT_CHECK_FAILED`.
+7b. **Email and phone rate limits**, consumed only after Turnstile succeeds. Otherwise an attacker could fill a victim's identity buckets with garbage tokens and lock them out during the opening seconds.
 8. **Allocation transaction** (READ COMMITTED):
    - **a. Claim the key.** `INSERT INTO idempotency_records (key, scope, request_fingerprint) ... ON CONFLICT (key) DO NOTHING RETURNING key`.
      - If no row comes back, a concurrent request with the same key committed first, because the insert waits on it. Read that record and replay it, or return 422 if the fingerprint differs.
@@ -181,7 +183,8 @@ The invariant `reserved_seats = SUM(party_size) of CONFIRMED reservations` is as
    - **e. If 0 rows,** re-read the event plus `clock_timestamp()` and classify with the pure domain function `classifyAllocationFailure`:
      - not SCHEDULED or outside the window: 409 `EVENT_NOT_OPEN`
      - party size above the event max: 422 `PARTY_SIZE_NOT_ALLOWED`
-     - otherwise: 409 `EVENT_FULL`, and insert a `FULL_REJECTED` reservation row (no number, no seats)
+     - seats really gone (`reserved_seats + :party > capacity` in the re-read): 409 `EVENT_FULL`, and insert a `FULL_REJECTED` reservation row (no number, no seats)
+     - otherwise the snapshot changed between the UPDATE and the re-read, for example the window just opened, a cancellation freed seats, or capacity grew. Roll back and return 503 `TRY_AGAIN`, which is not stored, so a retry with the same key re-runs the allocation.
    - **f. Insert the CONFIRMED reservation** with `reservation_number`, `accepted_at` and `submitted_at = transaction_timestamp()`.
      - A unique violation on the email or phone partial index means a concurrent duplicate won. Roll back the whole transaction, which also releases the seats, and return 409 `DUPLICATE_RESERVATION`. It is not stored, and a retry is deterministic.
    - **g. Write audit rows.**
@@ -250,7 +253,7 @@ All of these run in one transaction with their audit row.
   - `reservations.idempotency_key` is also UNIQUE, so one key can never produce two reservation rows, even if the code is wrong.
 - **What is not stored.** Rejections before the transaction (validation, rate limit, bot) are not stored. Re-running them is side-effect free.
 - **Turnstile binding.** The token's `cData` carries the Idempotency-Key, and the server checks `cdata == key`.
-  - siteverify receives `idempotency_key = key` for safe network retries of the verification call. We do not rely on it to re-validate a spent token, because that is unverified in the docs.
+  - siteverify does NOT receive an `idempotency_key`. We never retry the siteverify call, so it would buy nothing. If Cloudflare cached outcomes by that key alone, a first failure could replay for every later fresh token under the same reservation key.
   - A spent or expired token returns 403 `BOT_CHECK_FAILED` with `reason: 'TOKEN_EXPIRED_OR_SPENT'`. The client resets the widget and resubmits with the same key. If the first attempt committed, the resubmit is a replay. If it did not, the resubmit is verified fresh.
 - **Retention.** Records are kept indefinitely in the MVP, since the volume is tiny. A cleanup job for records older than 30 days is a future item.
 
@@ -475,7 +478,11 @@ Mechanics:
 - `@marsidev/react-turnstile` with `action: 'reserve'` and `cData: <Idempotency-Key>`.
 - `refreshExpired: 'auto'`, and `reset()` after any submit that reached the server.
 
-**Server:** `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` with `secret`, `response`, `remoteip` and `idempotency_key`. Accept only if all of these hold:
+**Server:** `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` with `secret`, `response` and `remoteip`.
+- `remoteip` is the raw validated client IP, never the /64 rate-limit bucket. IPv4-mapped IPv6 (`::ffff:a.b.c.d`) is treated as IPv4.
+- `remoteip` is omitted when the IP is unknown or local.
+
+Accept only if all of these hold:
 - `success`
 - `action === 'reserve'`
 - `hostname` is in `TURNSTILE_ALLOWED_HOSTNAMES`
@@ -599,3 +606,7 @@ Parallel worktrees use distinct test database names on the same local server.
 - 2026-10-04: section 8. The client key is now per attempt series, created at form mount, instead of derived from the payload hash at submit. Turnstile `cData` must equal the key and is fixed at widget render, so the key has to exist before any payload does.
 - 2026-10-04: section 7 step e. Failure classification also treats a CLOSED event that is sold out (for example auto-closed on full) inside its window as `EVENT_FULL`, not `EVENT_NOT_OPEN`.
 - 2026-10-05: section 11. Testing-key siteverify results carry no `action`, `hostname` binding or `cdata`. They are accepted only in local and test, and rejected elsewhere.
+- 2026-10-05: changes from the pre-deployment critical review:
+  - section 6: `idle_in_transaction_session_timeout`.
+  - section 7: email and phone limits consumed after Turnstile; `EVENT_FULL` only when seats are really gone, otherwise unstored `TRY_AGAIN`.
+  - sections 8 and 11: no siteverify `idempotency_key`; raw IP for `remoteip`.
