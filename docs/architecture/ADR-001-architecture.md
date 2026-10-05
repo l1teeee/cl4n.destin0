@@ -239,10 +239,11 @@ All of these run in one transaction with their audit row.
 
 ## 8. Idempotency strategy
 
-- **Key and storage.** The client generates `Idempotency-Key = crypto.randomUUID()`. It stores `{ key, payloadHash }` in `sessionStorage` per event slug.
-  - A retry of the same payload reuses the key.
-  - A changed payload gets a new key.
-  - After a final outcome (201, or a 4xx other than 429, 403 and 503), the stored key is cleared.
+- **Key and storage.** The client generates one `Idempotency-Key = crypto.randomUUID()` per *attempt series* when the form mounts. It keeps the key in `sessionStorage` per event slug, so a refresh resumes the same series.
+  - The key must exist before the Turnstile widget renders, because the token's `cData` is fixed at render time.
+  - Retries after a network error, 503 or 403 reuse the same key, with a fresh token from `reset()`. The same payload replays the committed outcome.
+  - After a final outcome, the client rotates to a new key and remounts the widget with the new `cData`. Final outcomes are 201, and any 4xx except 429, 403 and 422 `VALIDATION_FAILED`.
+  - If the user edits the payload after a stored outcome under the same key, the server answers 422 `IDEMPOTENCY_KEY_REUSED`. The client then rotates the key and asks the user to submit again. Pre-transaction rejections store nothing, so they never trigger this.
 - **Server side** is handled by the `idempotency_records` table (section 9) as described in section 7.
   - The row is inserted first inside the allocation transaction. Concurrent requests with the same key queue on the unique index and replay the committed outcome.
   - A replayed key never touches capacity.
@@ -592,3 +593,5 @@ Parallel worktrees use distinct test database names on the same local server.
 ## Changelog
 
 - 2026-10-04: initial version.
+- 2026-10-04: section 8. The client key is now per attempt series, created at form mount, instead of derived from the payload hash at submit. Turnstile `cData` must equal the key and is fixed at widget render, so the key has to exist before any payload does.
+- 2026-10-04: section 7 step e. Failure classification also treats a CLOSED event that is sold out (for example auto-closed on full) inside its window as `EVENT_FULL`, not `EVENT_NOT_OPEN`.
