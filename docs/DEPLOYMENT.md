@@ -1,0 +1,104 @@
+# Deployment Runbook (Vercel + Railway)
+
+**Prerequisite:** explicit owner approval to deploy (see CLAUDE.md section 1). Nothing in this file runs before that approval.
+
+Topology and rationale: `docs/architecture/ADR-001-architecture.md` sections 4 and 14.
+
+## 0. Before anything is published
+
+1. **Final technical review.** Use the `critical-reviewer` subagent at xhigh effort. Scope: reservation integrity, concurrency, security, environment separation, migrations, production configuration, secrets and DB connectivity. It is not QA. Fix every blocking finding first.
+2. **Local gate green on `main`.** Run `npm run check` (typecheck, lint, format, tests, concurrency tests, build).
+3. **Confirm the repo is safe to publish.** The GitHub repo is PUBLIC, so check that no secrets are tracked:
+   ```
+   git ls-files | grep -iE '\.env($|\.)' | grep -v '.env.example'
+   ```
+   It must print nothing.
+
+## 1. Owner-provided inputs
+
+| Input | Why | Who |
+|---|---|---|
+| Production hostname | Turnstile hostname check and Vercel domain | Owner: the default `*.vercel.app` or a custom domain |
+| Cloudflare Turnstile site key + secret key | Real bot protection. Test keys are rejected in production by env validation. | Owner creates a **Managed** widget for the production hostname at dash.cloudflare.com, then Turnstile |
+| First production admin (email, display name) | Admin access | Owner. The password is typed by the owner into `npm run admin:create` and never sent in chat. |
+| Plans | Vercel Hobby is for non-commercial use only. Railway Pro is needed for scheduled backups / PITR if gated by plan. | Owner decision |
+
+## 2. GitHub
+
+```
+CL4N_PUSH_AUTHORIZED=1 git push -u origin main     # bash
+$env:CL4N_PUSH_AUTHORIZED=1; git push -u origin main; Remove-Item Env:CL4N_PUSH_AUTHORIZED   # PowerShell
+```
+
+Set the variable only for this single command.
+
+## 3. Railway (PostgreSQL only)
+
+1. Create the project `clandestino` in the owner's workspace, environment `production`.
+2. Add a PostgreSQL service.
+   - Pin the image to `ghcr.io/railwayapp-templates/postgres-ssl:18`, never `:latest`.
+   - Region: **US East (Virginia)**.
+3. Settings > Networking: enable the **TCP proxy**. This is needed because Vercel cannot reach Railway private networking.
+4. Database > Config > **Connection Pooling**: enable PgBouncer in **transaction** mode, with 2 replicas.
+5. Enable **backups** (daily) and **point-in-time recovery**. Test one restore before launch.
+6. Record these values. They go into Vercel and into a local `.env.production.local` (gitignored) for migrations only.
+   - `DATABASE_PUBLIC_URL`: pooled. The app uses this.
+   - `DATABASE_PUBLIC_UNPOOLED_URL`: used for migrations and admin creation.
+   - The server root CA (`root.crt` from the volume) for `DATABASE_SSL_MODE=verify-ca`. If it cannot be extracted, fall back to `require-no-verify` and note it as a known limitation.
+7. Verify the server:
+   ```sql
+   SHOW server_version;   -- 18.x
+   SHOW max_connections;
+   ```
+
+## 4. Migrations and first admin (from this machine, against the UNPOOLED URL)
+
+```
+node --env-file=.env.production.local scripts/db-migrate.ts
+node --env-file=.env.production.local scripts/create-admin.ts     # owner types the password
+```
+
+- Migrations never run during Vercel builds, because preview builds would otherwise migrate production.
+- `db:seed` refuses non-local databases by design. Production has no demo data.
+
+## 5. Vercel
+
+1. Import the GitHub repo `l1teeee/cl4n.destin0` into the owner's team. Framework: Next.js.
+2. Function region `iad1`, from `vercel.json`.
+3. Production environment variables:
+
+| Variable | Value |
+|---|---|
+| `APP_ENV` | `production` |
+| `DATABASE_URL` | Railway pooled public URL |
+| `DATABASE_SSL_MODE` | `verify-ca` (fallback `require-no-verify`) |
+| `DATABASE_CA_CERT` | Railway root CA (PEM), when `verify-ca` |
+| `DATABASE_POOL_MAX` | `5` |
+| `APP_SECRET` | new random value, e.g. `openssl rand -base64 48` (never the local one) |
+| `BOT_PROTECTION_MODE` | `turnstile` |
+| `TURNSTILE_SECRET_KEY` / `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | real keys from Cloudflare |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | production hostname(s) |
+| `RATE_LIMIT_MODE` | `enforce` |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | optional |
+
+4. **Preview deployments.** Do not give Preview the production database. Until a Railway `staging` environment exists, leave Preview without database variables (preview builds then fail env validation and touch nothing), or disable preview deployments.
+5. **Firewall.** Add a WAF rate-limit rule on `POST /api/reservations` (fixed window, per IP, generous because of carrier CGNAT, e.g. 300 per 60s) as a volumetric backstop. Capacity is enforced by PostgreSQL, never by the WAF.
+
+## 6. Deploy and verify technical health
+
+1. Deploy the `main` production build.
+2. Check:
+   - `GET /api/health` returns `{ "status": "ok", "db": "up" }`
+   - `/` renders
+   - `/admin` redirects to `/admin/login`
+   - admin login works
+   - response headers include the CSP, HSTS and nosniff
+3. Do not create test reservations in production without the owner's OK.
+4. Burst testing belongs in a staging environment, never in production.
+
+## 7. Rollback
+
+- **App:** Vercel instant rollback to the previous deployment.
+- **Database:** Railway PITR restore to a timestamp, which creates a sibling service and needs a manual cutover. Migrations are forward-only, so prefer expand/contract changes.
+
+Never modify production silently after deployment. Every change goes through the same local gate and owner approval.
