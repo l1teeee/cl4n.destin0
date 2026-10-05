@@ -54,7 +54,17 @@ Opus cannot change its own effort mid-session. For xhigh-level work, delegate to
 
 ## 4. Codex invocation and effort
 
-Run Codex as `codex exec -m gpt-5.6-sol -c model_reasoning_effort=<medium|high> ...` with a surgical brief: exact files, the change and success criteria. Always set the effort explicitly, because the global Codex config defaults to high.
+Run Codex with a surgical brief (exact files, the change and success criteria) piped on stdin. On this machine this exact sandbox setup is verified to work:
+
+```
+codex exec -m gpt-5.6-sol -c model_reasoning_effort=<medium|high> -c approval_policy=never \
+  -s workspace-write -c sandbox_workspace_write.network_access=true -c 'windows.sandbox="unelevated"' \
+  --add-dir "C:/Users/aleja/AppData/Local/npm-cache" -C <repo-or-worktree> -o <result.md> - < brief.md
+```
+
+- The default elevated Windows sandbox fails here with `helper_unknown_error`, so use the unelevated one.
+- Never use `--dangerously-bypass-approvals-and-sandbox`, because the Vercel and Railway CLIs are installed and logged in on this machine.
+- Always set the effort explicitly, because the global Codex config defaults to high.
 
 - **medium:** scaffolding, UI components, forms, admin tables, CRUD, ordinary TypeScript, normal API endpoints, documentation and refactors with a clear spec.
 - **high:** PostgreSQL concurrency, reservation allocation, SQL transactions, atomic capacity updates, idempotency, DB constraints, authentication, authorization, security-sensitive endpoints, rate limiting, race-condition handling, migrations that affect reservation integrity, and concurrency and load tests.

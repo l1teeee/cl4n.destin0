@@ -1,0 +1,10 @@
+.next
+node_modules
+drizzle
+.local
+coverage
+package-lock.json
+AGENTS.md
+CLAUDE.md
+.claude
+docs
