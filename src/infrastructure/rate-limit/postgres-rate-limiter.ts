@@ -65,9 +65,11 @@ interface CounterRow {
   retry_after_seconds: number;
 }
 
-async function cleanupExpiredWindows(): Promise<void> {
+type RateLimitPool = Pick<typeof pool, "query">;
+
+async function cleanupExpiredWindows(targetPool: RateLimitPool): Promise<void> {
   try {
-    await pool.query(
+    await targetPool.query(
       "DELETE FROM rate_limit_counters WHERE window_start < now() - INTERVAL '1 day'",
     );
   } catch (error) {
@@ -77,13 +79,16 @@ async function cleanupExpiredWindows(): Promise<void> {
   }
 }
 
-export async function consume(input: ConsumeRateLimitInput): Promise<RateLimitResult> {
+export async function consumeWithPool(
+  input: ConsumeRateLimitInput,
+  targetPool: RateLimitPool,
+): Promise<RateLimitResult> {
   if (env.RATE_LIMIT_MODE === "disabled") {
     return { allowed: true, remaining: input.limit, retryAfterSeconds: 0 };
   }
 
   const bucketKey = `${input.scope}:${keyedHash(input.subject)}`;
-  const result = await pool.query<CounterRow>(
+  const result = await targetPool.query<CounterRow>(
     `WITH current_window AS (
        SELECT date_bin(
          make_interval(secs => $2),
@@ -110,7 +115,7 @@ export async function consume(input: ConsumeRateLimitInput): Promise<RateLimitRe
   const allowed = counter.hits <= input.limit;
 
   if (Math.random() < 0.01) {
-    await cleanupExpiredWindows();
+    await cleanupExpiredWindows(targetPool);
   }
 
   return {
@@ -118,4 +123,8 @@ export async function consume(input: ConsumeRateLimitInput): Promise<RateLimitRe
     remaining: Math.max(0, input.limit - counter.hits),
     retryAfterSeconds: allowed ? 0 : counter.retry_after_seconds,
   };
+}
+
+export function consume(input: ConsumeRateLimitInput): Promise<RateLimitResult> {
+  return consumeWithPool(input, pool);
 }
