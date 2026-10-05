@@ -33,7 +33,7 @@ export async function seedDatabase(
     );
     let adminId = existingAdmin.rows[0]?.id;
     if (adminId) {
-      log(`El administrador ${DEV_ADMIN_EMAIL} ya existe; no se modificó.`);
+      log("El administrador local ya existe; no se modifico.");
     } else {
       const insertedAdmin = await client.query<{ id: string }>(
         `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
@@ -42,7 +42,7 @@ export async function seedDatabase(
         [DEV_ADMIN_EMAIL, await hashPassword(DEV_ADMIN_PASSWORD)],
       );
       adminId = insertedAdmin.rows[0]!.id;
-      log(`Se creó el administrador local ${DEV_ADMIN_EMAIL}.`);
+      log("Se creo el administrador local.");
     }
 
     const insertedEvent = await client.query<{ id: string }>(
@@ -108,8 +108,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error("DATABASE_URL es obligatoria");
     process.exitCode = 1;
   } else {
-    seedDatabase(databaseUrlValue).catch((error: unknown) => {
-      console.error(error instanceof Error ? error.message : "No se pudo ejecutar el seed");
+    seedDatabase(databaseUrlValue).catch(() => {
+      console.error("No se pudo ejecutar el seed.");
       process.exitCode = 1;
     });
   }

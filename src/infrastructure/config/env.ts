@@ -5,6 +5,12 @@ const optionalString = z.preprocess(
   z.string().optional(),
 );
 
+const turnstileTestKeyPrefixes = ["1x0000", "2x0000", "3x0000"];
+
+function isTurnstileTestKey(value: string | undefined): boolean {
+  return Boolean(value && turnstileTestKeyPrefixes.some((prefix) => value.startsWith(prefix)));
+}
+
 const serverEnvSchema = z
   .object({
     APP_ENV: z.enum(["local", "test", "preview", "production"]),
@@ -32,6 +38,70 @@ const serverEnvSchema = z
   })
   .superRefine((value, context) => {
     const protectedEnvironment = value.APP_ENV === "preview" || value.APP_ENV === "production";
+
+    if (protectedEnvironment && value.APP_SECRET.startsWith("local-only")) {
+      context.addIssue({
+        code: "custom",
+        path: ["APP_SECRET"],
+        message: "cannot use a local-only value in preview or production",
+      });
+    }
+
+    if (protectedEnvironment && value.APP_SECRET.length < 32) {
+      context.addIssue({
+        code: "custom",
+        path: ["APP_SECRET"],
+        message: "must contain at least 32 characters in preview or production",
+      });
+    }
+
+    if (protectedEnvironment && value.DATABASE_SSL_MODE === "disable") {
+      context.addIssue({
+        code: "custom",
+        path: ["DATABASE_SSL_MODE"],
+        message: "cannot be disabled in preview or production",
+      });
+    }
+
+    if (
+      protectedEnvironment &&
+      ["localhost", "127.0.0.1"].includes(new URL(value.DATABASE_URL).hostname)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["DATABASE_URL"],
+        message: "cannot point to a local host in preview or production",
+      });
+    }
+
+    if (protectedEnvironment && isTurnstileTestKey(value.NEXT_PUBLIC_TURNSTILE_SITE_KEY)) {
+      context.addIssue({
+        code: "custom",
+        path: ["NEXT_PUBLIC_TURNSTILE_SITE_KEY"],
+        message: "cannot use a Cloudflare test key in preview or production",
+      });
+    }
+
+    if (protectedEnvironment && isTurnstileTestKey(value.TURNSTILE_SECRET_KEY)) {
+      context.addIssue({
+        code: "custom",
+        path: ["TURNSTILE_SECRET_KEY"],
+        message: "cannot use a Cloudflare test key in preview or production",
+      });
+    }
+
+    if (
+      protectedEnvironment &&
+      value.TURNSTILE_ALLOWED_HOSTNAMES.some((hostname) =>
+        hostname.toLowerCase().includes("localhost"),
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["TURNSTILE_ALLOWED_HOSTNAMES"],
+        message: "cannot contain localhost in preview or production",
+      });
+    }
 
     if (protectedEnvironment && value.BOT_PROTECTION_MODE === "disabled") {
       context.addIssue({
@@ -100,3 +170,12 @@ export function parseServerEnv(input: Record<string, string | undefined>): Serve
 }
 
 export const env = parseServerEnv(process.env);
+
+if (env.DATABASE_SSL_MODE === "require-no-verify") {
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      msg: "database_tls_certificate_verification_disabled",
+    }),
+  );
+}

@@ -72,10 +72,8 @@ async function cleanupExpiredWindows(targetPool: RateLimitPool): Promise<void> {
     await targetPool.query(
       "DELETE FROM rate_limit_counters WHERE window_start < now() - INTERVAL '1 day'",
     );
-  } catch (error) {
-    log("warn", "rate_limit_cleanup_failed", {
-      error: error instanceof Error ? error.message : "unknown error",
-    });
+  } catch {
+    log("warn", "rate_limit_cleanup_failed");
   }
 }
 

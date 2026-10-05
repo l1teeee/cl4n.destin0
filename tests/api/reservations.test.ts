@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import type { ReservationAllocationRepository } from "@/application/ports/reservation-allocation-repository";
 import { createReservationHandler } from "@/app/api/reservations/reservation-handler";
+import { DELETE, GET, HEAD, OPTIONS, PATCH, PUT } from "@/app/api/reservations/route";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 
@@ -66,6 +67,70 @@ function dependencies(overrides: Record<string, unknown> = {}) {
 }
 
 describe("POST /api/reservations", () => {
+  it.each([null, "text/plain", "application/x-www-form-urlencoded"])(
+    "returns 415 for unsupported content type %s",
+    async (contentType) => {
+      const setup = dependencies();
+      const headers = new Headers({ "Idempotency-Key": randomUUID() });
+      if (contentType) headers.set("content-type", contentType);
+
+      const response = await setup.handler(
+        new Request("http://localhost/api/reservations", {
+          method: "POST",
+          headers,
+          body: "{}",
+        }),
+      );
+
+      expect(response.status).toBe(415);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "UNSUPPORTED_MEDIA_TYPE" },
+      });
+      expect(setup.rateLimiter.consume).not.toHaveBeenCalled();
+      expect(setup.botVerifier.verify).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns 413 from content-length before parsing JSON", async () => {
+    const setup = dependencies();
+    const response = await setup.handler(
+      new Request("http://localhost/api/reservations", {
+        method: "POST",
+        headers: {
+          "content-length": String(16 * 1024 + 1),
+          "content-type": "application/json",
+          "Idempotency-Key": randomUUID(),
+        },
+        body: "{not-json",
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "PAYLOAD_TOO_LARGE" } });
+    expect(setup.rateLimiter.consume).not.toHaveBeenCalled();
+    expect(setup.botVerifier.verify).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 when the streamed body exceeds the limit despite a false header", async () => {
+    const setup = dependencies();
+    const response = await setup.handler(
+      new Request("http://localhost/api/reservations", {
+        method: "POST",
+        headers: {
+          "content-length": "2",
+          "content-type": "application/json; charset=utf-8",
+          "Idempotency-Key": randomUUID(),
+        },
+        body: JSON.stringify({ value: "x".repeat(16 * 1024) }),
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "PAYLOAD_TOO_LARGE" } });
+    expect(setup.rateLimiter.consume).not.toHaveBeenCalled();
+    expect(setup.botVerifier.verify).not.toHaveBeenCalled();
+  });
+
   it("returns a byte-identical replay without rate-limit or bot work", async () => {
     const event = await insertTestEvent(pool);
     const key = randomUUID();
@@ -88,6 +153,12 @@ describe("POST /api/reservations", () => {
     expect(replay.headers.get("Cache-Control")).toBe("no-store");
     expect(setup.rateLimiter.consume).toHaveBeenCalledTimes(callsAfterFirst.rate);
     expect(setup.botVerifier.verify).toHaveBeenCalledTimes(callsAfterFirst.bot);
+    const logOutput = JSON.stringify(log.mock.calls);
+    expect(logOutput).not.toContain(String(body.fullName));
+    expect(logOutput).not.toContain(String(body.instagram));
+    expect(logOutput).not.toContain(String(body.phone));
+    expect(logOutput).not.toContain(String(body.email));
+    expect(logOutput).not.toContain(String(body.notes));
 
     const state = await pool.query(
       `SELECT
@@ -256,5 +327,13 @@ describe("POST /api/reservations", () => {
       "reservation_submission_failed",
       expect.objectContaining({ outcome: "INTERNAL_ERROR" }),
     );
+  });
+});
+
+describe("unsupported reservation methods", () => {
+  it.each([GET, PUT, PATCH, DELETE, OPTIONS, HEAD])("returns 405", (handler) => {
+    const response = handler();
+    expect(response.status).toBe(405);
+    expect(response.headers.get("Allow")).toBe("POST");
   });
 });

@@ -45,8 +45,8 @@ function stop(signal) {
 process.on("SIGINT", () => stop("SIGINT"));
 process.on("SIGTERM", () => stop("SIGTERM"));
 
-child.on("error", (error) => {
-  console.error(error);
+child.on("error", () => {
+  console.error("Load-test server failed to start.");
   process.exitCode = 1;
 });
 

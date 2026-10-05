@@ -4,6 +4,7 @@ interface ReservationExperienceProps {
   eventSlug: string;
   maxPartySize: number;
   formattedDate: string;
+  nonce?: string;
 }
 
 export function ReservationExperience(props: ReservationExperienceProps) {

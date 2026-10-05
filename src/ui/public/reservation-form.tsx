@@ -27,6 +27,7 @@ interface ReservationFormProps {
   eventSlug: string;
   maxPartySize: number;
   formattedDate: string;
+  nonce?: string;
 }
 
 const inputClassName =
@@ -40,7 +41,12 @@ function FieldError({ message }: { message?: string }) {
   return message ? <p className="text-sm text-red-300">{message}</p> : null;
 }
 
-export function ReservationForm({ eventSlug, maxPartySize, formattedDate }: ReservationFormProps) {
+export function ReservationForm({
+  eventSlug,
+  maxPartySize,
+  formattedDate,
+  nonce,
+}: ReservationFormProps) {
   const [turnstile, setTurnstile] = useState<TurnstileInstance | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
@@ -294,6 +300,7 @@ export function ReservationForm({ eventSlug, maxPartySize, formattedDate }: Rese
           key={idempotencyKey}
           ref={(instance) => setTurnstile(instance ?? null)}
           siteKey={siteKey}
+          scriptOptions={{ nonce }}
           options={{ action: "reserve", cData: idempotencyKey, refreshExpired: "auto" }}
           onSuccess={setTurnstileToken}
           onExpire={() => setTurnstileToken(null)}

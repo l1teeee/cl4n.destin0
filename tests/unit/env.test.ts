@@ -15,6 +15,18 @@ const validEnvironment: Record<string, string | undefined> = {
   RATE_LIMIT_MODE: "enforce",
 };
 
+const validProductionEnvironment: Record<string, string | undefined> = {
+  ...validEnvironment,
+  APP_ENV: "production",
+  DATABASE_URL: "postgres://app:secret@database.example.com:5432/cl4n",
+  DATABASE_SSL_MODE: "verify-ca",
+  DATABASE_CA_CERT: "test-ca-certificate",
+  APP_SECRET: "production-secret-with-at-least-32-characters",
+  TURNSTILE_SECRET_KEY: "0x4AAAAAA-valid-production-secret",
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: "0x4AAAAAA-valid-production-site-key",
+  TURNSTILE_ALLOWED_HOSTNAMES: "clandestino.example.com",
+};
+
 describe("parseServerEnv", () => {
   it("parses valid local configuration", () => {
     const parsed = parseServerEnv(validEnvironment);
@@ -42,5 +54,60 @@ describe("parseServerEnv", () => {
     expect(() => parseServerEnv({ APP_ENV: "local" })).toThrow(
       /DATABASE_URL[\s\S]*APP_SECRET[\s\S]*BOT_PROTECTION_MODE[\s\S]*TURNSTILE_ALLOWED_HOSTNAMES[\s\S]*RATE_LIMIT_MODE/,
     );
+  });
+
+  it("accepts a protected environment with remote TLS and non-test credentials", () => {
+    expect(parseServerEnv(validProductionEnvironment)).toMatchObject({
+      APP_ENV: "production",
+      DATABASE_SSL_MODE: "verify-ca",
+    });
+  });
+
+  it("rejects local-only application secrets in protected environments", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validProductionEnvironment,
+        APP_SECRET: "local-only-secret-that-is-long-enough-for-production",
+      }),
+    ).toThrow(/APP_SECRET[\s\S]*local-only/);
+  });
+
+  it("rejects application secrets shorter than 32 characters", () => {
+    expect(() =>
+      parseServerEnv({ ...validProductionEnvironment, APP_SECRET: "short-secret" }),
+    ).toThrow(/APP_SECRET[\s\S]*32/);
+  });
+
+  it("rejects disabled database TLS in protected environments", () => {
+    expect(() =>
+      parseServerEnv({ ...validProductionEnvironment, DATABASE_SSL_MODE: "disable" }),
+    ).toThrow(/DATABASE_SSL_MODE[\s\S]*disabled/);
+  });
+
+  it("rejects a localhost database URL in protected environments", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validProductionEnvironment,
+        DATABASE_URL: "postgres://postgres:postgres@127.0.0.1:54329/cl4n",
+      }),
+    ).toThrow(/DATABASE_URL[\s\S]*local host/);
+  });
+
+  it.each([
+    ["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "2x00000000000000000000AB"],
+    ["TURNSTILE_SECRET_KEY", "3x0000000000000000000000000000000AA"],
+  ] as const)("rejects Cloudflare test credentials in %s", (name, value) => {
+    expect(() => parseServerEnv({ ...validProductionEnvironment, [name]: value })).toThrow(
+      new RegExp(`${name}[\\s\\S]*test key`),
+    );
+  });
+
+  it("rejects localhost in protected Turnstile hostnames", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validProductionEnvironment,
+        TURNSTILE_ALLOWED_HOSTNAMES: "clandestino.example.com,localhost",
+      }),
+    ).toThrow(/TURNSTILE_ALLOWED_HOSTNAMES[\s\S]*localhost/);
   });
 });

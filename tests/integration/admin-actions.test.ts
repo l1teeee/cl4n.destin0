@@ -11,7 +11,13 @@ vi.mock("next/headers", () => ({
   })),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn((destination: string) => {
+    throw new Error(`REDIRECT:${destination}`);
+  }),
+}));
 
+import { signOutAction } from "@/app/admin/(protected)/actions";
 import {
   cancelEventAction,
   cancelReservationAction,
@@ -101,6 +107,19 @@ async function authorize(): Promise<void> {
 }
 
 describe("admin event Server Actions", () => {
+  it("does not delete another session when sign-out has no session", async () => {
+    const before = await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM admin_sessions",
+    );
+
+    await expect(signOutAction()).rejects.toThrow("REDIRECT:/admin/login");
+
+    const after = await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM admin_sessions",
+    );
+    expect(after.rows[0]).toEqual(before.rows[0]);
+  });
+
   it("protects and performs create", async () => {
     expect(await createEventAction(initialState, createForm())).toMatchObject({ ok: false });
     expect((await pool.query("SELECT 1 FROM events")).rowCount).toBe(0);

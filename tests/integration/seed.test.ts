@@ -70,6 +70,6 @@ describe("local seed", () => {
       event_count: 1,
       event_id: first.rows[0]!.event_id,
     });
-    expect(log.mock.calls.flat().join(" ")).toMatch(/ya existe; no se modificó/);
+    expect(log.mock.calls.flat().join(" ")).toMatch(/ya existe; no se modifico/);
   });
 });

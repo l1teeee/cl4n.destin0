@@ -14,6 +14,45 @@ export interface ReservationHandlerDependencies extends SubmitReservationDepende
   observability: HandlerObservability;
 }
 
+const MAXIMUM_BODY_BYTES = 16 * 1024;
+
+type BodyReadResult = { ok: true; text: string } | { ok: false };
+
+function isJsonContentType(value: string | null): boolean {
+  return value?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
+}
+
+async function readBody(request: Request): Promise<BodyReadResult> {
+  if (!request.body) {
+    return { ok: true, text: "" };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+
+    byteLength += chunk.value.byteLength;
+    if (byteLength > MAXIMUM_BODY_BYTES) {
+      await reader.cancel();
+      return { ok: false };
+    }
+    chunks.push(chunk.value);
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return { ok: true, text: new TextDecoder().decode(bytes) };
+}
+
 function outcomeCode(body: Record<string, unknown>): string {
   if (body.status === "CONFIRMED") {
     return "CONFIRMED";
@@ -55,9 +94,44 @@ export function createReservationHandler(dependencies: ReservationHandlerDepende
     const requestId = request.headers.get("x-vercel-id") ?? randomUUID();
 
     try {
+      const declaredLength = Number(request.headers.get("content-length"));
+      if (Number.isFinite(declaredLength) && declaredLength > MAXIMUM_BODY_BYTES) {
+        const oversized = mapReservationOutcome({ code: "PAYLOAD_TOO_LARGE" });
+        dependencies.observability.log("info", "reservation_submission", {
+          requestId,
+          route: "/api/reservations",
+          outcome: "PAYLOAD_TOO_LARGE",
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return jsonResponse(oversized.status, oversized.body);
+      }
+
+      if (!isJsonContentType(request.headers.get("content-type"))) {
+        const unsupported = mapReservationOutcome({ code: "UNSUPPORTED_MEDIA_TYPE" });
+        dependencies.observability.log("info", "reservation_submission", {
+          requestId,
+          route: "/api/reservations",
+          outcome: "UNSUPPORTED_MEDIA_TYPE",
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return jsonResponse(unsupported.status, unsupported.body);
+      }
+
+      const bodyRead = await readBody(request);
+      if (!bodyRead.ok) {
+        const oversized = mapReservationOutcome({ code: "PAYLOAD_TOO_LARGE" });
+        dependencies.observability.log("info", "reservation_submission", {
+          requestId,
+          route: "/api/reservations",
+          outcome: "PAYLOAD_TOO_LARGE",
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return jsonResponse(oversized.status, oversized.body);
+      }
+
       let body: unknown;
       try {
-        body = await request.json();
+        body = JSON.parse(bodyRead.text);
       } catch {
         const invalidJson = mapReservationOutcome({
           code: "VALIDATION_FAILED",

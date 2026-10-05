@@ -13,6 +13,14 @@ export interface ReservationResponseOutcome {
 }
 
 const responseDefinitions: Record<ReservationErrorCode, { status: number; message: string }> = {
+  PAYLOAD_TOO_LARGE: {
+    status: 413,
+    message: "El cuerpo de la solicitud supera el l��mite permitido.",
+  },
+  UNSUPPORTED_MEDIA_TYPE: {
+    status: 415,
+    message: "El cuerpo de la solicitud debe enviarse como application/json.",
+  },
   IDEMPOTENCY_KEY_REQUIRED: {
     status: 400,
     message: "Se requiere una clave de idempotencia válida.",

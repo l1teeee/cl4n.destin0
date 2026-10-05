@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -157,11 +157,9 @@ async function start() {
       );
     } catch (error) {
       if (existsSync(logFile)) {
-        const logLines = (await readFile(logFile, "utf8")).trimEnd().split(/\r?\n/);
-        console.error(`Last 20 lines of ${logFile}:`);
-        console.error(logLines.slice(-20).join("\n"));
+        console.error("PostgreSQL failed to start. Inspect the local PostgreSQL log.");
       } else {
-        console.error(`PostgreSQL log was not created at ${logFile}`);
+        console.error("PostgreSQL failed to start and did not create a log file.");
       }
 
       throw new Error(`pg_ctl failed to start PostgreSQL on 127.0.0.1:${PORT}`, {

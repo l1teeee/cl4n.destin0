@@ -92,8 +92,8 @@ export async function createAdmin(): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  createAdmin().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : "No se pudo crear el administrador");
+  createAdmin().catch(() => {
+    console.error("No se pudo crear el administrador.");
     process.exitCode = 1;
   });
 }

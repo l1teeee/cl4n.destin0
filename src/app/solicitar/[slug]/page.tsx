@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { getPublicEventBySlug } from "@/application/events/event-use-cases";
@@ -9,7 +10,7 @@ import { ReservationExperience } from "@/ui/public/reservation-experience";
 export const dynamic = "force-dynamic";
 
 export default async function RequestAccessPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
+  const [{ slug }, requestHeaders] = await Promise.all([params, headers()]);
   const readModel = await getPublicEventBySlug(postgresEventRepository, slug);
   const event = readModel.value;
 
@@ -26,6 +27,7 @@ export default async function RequestAccessPage({ params }: { params: Promise<{ 
       eventSlug={event.slug}
       maxPartySize={event.maxPartySize}
       formattedDate={formatPublicEventDate(event.startsAt)}
+      nonce={requestHeaders.get("x-nonce") ?? undefined}
     />
   );
 }

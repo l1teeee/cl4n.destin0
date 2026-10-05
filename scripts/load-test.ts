@@ -201,7 +201,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error);
+main().catch(() => {
+  console.error("Load test failed.");
   process.exitCode = 1;
 });
