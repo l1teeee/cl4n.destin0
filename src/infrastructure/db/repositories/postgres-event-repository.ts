@@ -53,6 +53,7 @@ interface ReservationRow extends QueryResultRow {
   status: AdminReservationItem["status"];
   submitted_at: Date;
   accepted_at: Date | null;
+  notes: string | null;
   db_now: Date;
 }
 
@@ -495,6 +496,7 @@ export class PostgresEventRepository implements EventRepository {
         status: row.status,
         submittedAt: row.submitted_at,
         acceptedAt: row.accepted_at,
+        notes: row.notes,
       })),
     };
   }
@@ -511,6 +513,13 @@ export class PostgresEventRepository implements EventRepository {
     if (query.entityId) {
       values.push(query.entityId);
       conditions.push(`a.entity_id = $${values.length}`);
+    }
+    if (query.eventId) {
+      values.push(query.eventId);
+      conditions.push(`(
+        (a.entity_type = 'EVENT' AND a.entity_id = $${values.length}::uuid)
+        OR a.metadata ->> 'eventId' = $${values.length}::text
+      )`);
     }
     values.push(pageSize, (page - 1) * pageSize);
     const limitParameter = `$${values.length - 1}`;

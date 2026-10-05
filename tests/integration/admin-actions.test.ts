@@ -1,0 +1,253 @@
+import { randomUUID } from "node:crypto";
+
+import { Pool } from "pg";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
+
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({
+    get: vi.fn(() => (authState.token ? { value: authState.token } : undefined)),
+  })),
+}));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+import {
+  cancelEventAction,
+  cancelReservationAction,
+  changeCapacityAction,
+  closeEventNowAction,
+  completeEventAction,
+  createEventAction,
+  openEventNowAction,
+  publishEventAction,
+  updateEventAction,
+} from "@/app/admin/(protected)/events/actions";
+import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+
+import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
+
+const initialState = { ok: false, message: "" };
+let pool: Pool;
+let adminId: string;
+let sessionToken: string;
+
+beforeEach(async () => {
+  authState.token = undefined;
+  if (pool) await pool.end();
+  await resetTestDatabase();
+  pool = new Pool({ connectionString: testDatabaseUrl().toString() });
+  const admin = await pool.query<{ id: string }>(
+    `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
+     VALUES ('actions@example.com', 'actions@example.com', 'hash', 'Admin Actions')
+     RETURNING id`,
+  );
+  adminId = admin.rows[0]!.id;
+  sessionToken = (await postgresAdminAuthRepository.createSession(adminId)).token;
+});
+
+afterAll(async () => {
+  if (pool) await pool.end();
+});
+
+function createForm(slug = "cena-admin"): FormData {
+  const form = new FormData();
+  form.set("internalName", "Cena administrativa");
+  form.set("slug", slug);
+  form.set("eventDate", "2027-11-20");
+  form.set("eventTime", "19:30");
+  form.set("opensAt", "2027-11-01T08:00");
+  form.set("closesAt", "2027-11-19T20:00");
+  form.set("capacity", "20");
+  form.set("maxPartySize", "4");
+  form.set("status", "DRAFT");
+  return form;
+}
+
+function updateForm(slug: string, name = "Cena actualizada"): FormData {
+  const form = new FormData();
+  form.set("internalName", name);
+  form.set("slug", slug);
+  form.set("eventDate", "2027-11-21");
+  form.set("eventTime", "20:00");
+  form.set("opensAt", "2027-11-01T08:00");
+  form.set("closesAt", "2027-11-20T20:00");
+  form.set("maxPartySize", "5");
+  return form;
+}
+
+async function insertEvent(status: "DRAFT" | "SCHEDULED" | "CLOSED", slug: string) {
+  const result = await pool.query<{ id: string }>(
+    `INSERT INTO events (
+       internal_name, slug, starts_at, capacity, max_party_size,
+       opens_at, closes_at, auto_close_on_full, status
+     ) VALUES ($1, $2, '2027-11-21T01:30:00Z', 20, 4,
+       '2027-11-01T14:00:00Z', '2027-11-21T02:00:00Z', false, $3)
+     RETURNING id`,
+    ["Cena", slug, status],
+  );
+  return result.rows[0]!.id;
+}
+
+async function statusOf(id: string): Promise<string> {
+  const result = await pool.query<{ status: string }>("SELECT status FROM events WHERE id = $1", [
+    id,
+  ]);
+  return result.rows[0]!.status;
+}
+
+async function authorize(): Promise<void> {
+  authState.token = sessionToken;
+}
+
+describe("admin event Server Actions", () => {
+  it("protects and performs create", async () => {
+    expect(await createEventAction(initialState, createForm())).toMatchObject({ ok: false });
+    expect((await pool.query("SELECT 1 FROM events")).rowCount).toBe(0);
+    await authorize();
+    expect(await createEventAction(initialState, createForm())).toMatchObject({ ok: true });
+    expect((await pool.query("SELECT 1 FROM events")).rowCount).toBe(1);
+  });
+
+  it("protects and performs update", async () => {
+    const id = await insertEvent("DRAFT", "update-event");
+    expect(await updateEventAction(id, initialState, updateForm("update-event"))).toMatchObject({
+      ok: false,
+    });
+    expect(
+      (
+        await pool.query<{ internal_name: string }>(
+          "SELECT internal_name FROM events WHERE id = $1",
+          [id],
+        )
+      ).rows[0]!.internal_name,
+    ).toBe("Cena");
+    await authorize();
+    expect(await updateEventAction(id, initialState, updateForm("update-event"))).toMatchObject({
+      ok: true,
+    });
+    expect(
+      (
+        await pool.query<{ internal_name: string }>(
+          "SELECT internal_name FROM events WHERE id = $1",
+          [id],
+        )
+      ).rows[0]!.internal_name,
+    ).toBe("Cena actualizada");
+  });
+
+  it("protects and performs publish", async () => {
+    const id = await insertEvent("DRAFT", "publish-event");
+    expect(await publishEventAction(id, initialState, new FormData())).toMatchObject({ ok: false });
+    expect(await statusOf(id)).toBe("DRAFT");
+    await authorize();
+    expect(await publishEventAction(id, initialState, new FormData())).toMatchObject({ ok: true });
+    expect(await statusOf(id)).toBe("SCHEDULED");
+  });
+
+  it("protects and performs open now", async () => {
+    const id = await insertEvent("DRAFT", "open-event");
+    expect(await openEventNowAction(id, initialState, new FormData())).toMatchObject({ ok: false });
+    expect(await statusOf(id)).toBe("DRAFT");
+    await authorize();
+    expect(await openEventNowAction(id, initialState, new FormData())).toMatchObject({ ok: true });
+    expect(await statusOf(id)).toBe("SCHEDULED");
+  });
+
+  it("protects and performs close now", async () => {
+    const id = await insertEvent("SCHEDULED", "close-event");
+    expect(await closeEventNowAction(id, initialState, new FormData())).toMatchObject({
+      ok: false,
+    });
+    expect(await statusOf(id)).toBe("SCHEDULED");
+    await authorize();
+    expect(await closeEventNowAction(id, initialState, new FormData())).toMatchObject({ ok: true });
+    expect(await statusOf(id)).toBe("CLOSED");
+  });
+
+  it("protects and performs complete", async () => {
+    const id = await insertEvent("CLOSED", "complete-event");
+    expect(await completeEventAction(id, initialState, new FormData())).toMatchObject({
+      ok: false,
+    });
+    expect(await statusOf(id)).toBe("CLOSED");
+    await authorize();
+    expect(await completeEventAction(id, initialState, new FormData())).toMatchObject({ ok: true });
+    expect(await statusOf(id)).toBe("COMPLETED");
+  });
+
+  it("protects and performs event cancellation", async () => {
+    const id = await insertEvent("DRAFT", "cancel-event");
+    expect(await cancelEventAction(id, initialState, new FormData())).toMatchObject({ ok: false });
+    expect(await statusOf(id)).toBe("DRAFT");
+    await authorize();
+    expect(await cancelEventAction(id, initialState, new FormData())).toMatchObject({ ok: true });
+    expect(await statusOf(id)).toBe("CANCELLED");
+  });
+
+  it("protects and performs capacity changes", async () => {
+    const id = await insertEvent("DRAFT", "capacity-event");
+    const form = new FormData();
+    form.set("newCapacity", "25");
+    expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: false });
+    expect(
+      (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
+        .rows[0]!.capacity,
+    ).toBe(20);
+    await authorize();
+    expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: true });
+    expect(
+      (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
+        .rows[0]!.capacity,
+    ).toBe(25);
+  });
+
+  it("protects and performs reservation cancellation", async () => {
+    const eventId = await insertEvent("SCHEDULED", "reservation-cancel-event");
+    const reservation = await pool.query<{ id: string }>(
+      `INSERT INTO reservations (
+         event_id, reservation_number, status, full_name, instagram_handle,
+         phone_e164, email, email_normalized, party_size, notes,
+         terms_accepted_at, idempotency_key, submitted_at, accepted_at
+       ) VALUES ($1, 1, 'CONFIRMED', 'Ana Pérez', 'anaperez', '+50370000000',
+         'ana@example.com', 'ana@example.com', 2, 'Sin lácteos', now(), $2, now(), now())
+       RETURNING id`,
+      [eventId, randomUUID()],
+    );
+    const reservationId = reservation.rows[0]!.id;
+    await pool.query(
+      "UPDATE events SET reserved_seats = 2, last_reservation_number = 1 WHERE id = $1",
+      [eventId],
+    );
+
+    expect(
+      await cancelReservationAction(eventId, reservationId, initialState, new FormData()),
+    ).toMatchObject({ ok: false });
+    expect(
+      (
+        await pool.query<{ status: string }>("SELECT status FROM reservations WHERE id = $1", [
+          reservationId,
+        ])
+      ).rows[0]!.status,
+    ).toBe("CONFIRMED");
+    await authorize();
+    expect(
+      await cancelReservationAction(eventId, reservationId, initialState, new FormData()),
+    ).toMatchObject({ ok: true });
+    expect(
+      (
+        await pool.query<{ status: string }>("SELECT status FROM reservations WHERE id = $1", [
+          reservationId,
+        ])
+      ).rows[0]!.status,
+    ).toBe("CANCELLED");
+    expect(
+      (
+        await pool.query<{ reserved_seats: number }>(
+          "SELECT reserved_seats FROM events WHERE id = $1",
+          [eventId],
+        )
+      ).rows[0]!.reserved_seats,
+    ).toBe(0);
+  });
+});
