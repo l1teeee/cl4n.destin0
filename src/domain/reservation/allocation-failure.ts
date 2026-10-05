@@ -6,6 +6,8 @@ export interface AllocationFailureSnapshot {
   status: EventLifecycleStatus;
   opensAt: Date;
   closesAt: Date;
+  capacity: number;
+  reservedSeats: number;
   maxPartySize: number;
 }
 
@@ -16,13 +18,21 @@ export function classifyAllocationFailure(
 ): AllocationFailure {
   const outsideWindow = now < snapshot.opensAt || now >= snapshot.closesAt;
 
-  if (snapshot.status !== "SCHEDULED" || outsideWindow) {
+  if (outsideWindow) {
     return "EVENT_NOT_OPEN";
   }
 
-  if (partySize > snapshot.maxPartySize) {
-    return "PARTY_SIZE_NOT_ALLOWED";
+  if (snapshot.status === "SCHEDULED") {
+    if (partySize > snapshot.maxPartySize) {
+      return "PARTY_SIZE_NOT_ALLOWED";
+    }
+
+    return "EVENT_FULL";
   }
 
-  return "EVENT_FULL";
+  if (snapshot.status === "CLOSED" && snapshot.reservedSeats >= snapshot.capacity) {
+    return "EVENT_FULL";
+  }
+
+  return "EVENT_NOT_OPEN";
 }
