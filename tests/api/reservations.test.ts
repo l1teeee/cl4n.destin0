@@ -321,6 +321,49 @@ describe("POST /api/reservations", () => {
     expect(state.rows[0]!.count).toBe(0);
   });
 
+  it.each(["replay lookup", "rate limiter"] as const)(
+    "returns TRY_AGAIN when the %s times out waiting for a pool connection",
+    async (failureSource) => {
+      const poolTimeout = new Error("timeout exceeded when trying to connect");
+      const failingRepository: ReservationAllocationRepository = {
+        async findCompletedIdempotencyRecord() {
+          if (failureSource === "replay lookup") throw poolTimeout;
+          return null;
+        },
+        async allocate() {
+          throw new Error("allocation should not run");
+        },
+        async cancelReservation() {
+          return "NOT_FOUND";
+        },
+      };
+      const rateLimiter = {
+        consume: vi.fn(async () => {
+          if (failureSource === "rate limiter") throw poolTimeout;
+          return { allowed: true, retryAfterSeconds: 0 };
+        }),
+      };
+      const captureException = vi.fn();
+      const setup = dependencies({
+        repository: failingRepository,
+        rateLimiter,
+        observability: { log, captureException },
+      });
+
+      const response = await setup.handler(request(reservationBody("pool-timeout-event", 155)));
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("1");
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "TRY_AGAIN" } });
+      expect(captureException).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith(
+        "warn",
+        "reservation_submission_retryable",
+        expect.objectContaining({ outcome: "TRY_AGAIN", code: "POOL_CONNECTION_TIMEOUT" }),
+      );
+    },
+  );
+
   it("returns a sanitized 500, logs it and captures the exception", async () => {
     const event = await insertTestEvent(pool);
     const internalMessage = "relation secrets does not exist at SQL line 42";

@@ -17,6 +17,7 @@ const serverEnvSchema = z
   .object({
     ...databaseEnvFields,
     APP_ENV: z.enum(["local", "test", "preview", "production"]),
+    VERCEL: z.string().optional(),
     VERCEL_ENV: z.enum(["production", "preview", "development"]).optional(),
     DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
     APP_SECRET: z.string().min(32),
@@ -42,6 +43,14 @@ const serverEnvSchema = z
       preview: "preview",
       development: "local",
     } as const;
+
+    if (value.VERCEL !== undefined && !value.VERCEL_ENV) {
+      context.addIssue({
+        code: "custom",
+        path: ["VERCEL_ENV"],
+        message: "is required when VERCEL is set",
+      });
+    }
 
     if (value.VERCEL_ENV && value.APP_ENV !== expectedAppEnvironment[value.VERCEL_ENV]) {
       context.addIssue({

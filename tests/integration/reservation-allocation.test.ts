@@ -338,6 +338,7 @@ describe("reservation allocation repository", () => {
     ["pool connect timeout", new Error("timeout exceeded when trying to connect")],
     ["connection refused", Object.assign(new Error("refused"), { code: "ECONNREFUSED" })],
     ["connection reset", Object.assign(new Error("reset"), { code: "ECONNRESET" })],
+    ["connection timeout", Object.assign(new Error("timed out"), { code: "ETIMEDOUT" })],
     ["too many connections", Object.assign(new Error("too many"), { code: "53300" })],
     ["admin shutdown", Object.assign(new Error("shutdown"), { code: "57P01" })],
     ["crash shutdown", Object.assign(new Error("crash"), { code: "57P02" })],

@@ -97,6 +97,12 @@ describe("parseServerEnv", () => {
     );
   });
 
+  it("requires VERCEL_ENV when VERCEL is set", () => {
+    expect(() => parseServerEnv({ ...validProductionEnvironment, VERCEL: "1" })).toThrow(
+      /VERCEL_ENV[\s\S]*VERCEL/,
+    );
+  });
+
   it.each([
     ["production", "preview"],
     ["preview", "production"],

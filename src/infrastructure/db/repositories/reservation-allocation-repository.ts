@@ -13,6 +13,7 @@ import type {
 import { classifyAllocationFailure } from "@/domain/reservation/allocation-failure";
 
 import { pool as applicationPool } from "../client";
+import { retryableDatabaseErrorCode } from "../retryable-database-error";
 
 interface DatabaseError {
   code?: string;
@@ -42,19 +43,6 @@ interface AcquiredEventRow {
   accepted_at: Date;
 }
 
-const retryableDatabaseCodes = new Set([
-  "55P03",
-  "57014",
-  "40P01",
-  "40001",
-  "53300",
-  "57P01",
-  "57P02",
-  "57P03",
-  "ECONNREFUSED",
-  "ECONNRESET",
-  "ETIMEDOUT",
-]);
 const duplicateConstraints = new Set([
   "reservations_one_confirmed_per_email_uq",
   "reservations_one_confirmed_per_phone_uq",
@@ -62,23 +50,6 @@ const duplicateConstraints = new Set([
 
 function databaseError(error: unknown): DatabaseError {
   return typeof error === "object" && error !== null ? (error as DatabaseError) : {};
-}
-
-function isRetryableDatabaseError(error: unknown): boolean {
-  const details = databaseError(error);
-  if (details.code && retryableDatabaseCodes.has(details.code)) {
-    return true;
-  }
-
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("connection timeout") ||
-    message.includes("timeout exceeded when trying to connect")
-  );
 }
 
 async function rollback(client: PoolClient): Promise<void> {
@@ -385,7 +356,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         };
       }
 
-      if (isRetryableDatabaseError(error)) {
+      if (retryableDatabaseErrorCode(error)) {
         return {
           ...command.mapOutcome({ code: "TRY_AGAIN" }),
           replayed: false,

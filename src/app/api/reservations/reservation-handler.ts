@@ -3,10 +3,15 @@ import { randomUUID } from "node:crypto";
 import type { SubmitReservationDependencies } from "@/application/reservations/submit-reservation";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { mapReservationOutcome } from "@/application/reservations/reservation-response";
+import { retryableDatabaseErrorCode } from "@/infrastructure/db/retryable-database-error";
 import { getRateLimitSubject, getRawClientIp } from "@/infrastructure/http/client-ip";
 
 interface HandlerObservability {
-  log(level: "info" | "error", message: string, fields: Record<string, string | number>): void;
+  log(
+    level: "info" | "warn" | "error",
+    message: string,
+    fields: Record<string, string | number>,
+  ): void;
   captureException?(error: unknown): void;
 }
 
@@ -166,6 +171,21 @@ export function createReservationHandler(dependencies: ReservationHandlerDepende
         retryAfterSeconds: result.retryAfterSeconds,
       });
     } catch (error) {
+      const retryableCode = retryableDatabaseErrorCode(error);
+      if (retryableCode) {
+        dependencies.observability.log("warn", "reservation_submission_retryable", {
+          requestId,
+          route: "/api/reservations",
+          outcome: "TRY_AGAIN",
+          code: retryableCode,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        const retryable = mapReservationOutcome({ code: "TRY_AGAIN", retryAfterSeconds: 1 });
+        return jsonResponse(retryable.status, retryable.body, {
+          retryAfterSeconds: retryable.retryAfterSeconds,
+        });
+      }
+
       dependencies.observability.log("error", "reservation_submission_failed", {
         requestId,
         route: "/api/reservations",
