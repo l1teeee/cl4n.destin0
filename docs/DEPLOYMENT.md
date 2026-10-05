@@ -18,7 +18,7 @@ Topology and rationale: `docs/architecture/ADR-001-architecture.md` sections 4 a
 
 | Input | Why | Who |
 |---|---|---|
-| Production hostname | Turnstile hostname check and Vercel domain | Owner: the default `*.vercel.app` or a custom domain |
+| Production hostname | Turnstile hostname check and Vercel domain | **Decided 2026-10-05: the default Vercel domain (`<project>.vercel.app`), no custom domain for now.** The exact hostname is known once the Vercel project exists, and the owner creates the Turnstile widget for it. |
 | Cloudflare Turnstile site key + secret key | Real bot protection. Test keys are rejected in production by env validation. | Owner creates a **Managed** widget for the production hostname at dash.cloudflare.com, then Turnstile |
 | First production admin (email, display name) | Admin access | Owner. The password is typed by the owner into `npm run admin:create` and never sent in chat. |
 | Plans | Vercel Hobby is for non-commercial use only. Railway Pro is needed for scheduled backups / PITR if gated by plan. | Owner decision |
