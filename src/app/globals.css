@@ -79,6 +79,28 @@ textarea {
   animation: public-fade 4.2s ease-out both;
 }
 
+.public-pointer-light {
+  position: fixed;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  width: 56rem;
+  height: 56rem;
+  margin: -28rem 0 0 -28rem;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fffbf40f, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(var(--light-x, 50vw), var(--light-y, 35vh), 0);
+  transition:
+    opacity 700ms ease,
+    transform 450ms var(--public-ease);
+}
+
+.public-pointer-light[data-visible="true"] {
+  opacity: 1;
+}
+
 .public-header {
   display: flex;
   align-items: center;
@@ -95,11 +117,10 @@ textarea {
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  transition: opacity 300ms ease;
 }
 
-.public-header-brand:focus-visible {
-  opacity: 0.7;
+.public-header-brand:focus-visible .public-header-mark {
+  animation: public-blink 420ms ease-in-out;
 }
 
 .public-header-mark {
@@ -122,6 +143,7 @@ textarea {
 .concept-links a {
   position: relative;
   padding-block: 0.35rem;
+  transition: opacity 300ms ease;
 }
 
 .public-nav a::after,
@@ -161,6 +183,17 @@ textarea {
   height: auto;
   aspect-ratio: 100 / 104;
   margin-bottom: 1.5rem;
+}
+
+.public-home-mark .brand-mark-pupil {
+  transform: translate(calc(var(--pupil-x, 0) * 8px), calc(var(--pupil-y, 0) * 9px));
+  transition: transform 600ms var(--public-ease);
+}
+
+@media (hover: none) {
+  .public-home-mark .brand-mark-pupil {
+    animation: public-glance 10s ease-in-out 2s infinite;
+  }
 }
 
 .public-eyebrow {
@@ -205,11 +238,15 @@ textarea {
   line-height: 1;
   text-decoration: underline;
   text-underline-offset: 0.1em;
-  transition: text-underline-offset 300ms var(--public-ease);
+  transition:
+    text-underline-offset 300ms var(--public-ease),
+    text-shadow 400ms ease;
 }
 
-.public-reserve-link:focus-visible {
+.public-reserve-link:focus-visible,
+.public-reserve-link:active {
   text-underline-offset: 0.22em;
+  text-shadow: 0 0 1.25rem #fffbf466;
 }
 
 .concept-page {
@@ -304,6 +341,12 @@ textarea {
   display: block;
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
+  opacity: 0.7;
+  transition: opacity 250ms ease;
+}
+
+.reservation-form div:focus-within > label {
+  opacity: 1;
 }
 
 .reservation-input {
@@ -372,12 +415,15 @@ textarea.reservation-input {
   cursor: pointer;
   transition:
     background-color 250ms ease,
-    color 250ms ease;
+    color 250ms ease,
+    box-shadow 400ms ease;
 }
 
-.reservation-submit:focus-visible:not(:disabled) {
+.reservation-submit:focus-visible:not(:disabled),
+.reservation-submit:active:not(:disabled) {
   background: transparent;
   color: var(--clan-foreground);
+  box-shadow: 0 0 2rem #fffbf426;
 }
 
 .reservation-submit:disabled {
@@ -403,7 +449,7 @@ textarea.reservation-input {
   font-size: 2rem;
 }
 
-.public-home > :not(.public-home-mark),
+.public-home > :not(.public-home-mark, h1),
 .concept-copy > *,
 .reservation-intro > *,
 .reservation-form,
@@ -415,6 +461,12 @@ textarea.reservation-input {
 .public-home-mark,
 .concept-visual {
   animation: public-fade 800ms ease-out backwards;
+}
+
+.public-home > h1,
+.reservation-intro > h1,
+.concept-copy > h1 {
+  animation: public-emerge 1100ms var(--public-ease) backwards;
 }
 
 .public-home > :nth-child(2),
@@ -452,6 +504,36 @@ textarea.reservation-input {
   }
 }
 
+@keyframes public-emerge {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes public-glance {
+  0%,
+  30% {
+    transform: translate(0);
+  }
+  38%,
+  52% {
+    transform: translate(-6px, 2px);
+  }
+  60%,
+  74% {
+    transform: translate(6px, -1px);
+  }
+  82%,
+  100% {
+    transform: translate(0);
+  }
+}
+
 @keyframes public-fade {
   from {
     opacity: 0;
@@ -461,9 +543,24 @@ textarea.reservation-input {
   }
 }
 
+@keyframes public-blink {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  45% {
+    transform: scaleY(0.1);
+  }
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .public-header-brand:hover {
-    opacity: 0.7;
+  .public-header-brand:hover .public-header-mark {
+    animation: public-blink 420ms ease-in-out;
+  }
+
+  .public-nav:has(a:hover) a:not(:hover),
+  .concept-links:has(a:hover) a:not(:hover) {
+    opacity: 0.45;
   }
 
   .public-nav a:hover::after,
@@ -474,11 +571,17 @@ textarea.reservation-input {
 
   .public-reserve-link:hover {
     text-underline-offset: 0.22em;
+    text-shadow: 0 0 1.25rem #fffbf466;
+  }
+
+  .reservation-input:hover:not(:disabled, :focus) {
+    border-color: #b9b7b0;
   }
 
   .reservation-submit:hover:not(:disabled) {
     background: transparent;
     color: var(--clan-foreground);
+    box-shadow: 0 0 2rem #fffbf426;
   }
 }
 
