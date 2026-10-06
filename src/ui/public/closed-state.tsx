@@ -10,7 +10,7 @@ export function ClosedState({ soldOut = false }: ClosedStateProps) {
       <p>
         {soldOut
           ? "Los cupos para esta experiencia se agotaron."
-          : "No hay una experiencia disponible en este momento."}
+          : "Todavía no hay fecha. Cuando la haya, lo sabrás."}
       </p>
     </main>
   );
