@@ -31,7 +31,7 @@ No event available:
 ```
 CLANDESTINO
 EL CLAN ESTÁ CERRADO
-No hay una experiencia disponible en este momento.
+Todavía no hay fecha. Cuando la haya, lo sabrás.
 ```
 
 Event active:
@@ -191,5 +191,5 @@ Target flow: `npm install`, `cp .env.example .env.local`, database setup, `npm r
 
 ## Demo data (local only)
 
-- Event: "Cena Clandestino Demo", status OPEN, capacity 20, max party size 2.
+- Event: "Cena Clandestino Demo", status DRAFT (hidden until an admin publishes or opens it), capacity 20, max party size 2.
 - A development admin account with safe local credentials, documented, and never reused in production.

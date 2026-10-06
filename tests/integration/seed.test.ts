@@ -30,6 +30,7 @@ describe("local seed", () => {
       admin_count: number;
       event_count: number;
       event_id: string;
+      status: string;
       opens_at: Date;
       closes_at: Date;
       starts_at: Date;
@@ -38,6 +39,7 @@ describe("local seed", () => {
          (SELECT count(*)::int FROM admin_users WHERE email_normalized = 'admin@clandestino.local') AS admin_count,
          (SELECT count(*)::int FROM events WHERE slug = 'cena-clandestino-demo') AS event_count,
          e.id AS event_id,
+         e.status,
          e.opens_at,
          e.closes_at,
          e.starts_at
@@ -45,12 +47,20 @@ describe("local seed", () => {
        WHERE e.slug = 'cena-clandestino-demo'`,
     );
     expect(first.rows[0]).toMatchObject({ admin_count: 1, event_count: 1 });
+    expect(first.rows[0]!.status).toBe("DRAFT");
     expect(first.rows[0]!.closes_at.getTime() - first.rows[0]!.opens_at.getTime()).toBe(
       14 * 86_400_000 + 3_600_000,
     );
     expect(first.rows[0]!.starts_at.getTime() - first.rows[0]!.closes_at.getTime()).toBe(
       86_400_000,
     );
+    const auditLog = await pool.query<{ action: string; status: string }>(
+      `SELECT action, metadata->>'status' AS status
+       FROM audit_logs
+       WHERE entity_type = 'EVENT' AND entity_id = $1`,
+      [first.rows[0]!.event_id],
+    );
+    expect(auditLog.rows).toEqual([{ action: "EVENT_CREATED", status: "DRAFT" }]);
 
     await seedDatabase(databaseUrl, log);
     const second = await pool.query<{

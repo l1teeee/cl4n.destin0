@@ -59,7 +59,7 @@ production.
 - Admin email: `admin@clandestino.local`
 - Admin password: `ClandestinoLocal-2026`
 - Demo event slug: `cena-clandestino-demo`
-- Demo event: capacity 20, maximum party size 2, open for 14 days after seeding
+- Demo event: capacity 20, maximum party size 2, created as a hidden draft. Press "Publicar" or "Abrir ahora" in the admin to make it public.
 
 Running `npm run db:seed` again preserves the existing local admin and demo event.
 

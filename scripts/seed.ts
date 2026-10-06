@@ -76,7 +76,7 @@ export async function seedDatabase(
          db_clock.db_now - INTERVAL '1 hour',
          db_clock.db_now + INTERVAL '14 days',
          false,
-         'SCHEDULED'
+         'DRAFT'
        FROM db_clock
        WHERE NOT EXISTS (SELECT 1 FROM events WHERE slug = $1)
        RETURNING id`,
@@ -93,7 +93,7 @@ export async function seedDatabase(
            entity_id,
            metadata
          )
-         VALUES ('ADMIN', $1, 'EVENT_CREATED', 'EVENT', $2, '{"status":"SCHEDULED"}')`,
+         VALUES ('ADMIN', $1, 'EVENT_CREATED', 'EVENT', $2, '{"status":"DRAFT"}')`,
         [adminId, eventId],
       );
       log(`Se creó el evento de demostración ${DEMO_EVENT_SLUG}.`);
