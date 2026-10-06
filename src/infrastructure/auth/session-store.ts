@@ -9,6 +9,7 @@ import type {
 import type { AdminRole, AdminSession, AdminUser } from "@/application/auth/types";
 
 import { pool as applicationPool } from "../db/client";
+import { inTransaction, rollbackTransaction } from "../db/transaction";
 
 const ABSOLUTE_LIFETIME_HOURS = 12;
 export const ADMIN_SESSION_IDLE_TIMEOUT_HOURS = 2;
@@ -67,22 +68,25 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
       : null;
   }
 
-  async createSession(adminId: string): Promise<CreatedAdminSession> {
+  createSession(
+    adminId: string,
+    verifiedPasswordHash: string,
+  ): Promise<CreatedAdminSession | null> {
     const token = generateSessionToken();
     const tokenHash = hashSessionToken(token);
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
+    return inTransaction<CreatedAdminSession | null>(this.pool, [], async (client) => {
       const admin = await client.query<AdminUserRow>(
         `SELECT id, email_normalized, display_name, password_hash, role, is_active
            FROM admin_users
-          WHERE id = $1 AND is_active = true
-          FOR UPDATE`,
-        [adminId],
+          WHERE id = $1
+            AND password_hash = $2
+            AND is_active = true
+          FOR NO KEY UPDATE`,
+        [adminId, verifiedPasswordHash],
       );
       const row = admin.rows[0];
       if (!row) {
-        throw new Error("No se encontró un administrador activo");
+        return rollbackTransaction(null);
       }
 
       await client.query(
@@ -127,7 +131,6 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
          VALUES ('ADMIN', $1, 'ADMIN_SIGNED_IN', 'ADMIN_USER', $1, '{}'::jsonb)`,
         [adminId],
       );
-      await client.query("COMMIT");
       return {
         token,
         admin: {
@@ -138,12 +141,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
         },
         expiresAt: inserted.rows[0]!.expires_at,
       };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async validateSession(token: string): Promise<AdminSession | null> {

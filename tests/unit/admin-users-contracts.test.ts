@@ -79,7 +79,12 @@ describe("admin user contracts", () => {
       "El identificador no es válido.",
     );
     expect(
-      updateAdminUserSchema.safeParse({ id, displayName: "Admin", role: "SUPER_ADMIN" }).success,
+      updateAdminUserSchema.safeParse({
+        id,
+        displayName: "Admin",
+        role: "SUPER_ADMIN",
+        expectedRole: "ADMIN",
+      }).success,
     ).toBe(true);
     expect(
       firstMessage(
@@ -106,5 +111,19 @@ describe("admin user contracts", () => {
         newPasswordConfirmation: "una-clave-segura-1",
       }).success,
     ).toBe(true);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["invalid", "OWNER"],
+  ])("rejects a %s expected role", (_case, expectedRole) => {
+    expect(
+      updateAdminUserSchema.safeParse({
+        id,
+        displayName: "Admin",
+        role: "ADMIN",
+        ...(expectedRole === undefined ? {} : { expectedRole }),
+      }).success,
+    ).toBe(false);
   });
 });

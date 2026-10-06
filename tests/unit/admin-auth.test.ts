@@ -44,6 +44,32 @@ describe("password hashing", () => {
 });
 
 describe("signIn", () => {
+  it("rejects a session invalidated after password verification and passes the verified hash", async () => {
+    const admin: AdminUser = {
+      id: "admin-id",
+      emailNormalized: "admin@example.com",
+      displayName: "Admin",
+      passwordHash: "verified-hash",
+      role: "ADMIN",
+      isActive: true,
+    };
+    const repo = repository(admin);
+    vi.mocked(repo.createSession).mockResolvedValue(null);
+
+    const result = await signIn(
+      { email: admin.emailNormalized, password: "valid-password", clientIp: "local" },
+      {
+        repository: repo,
+        consumeRateLimit: allowedRateLimit,
+        passwordVerifier: vi.fn().mockResolvedValue(true),
+        dummyPasswordHash: DUMMY_PASSWORD_HASH,
+      },
+    );
+
+    expect(result).toEqual({ ok: false, error: "INVALID_CREDENTIALS" });
+    expect(repo.createSession).toHaveBeenCalledWith(admin.id, admin.passwordHash);
+  });
+
   it.each([
     ["unknown", null],
     [

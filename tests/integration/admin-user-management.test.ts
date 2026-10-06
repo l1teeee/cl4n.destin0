@@ -179,6 +179,7 @@ describe("admin user updates", () => {
       id: target.id,
       displayName: "  Promovido ",
       role: "SUPER_ADMIN",
+      expectedRole: "ADMIN",
     });
     expect(promoted).toMatchObject({
       ok: true,
@@ -188,6 +189,7 @@ describe("admin user updates", () => {
       id: target.id,
       displayName: "Promovido",
       role: "SUPER_ADMIN",
+      expectedRole: "SUPER_ADMIN",
     });
 
     expect(await auditRows(target.id)).toEqual([
@@ -200,11 +202,46 @@ describe("admin user updates", () => {
     ]);
   });
 
+  it("rejects a stale role without changing the user or audit log", async () => {
+    const actor = await insertAdmin("SUPER_ADMIN");
+    const target = await insertAdmin("SUPER_ADMIN");
+
+    await expect(
+      updateAdminUser(dependencies, actor, {
+        id: target.id,
+        displayName: "Admin de prueba",
+        role: "ADMIN",
+        expectedRole: "SUPER_ADMIN",
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    const auditBefore = await auditRows(target.id);
+
+    await expect(
+      updateAdminUser(dependencies, actor, {
+        id: target.id,
+        displayName: "Nombre obsoleto",
+        role: "SUPER_ADMIN",
+        expectedRole: "SUPER_ADMIN",
+      }),
+    ).resolves.toEqual({ ok: false, error: "ROLE_CHANGED" });
+
+    await expect(users.findById(target.id)).resolves.toMatchObject({
+      displayName: "Admin de prueba",
+      role: "ADMIN",
+    });
+    await expect(auditRows(target.id)).resolves.toEqual(auditBefore);
+  });
+
   it("blocks self-demotion and self-deactivation but allows renaming yourself", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
 
     await expect(
-      updateAdminUser(dependencies, actor, { id: actor.id, displayName: "Yo", role: "ADMIN" }),
+      updateAdminUser(dependencies, actor, {
+        id: actor.id,
+        displayName: "Yo",
+        role: "ADMIN",
+        expectedRole: "SUPER_ADMIN",
+      }),
     ).resolves.toEqual({ ok: false, error: "SELF_ACTION" });
     await expect(users.deactivate(actor.id, actor.id)).resolves.toEqual({
       ok: false,
@@ -215,6 +252,7 @@ describe("admin user updates", () => {
         id: actor.id,
         displayName: "Nuevo nombre",
         role: "SUPER_ADMIN",
+        expectedRole: "SUPER_ADMIN",
       }),
     ).resolves.toMatchObject({ ok: true, value: { displayName: "Nuevo nombre" } });
   });
@@ -224,7 +262,12 @@ describe("admin user updates", () => {
     const unknown = randomUUID();
 
     await expect(
-      updateAdminUser(dependencies, actor, { id: unknown, displayName: "X", role: "ADMIN" }),
+      updateAdminUser(dependencies, actor, {
+        id: unknown,
+        displayName: "X",
+        role: "ADMIN",
+        expectedRole: "ADMIN",
+      }),
     ).resolves.toEqual({ ok: false, error: "NOT_FOUND" });
     await expect(deactivateAdminUser(dependencies, actor, unknown)).resolves.toEqual({
       ok: false,
@@ -243,7 +286,7 @@ describe("admin user updates", () => {
   it("removes super-admin access from a demoted admin on the next request", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("SUPER_ADMIN");
-    const session = await auth.createSession(target.id);
+    const session = (await auth.createSession(target.id, initialHash))!;
 
     await expect(authorizeSuperAdminSession(session.token, auth)).resolves.toMatchObject({
       authorized: true,
@@ -252,6 +295,7 @@ describe("admin user updates", () => {
       id: target.id,
       displayName: "Admin de prueba",
       role: "ADMIN",
+      expectedRole: "SUPER_ADMIN",
     });
 
     await expect(authorizeSuperAdminSession(session.token, auth)).resolves.toEqual({
@@ -273,8 +317,8 @@ describe("admin access lifecycle", () => {
   it("deactivation revokes sessions and blocks sign-in until reactivated", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("ADMIN");
-    const first = await auth.createSession(target.id);
-    const second = await auth.createSession(target.id);
+    const first = (await auth.createSession(target.id, initialHash))!;
+    const second = (await auth.createSession(target.id, initialHash))!;
 
     await expect(deactivateAdminUser(dependencies, actor, target.id)).resolves.toEqual({
       ok: true,
@@ -310,7 +354,7 @@ describe("admin access lifecycle", () => {
   it("password reset replaces the hash and closes the target's sessions", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("ADMIN");
-    const session = await auth.createSession(target.id);
+    const session = (await auth.createSession(target.id, initialHash))!;
 
     await expect(
       resetAdminPassword(dependencies, actor, { id: target.id, password: "clave-restablecida-1" }),
@@ -331,8 +375,8 @@ describe("admin access lifecycle", () => {
   it("revokes every session of another admin", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("ADMIN");
-    const first = await auth.createSession(target.id);
-    const second = await auth.createSession(target.id);
+    const first = (await auth.createSession(target.id, initialHash))!;
+    const second = (await auth.createSession(target.id, initialHash))!;
 
     await expect(revokeAdminSessions(dependencies, actor, target.id)).resolves.toEqual({
       ok: true,
@@ -348,7 +392,7 @@ describe("admin access lifecycle", () => {
 
   it("lists admins with role, status and active session counts", async () => {
     const target = await insertAdmin("ADMIN");
-    await auth.createSession(target.id);
+    await auth.createSession(target.id, initialHash);
     const listed = (await listAdminUsers(users)).find((admin) => admin.id === target.id);
 
     expect(listed).toMatchObject({
@@ -363,8 +407,8 @@ describe("admin access lifecycle", () => {
 describe("own password change", () => {
   it("keeps the current session, closes the others and audits", async () => {
     const admin = await insertAdmin("ADMIN");
-    const current = await auth.createSession(admin.id);
-    const other = await auth.createSession(admin.id);
+    const current = (await auth.createSession(admin.id, initialHash))!;
+    const other = (await auth.createSession(admin.id, initialHash))!;
     const currentSession = await auth.validateSession(current.token);
 
     await expect(
@@ -392,7 +436,7 @@ describe("own password change", () => {
 
   it("rate-limits attempts after five tries", async () => {
     const admin = await insertAdmin("ADMIN");
-    const session = await auth.createSession(admin.id);
+    const session = (await auth.createSession(admin.id, initialHash))!;
     const sessionId = (await auth.validateSession(session.token))!.id;
     const outcomes = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {

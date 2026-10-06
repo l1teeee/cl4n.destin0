@@ -66,7 +66,7 @@ async function signedInAdmin(role: AdminRole) {
     [email, initialHash, role],
   );
   const id = inserted.rows[0]!.id;
-  authState.token = (await postgresAdminAuthRepository.createSession(id)).token;
+  authState.token = (await postgresAdminAuthRepository.createSession(id, initialHash))!.token;
   return { id, email };
 }
 
@@ -147,6 +147,7 @@ describe("user management actions", () => {
     const form = new FormData();
     form.set("displayName", "Yo");
     form.set("role", "ADMIN");
+    form.set("expectedRole", "SUPER_ADMIN");
 
     await expect(updateAdminUserAction(self.id, initialState, form)).resolves.toEqual({
       ok: false,
@@ -155,6 +156,32 @@ describe("user management actions", () => {
     await expect(deactivateAdminUserAction(self.id, initialState, new FormData())).resolves.toEqual(
       { ok: false, message: "No puedes desactivar tu propia cuenta." },
     );
+  });
+
+  it("reports a stale role and leaves the target unchanged", async () => {
+    await signedInAdmin("SUPER_ADMIN");
+    const email = `${randomUUID()}@example.com`;
+    const inserted = await pool.query<{ id: string }>(
+      `INSERT INTO admin_users (email, email_normalized, password_hash, display_name, role)
+       VALUES ($1, $1, $2, 'Actual', 'ADMIN')
+       RETURNING id`,
+      [email, initialHash],
+    );
+    const form = new FormData();
+    form.set("displayName", "Obsoleto");
+    form.set("role", "SUPER_ADMIN");
+    form.set("expectedRole", "SUPER_ADMIN");
+
+    await expect(updateAdminUserAction(inserted.rows[0]!.id, initialState, form)).resolves.toEqual({
+      ok: false,
+      message:
+        "El rol de este administrador cambió mientras editabas. Recarga la página e inténtalo de nuevo.",
+    });
+    await expect(
+      pool.query("SELECT display_name, role FROM admin_users WHERE id = $1", [
+        inserted.rows[0]!.id,
+      ]),
+    ).resolves.toMatchObject({ rows: [{ display_name: "Actual", role: "ADMIN" }] });
   });
 
   it("lets any admin change their own password", async () => {

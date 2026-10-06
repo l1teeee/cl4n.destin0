@@ -23,6 +23,7 @@ import { canTransition } from "@/domain/event/event-lifecycle";
 import { availableSeats, derivePhase, type EventLifecycleStatus } from "@/domain/event/event-phase";
 
 import { pool as applicationPool } from "../client";
+import { inTransaction as runInTransaction } from "../transaction";
 
 interface EventRow extends QueryResultRow {
   id: string;
@@ -119,19 +120,7 @@ function isSlugViolation(error: unknown): boolean {
 }
 
 async function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
-    const result = await work(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  return runInTransaction(pool, ["SET LOCAL idle_in_transaction_session_timeout = '5s'"], work);
 }
 
 async function insertAudit(

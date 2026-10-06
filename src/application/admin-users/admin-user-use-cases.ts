@@ -52,6 +52,7 @@ export interface UpdateAdminUserInput {
   id: string;
   displayName: string;
   role: AdminRole;
+  expectedRole: AdminRole;
 }
 
 export interface ResetAdminPasswordInput {
@@ -122,6 +123,7 @@ export async function updateAdminUser(
     id: input.id,
     displayName: input.displayName.trim(),
     role: input.role,
+    expectedRole: input.expectedRole,
   });
 }
 

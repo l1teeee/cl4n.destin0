@@ -61,8 +61,18 @@ describe("admin user concurrency", () => {
     for (let round = 0; round < ITERATIONS; round += 1) {
       const [first, second] = await freshSuperAdminPair();
       const results = await Promise.all([
-        users.update(first, { id: second, displayName: "Admin", role: "ADMIN" }),
-        users.update(second, { id: first, displayName: "Admin", role: "ADMIN" }),
+        users.update(first, {
+          id: second,
+          displayName: "Admin",
+          role: "ADMIN",
+          expectedRole: "SUPER_ADMIN",
+        }),
+        users.update(second, {
+          id: first,
+          displayName: "Admin",
+          role: "ADMIN",
+          expectedRole: "SUPER_ADMIN",
+        }),
       ]);
 
       expect(summarize(results)).toEqual({ succeeded: 1, errors: ["FORBIDDEN"] });
@@ -88,7 +98,12 @@ describe("admin user concurrency", () => {
       const [first, second] = await freshSuperAdminPair();
       const results = await Promise.all([
         users.deactivate(first, second),
-        users.update(second, { id: first, displayName: "Admin", role: "ADMIN" }),
+        users.update(second, {
+          id: first,
+          displayName: "Admin",
+          role: "ADMIN",
+          expectedRole: "SUPER_ADMIN",
+        }),
       ]);
 
       expect(summarize(results).succeeded).toBe(1);
@@ -133,5 +148,80 @@ describe("admin user concurrency", () => {
     ]);
 
     expect(summarize(results)).toEqual({ succeeded: 1, errors: ["INVALID_CURRENT_PASSWORD"] });
+  });
+
+  it("allows an audit foreign key check while the repository holds super-admin locks", async () => {
+    const [actor, target] = await freshSuperAdminPair();
+    const advisoryLockId = 847_521_903;
+    const applicationName = `admin-lock-test-${randomUUID()}`;
+    const repositoryUrl = testDatabaseUrl();
+    repositoryUrl.searchParams.set("application_name", applicationName);
+    const repositoryPool = new Pool({ connectionString: repositoryUrl.toString(), max: 1 });
+    const repository = new PostgresAdminUserRepository(repositoryPool);
+    const blocker = await pool.connect();
+
+    await pool.query(`
+      CREATE FUNCTION test_pause_admin_update() RETURNS trigger AS $$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(${advisoryLockId});
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER test_pause_admin_update
+      BEFORE UPDATE ON admin_users
+      FOR EACH ROW EXECUTE FUNCTION test_pause_admin_update();
+    `);
+    await blocker.query("SELECT pg_advisory_lock($1)", [advisoryLockId]);
+
+    const update = repository.update(actor, {
+      id: target,
+      displayName: "Admin actualizado",
+      role: "ADMIN",
+      expectedRole: "SUPER_ADMIN",
+    });
+
+    try {
+      await expect
+        .poll(
+          async () => {
+            const activity = await pool.query<{ wait_event: string | null }>(
+              `SELECT wait_event
+                 FROM pg_stat_activity
+                WHERE application_name = $1
+                  AND state = 'active'`,
+              [applicationName],
+            );
+            return activity.rows[0]?.wait_event;
+          },
+          { timeout: 2_000, interval: 20 },
+        )
+        .toBe("advisory");
+
+      const inserter = await pool.connect();
+      try {
+        await inserter.query("BEGIN");
+        await inserter.query("SET LOCAL lock_timeout = '1s'");
+        await inserter.query(
+          `INSERT INTO audit_logs (
+             actor_type, actor_admin_id, action, entity_type, entity_id, metadata
+           )
+           VALUES ('ADMIN', $1, 'ADMIN_SIGNED_IN', 'ADMIN_USER', $1, '{}'::jsonb)`,
+          [actor],
+        );
+        await inserter.query("COMMIT");
+      } catch (error) {
+        await inserter.query("ROLLBACK");
+        throw error;
+      } finally {
+        inserter.release();
+      }
+    } finally {
+      await blocker.query("SELECT pg_advisory_unlock($1)", [advisoryLockId]);
+      blocker.release();
+      await update;
+      await pool.query("DROP TRIGGER test_pause_admin_update ON admin_users");
+      await pool.query("DROP FUNCTION test_pause_admin_update()");
+      await repositoryPool.end();
+    }
   });
 });

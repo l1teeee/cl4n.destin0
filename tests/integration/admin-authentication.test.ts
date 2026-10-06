@@ -31,15 +31,16 @@ afterAll(async () => {
 
 async function insertAdmin(options: { active?: boolean; password?: string } = {}) {
   const email = `${randomUUID()}@example.com`;
+  const passwordHash = await hashPassword(options.password ?? "valid-password-123");
   const result = await pool.query<{ id: string }>(
     `INSERT INTO admin_users (
        email, email_normalized, password_hash, display_name, is_active
      )
      VALUES ($1, $1, $2, 'Admin de prueba', $3)
      RETURNING id`,
-    [email, await hashPassword(options.password ?? "valid-password-123"), options.active ?? true],
+    [email, passwordHash, options.active ?? true],
   );
-  return { id: result.rows[0]!.id, email };
+  return { id: result.rows[0]!.id, email, passwordHash };
 }
 
 function realSignIn(email: string, password: string, clientIp: string = randomUUID()) {
@@ -113,6 +114,60 @@ describe("admin sign-in", () => {
   });
 });
 
+describe("session creation preconditions", () => {
+  it("returns null without a session or audit when the verified password hash changed", async () => {
+    const admin = await insertAdmin();
+    await pool.query("UPDATE admin_users SET password_hash = $2 WHERE id = $1", [
+      admin.id,
+      await hashPassword("replacement-password-123"),
+    ]);
+
+    await expect(repository.createSession(admin.id, admin.passwordHash)).resolves.toBeNull();
+    await expect(
+      pool.query("SELECT 1 FROM admin_sessions WHERE admin_user_id = $1", [admin.id]),
+    ).resolves.toMatchObject({ rowCount: 0 });
+    await expect(
+      pool.query(
+        "SELECT 1 FROM audit_logs WHERE actor_admin_id = $1 AND action = 'ADMIN_SIGNED_IN'",
+        [admin.id],
+      ),
+    ).resolves.toMatchObject({ rowCount: 0 });
+  });
+
+  it("returns null without a session or audit when the admin was deactivated", async () => {
+    const admin = await insertAdmin();
+    await pool.query("UPDATE admin_users SET is_active = false WHERE id = $1", [admin.id]);
+
+    await expect(repository.createSession(admin.id, admin.passwordHash)).resolves.toBeNull();
+    await expect(
+      pool.query("SELECT 1 FROM admin_sessions WHERE admin_user_id = $1", [admin.id]),
+    ).resolves.toMatchObject({ rowCount: 0 });
+    await expect(
+      pool.query(
+        "SELECT 1 FROM audit_logs WHERE actor_admin_id = $1 AND action = 'ADMIN_SIGNED_IN'",
+        [admin.id],
+      ),
+    ).resolves.toMatchObject({ rowCount: 0 });
+  });
+
+  it("creates and audits a session with the current password hash", async () => {
+    const admin = await insertAdmin();
+
+    await expect(repository.createSession(admin.id, admin.passwordHash)).resolves.toMatchObject({
+      admin: { id: admin.id },
+    });
+    await expect(
+      pool.query("SELECT 1 FROM admin_sessions WHERE admin_user_id = $1", [admin.id]),
+    ).resolves.toMatchObject({ rowCount: 1 });
+    await expect(
+      pool.query(
+        "SELECT 1 FROM audit_logs WHERE actor_admin_id = $1 AND action = 'ADMIN_SIGNED_IN'",
+        [admin.id],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+  });
+});
+
 describe("session validation", () => {
   it("rejects missing and invalid tokens", async () => {
     await expect(authorizeAdminSession(undefined, repository)).resolves.toEqual({
@@ -127,7 +182,7 @@ describe("session validation", () => {
 
   it("rejects absolute expiry", async () => {
     const admin = await insertAdmin();
-    const session = await repository.createSession(admin.id);
+    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
     await pool.query(
       "UPDATE admin_sessions SET expires_at = clock_timestamp() - interval '1 second' WHERE admin_user_id = $1",
       [admin.id],
@@ -140,7 +195,7 @@ describe("session validation", () => {
 
   it("rejects idle expiry", async () => {
     const admin = await insertAdmin();
-    const session = await repository.createSession(admin.id);
+    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
     await pool.query(
       "UPDATE admin_sessions SET last_seen_at = clock_timestamp() - interval '2 hours 1 second' WHERE admin_user_id = $1",
       [admin.id],
@@ -150,7 +205,7 @@ describe("session validation", () => {
 
   it("rejects a session whose admin became inactive", async () => {
     const admin = await insertAdmin();
-    const session = await repository.createSession(admin.id);
+    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
     await pool.query("UPDATE admin_users SET is_active = false WHERE id = $1", [admin.id]);
     await expect(authorizeAdminSession(session.token, repository)).resolves.toEqual({
       authorized: false,
@@ -160,7 +215,7 @@ describe("session validation", () => {
 
   it("does not write before five minutes and refreshes only when due", async () => {
     const admin = await insertAdmin();
-    const created = await repository.createSession(admin.id);
+    const created = (await repository.createSession(admin.id, admin.passwordHash))!;
     const original = await pool.query<{ xmin: string; last_seen_at: Date }>(
       "SELECT xmin::text, last_seen_at FROM admin_sessions WHERE admin_user_id = $1",
       [admin.id],
@@ -196,7 +251,7 @@ describe("session validation", () => {
 
   it("deletes the session on sign-out", async () => {
     const admin = await insertAdmin();
-    const session = await repository.createSession(admin.id);
+    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
     await signOut(repository, session.token);
     await expect(repository.validateSession(session.token)).resolves.toBeNull();
   });
