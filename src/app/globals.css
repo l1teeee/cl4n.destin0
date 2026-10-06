@@ -141,27 +141,38 @@ textarea {
 
 .public-nav a,
 .concept-links a {
-  position: relative;
   padding-block: 0.35rem;
-  transition: opacity 300ms ease;
 }
 
-.public-nav a::after,
-.concept-links a::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 1px;
-  background: currentColor;
-  content: "";
-  transform: scaleX(0);
-  transform-origin: right;
-  transition: transform 400ms var(--public-ease);
+.rolling-label {
+  display: inline-grid;
+  overflow: hidden;
 }
 
-.public-nav a:focus-visible::after,
-.concept-links a:focus-visible::after {
-  transform: scaleX(1);
-  transform-origin: left;
+.rolling-label-line {
+  grid-area: 1 / 1;
+  transition:
+    transform 550ms var(--public-ease),
+    opacity 550ms ease,
+    filter 550ms ease;
+}
+
+.rolling-label-line:last-child {
+  opacity: 0;
+  filter: blur(3px);
+  transform: translateY(100%);
+}
+
+a:focus-visible .rolling-label-line:first-child {
+  opacity: 0;
+  filter: blur(3px);
+  transform: translateY(-100%);
+}
+
+a:focus-visible .rolling-label-line:last-child {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
 }
 
 .public-home {
@@ -293,12 +304,6 @@ textarea {
   gap: 1rem 2rem;
   margin-top: 0.5rem;
   font-size: 0.9rem;
-}
-
-.concept-links a::after {
-  opacity: 0.5;
-  transform: scaleX(0.25);
-  transform-origin: left;
 }
 
 .reservation-page {
@@ -458,9 +463,12 @@ textarea.reservation-input {
 }
 
 .public-header,
-.public-home-mark,
-.concept-visual {
+.public-home-mark {
   animation: public-fade 800ms ease-out backwards;
+}
+
+.concept-visual {
+  animation: public-unveil 1400ms var(--public-ease) backwards;
 }
 
 .public-home > h1,
@@ -534,6 +542,15 @@ textarea.reservation-input {
   }
 }
 
+@keyframes public-unveil {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
 @keyframes public-fade {
   from {
     opacity: 0;
@@ -558,15 +575,16 @@ textarea.reservation-input {
     animation: public-blink 420ms ease-in-out;
   }
 
-  .public-nav:has(a:hover) a:not(:hover),
-  .concept-links:has(a:hover) a:not(:hover) {
-    opacity: 0.45;
+  a:hover .rolling-label-line:first-child {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(-100%);
   }
 
-  .public-nav a:hover::after,
-  .concept-links a:hover::after {
-    transform: scaleX(1);
-    transform-origin: left;
+  a:hover .rolling-label-line:last-child {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
   }
 
   .public-reserve-link:hover {

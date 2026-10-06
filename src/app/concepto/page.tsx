@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { PointerLight } from "@/ui/public/pointer-light";
 import { PublicHeader } from "@/ui/public/public-header";
+import { RollingLabel } from "@/ui/public/rolling-label";
 
 export default function ConceptPage() {
   return (
@@ -30,13 +31,15 @@ export default function ConceptPage() {
             reunir a las personas alrededor de una mesa.
           </p>
           <div className="concept-links">
-            <Link href="/">Volver al inicio</Link>
+            <Link href="/">
+              <RollingLabel>Volver al inicio</RollingLabel>
+            </Link>
             <a
               href="https://www.instagram.com/cl4n.destin0/"
               target="_blank"
               rel="noopener noreferrer"
             >
-              Instagram
+              <RollingLabel>Instagram</RollingLabel>
             </a>
           </div>
         </div>

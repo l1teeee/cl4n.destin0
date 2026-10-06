@@ -65,4 +65,17 @@ describe("public branding", () => {
     ).toContain("clandestino-wordmark.png");
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
   });
+
+  it("renders rolling labels without duplicating accessible link names", () => {
+    const { container } = render(<ConceptPage />);
+
+    const instagramLink = screen.getByRole("link", { name: "Instagram" });
+    const hiddenCopies = instagramLink.querySelectorAll('[aria-hidden="true"]');
+    expect(hiddenCopies).toHaveLength(1);
+    expect(hiddenCopies[0]?.textContent).toBe("Instagram");
+
+    const conceptLink = container.querySelector(".concept-links a");
+    expect(conceptLink?.querySelector(".rolling-label")?.children).toHaveLength(2);
+    expect(conceptLink?.querySelectorAll(".rolling-label-line")).toHaveLength(2);
+  });
 });
