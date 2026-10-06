@@ -61,6 +61,12 @@ export function proxy(request: NextRequest) {
   return response;
 }
 
+// WHY: files served from public/ need neither the per-request CSP nonce nor the admin redirect, and
+// next.config.ts adds the static security headers to every path anyway. Skipping them avoids one
+// proxy invocation per asset during reservation traffic spikes. A new public file type has to be
+// added to the extension list to be skipped as well.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|fonts/|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:png|jpe?g|svg|webp|ico|woff2|txt)$).*)",
+  ],
 };
