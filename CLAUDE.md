@@ -43,16 +43,16 @@ Never claim "QA passed", "production approved", "user acceptance passed" or "rea
 
 ## 3. Models and roles
 
-- **Orchestrator: Claude Opus, main session, effort high.** Owns architecture, orchestration, technical planning, product/domain modeling, task decomposition, DB strategy, concurrency decisions, security architecture and research synthesis. Reviews Codex output and decides whether the architecture or the implementation must change. It plans and reviews and never writes implementation code.
+- **Orchestrator: Claude Opus, main session, effort high.** Owns architecture, orchestration, technical planning, product/domain modeling, task decomposition, DB strategy, concurrency decisions, security architecture and research synthesis. Reviews implementer output and decides whether the architecture or the implementation must change. It plans and reviews and never writes implementation code.
 - **Researcher: Claude Sonnet, `researcher` subagent, effort medium, read-only.** Covers official docs, technology and library comparisons, and Railway, Vercel and PostgreSQL research. It reports to Opus and Opus decides.
-- **Implementer: Codex `gpt-5.6-sol`, the ONLY code-writing agent.** Effort medium for normal work and high for critical work.
+- **Implementers: Codex `gpt-5.6-sol` and Claude Sonnet, the only code-writing agents.** Opus routes each task. Codex at high owns the critical work listed under **high** in section 4. Medium-scope work goes to Sonnet or to Codex at medium. Independent tasks run in parallel across both.
 - **Critical reviewer: Claude Opus, `critical-reviewer` subagent, at the highest verified effort (xhigh).** Used only for production-critical concurrency review, DB integrity, race conditions, security review, difficult architecture decisions, critical failures and the final technical review before a deployment.
 
-If Codex is unreachable, stop and tell the owner. Never fall back to opencode, Sonnet or Haiku for code.
+If Codex is unreachable, medium-scope work can go to Sonnet, but critical work waits and Opus tells the owner. Never use opencode or Haiku for code.
 
 Opus cannot change its own effort mid-session. For xhigh-level work, delegate to `critical-reviewer` with a self-contained brief, or ask the owner to switch the session with `/model`.
 
-## 4. Codex invocation and effort
+## 4. Implementer invocation and effort
 
 Run Codex with a surgical brief (exact files, the change and success criteria) piped on stdin. On this machine this exact sandbox setup is verified to work:
 
@@ -70,16 +70,18 @@ codex exec -m gpt-5.6-sol -c model_reasoning_effort=<medium|high> -c approval_po
 - **medium:** scaffolding, UI components, forms, admin tables, CRUD, ordinary TypeScript, normal API endpoints, documentation and refactors with a clear spec.
 - **high:** PostgreSQL concurrency, reservation allocation, SQL transactions, atomic capacity updates, idempotency, DB constraints, authentication, authorization, security-sensitive endpoints, rate limiting, race-condition handling, migrations that affect reservation integrity, and concurrency and load tests.
 
-If a medium task fails twice or reveals unexpected complexity, re-run it at high. If high fails, or agents disagree, Opus reviews. If the issue touches data integrity, security, concurrency, money, capacity or production reliability, Opus may escalate to `critical-reviewer`.
+If a medium task (Codex medium or Sonnet) fails twice or reveals unexpected complexity, re-run it with Codex at high. If high fails, or agents disagree, Opus reviews. If the issue touches data integrity, security, concurrency, money, capacity or production reliability, Opus may escalate to `critical-reviewer`.
+
+**Sonnet invocation:** spawn it with the Agent tool as `subagent_type: general-purpose` with `model: sonnet`, and give it the same kind of surgical brief. Its job ends when the change is in the working tree and the checks have run. For parallel work, create its worktree as described in section 8 and put that path in the brief.
 
 ## 5. Workflows
 
 **Default workflow:**
 1. Opus plans and decomposes the work.
 2. Sonnet researches when needed, and Opus decides.
-3. Codex implements and runs the tests.
+3. The implementer (Codex or Sonnet) implements and runs the tests.
 4. Opus reviews against the checklist below.
-5. If accepted, Opus commits locally and continues. If rejected, Codex fixes it and Opus reviews again.
+5. If accepted, Opus commits locally and continues. If rejected, the implementer fixes it and Opus reviews again.
 
 **Reservation engine workflow:**
 1. Opus designs and approves the concurrency and transaction strategy before any engine code exists.
@@ -94,7 +96,7 @@ If a medium task fails twice or reveals unexpected complexity, re-run it at high
 **Review checklist:** correctness, architecture consistency, DB integrity, transaction safety, security, race conditions, error handling, test quality, unnecessary complexity and the global Clean Architecture rules.
 
 If the implementation differs from the architecture decision, say explicitly which case applies:
-- A. The implementation is wrong, so it goes back to Codex.
+- A. The implementation is wrong, so it goes back to the implementer.
 - B. The architecture should change, so update the ADR.
 
 Never diverge silently.
@@ -146,8 +148,8 @@ Then WAIT. Implement any owner-requested design, text, form, admin, flow or func
 ## 8. Git
 
 - Keep a local repo with `origin` set to `https://github.com/l1teeee/cl4n.destin0`. No push before approval.
-- The owner has authorized local commits. Claude commits locally after each accepted milestone using conventional messages (`feat: ...`, `test: ...`, `chore: ...`). Codex never commits or pushes.
-- Parallel Codex work uses worktrees at `../cl4n.destin0-worktrees/codex-<slug>` on branch `agent/codex/<slug>`. Track it in `.agents/tasks.md`, which is gitignored. Merge only after the branch passes the full check gate.
+- The owner has authorized local commits. Claude commits locally after each accepted milestone using conventional messages (`feat: ...`, `test: ...`, `chore: ...`). Codex and Sonnet never commit or push.
+- Parallel implementer work uses worktrees at `../cl4n.destin0-worktrees/<codex|sonnet>-<slug>` on branch `agent/<codex|sonnet>/<slug>`. Track it in `.agents/tasks.md`, which is gitignored. Merge only after the branch passes the full check gate.
 
 ## 9. Secrets and environment
 
