@@ -117,11 +117,10 @@ textarea {
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  transition: opacity 300ms ease;
 }
 
-.public-header-brand:focus-visible {
-  opacity: 0.7;
+.public-header-brand:focus-visible .public-header-mark {
+  animation: public-blink 420ms ease-in-out;
 }
 
 .public-header-mark {
@@ -144,6 +143,7 @@ textarea {
 .concept-links a {
   position: relative;
   padding-block: 0.35rem;
+  transition: opacity 300ms ease;
 }
 
 .public-nav a::after,
@@ -238,11 +238,15 @@ textarea {
   line-height: 1;
   text-decoration: underline;
   text-underline-offset: 0.1em;
-  transition: text-underline-offset 300ms var(--public-ease);
+  transition:
+    text-underline-offset 300ms var(--public-ease),
+    text-shadow 400ms ease;
 }
 
-.public-reserve-link:focus-visible {
+.public-reserve-link:focus-visible,
+.public-reserve-link:active {
   text-underline-offset: 0.22em;
+  text-shadow: 0 0 1.25rem #fffbf466;
 }
 
 .concept-page {
@@ -337,6 +341,12 @@ textarea {
   display: block;
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
+  opacity: 0.7;
+  transition: opacity 250ms ease;
+}
+
+.reservation-form div:focus-within > label {
+  opacity: 1;
 }
 
 .reservation-input {
@@ -405,12 +415,15 @@ textarea.reservation-input {
   cursor: pointer;
   transition:
     background-color 250ms ease,
-    color 250ms ease;
+    color 250ms ease,
+    box-shadow 400ms ease;
 }
 
-.reservation-submit:focus-visible:not(:disabled) {
+.reservation-submit:focus-visible:not(:disabled),
+.reservation-submit:active:not(:disabled) {
   background: transparent;
   color: var(--clan-foreground);
+  box-shadow: 0 0 2rem #fffbf426;
 }
 
 .reservation-submit:disabled {
@@ -530,9 +543,24 @@ textarea.reservation-input {
   }
 }
 
+@keyframes public-blink {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  45% {
+    transform: scaleY(0.1);
+  }
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .public-header-brand:hover {
-    opacity: 0.7;
+  .public-header-brand:hover .public-header-mark {
+    animation: public-blink 420ms ease-in-out;
+  }
+
+  .public-nav:has(a:hover) a:not(:hover),
+  .concept-links:has(a:hover) a:not(:hover) {
+    opacity: 0.45;
   }
 
   .public-nav a:hover::after,
@@ -543,11 +571,17 @@ textarea.reservation-input {
 
   .public-reserve-link:hover {
     text-underline-offset: 0.22em;
+    text-shadow: 0 0 1.25rem #fffbf466;
+  }
+
+  .reservation-input:hover:not(:disabled, :focus) {
+    border-color: #b9b7b0;
   }
 
   .reservation-submit:hover:not(:disabled) {
     background: transparent;
     color: var(--clan-foreground);
+    box-shadow: 0 0 2rem #fffbf426;
   }
 }
 
