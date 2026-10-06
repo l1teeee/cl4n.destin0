@@ -9,7 +9,7 @@ import type {
 import type { AdminRole, AdminSession, AdminUser } from "@/application/auth/types";
 
 import { pool as applicationPool } from "../db/client";
-import { inTransaction, rollbackTransaction } from "../db/transaction";
+import { inTransaction } from "../db/transaction";
 
 const ABSOLUTE_LIFETIME_HOURS = 12;
 export const ADMIN_SESSION_IDLE_TIMEOUT_HOURS = 2;
@@ -74,7 +74,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
   ): Promise<CreatedAdminSession | null> {
     const token = generateSessionToken();
     const tokenHash = hashSessionToken(token);
-    return inTransaction<CreatedAdminSession | null>(this.pool, [], async (client) => {
+    return inTransaction(this.pool, [], async (client) => {
       const admin = await client.query<AdminUserRow>(
         `SELECT id, email_normalized, display_name, password_hash, role, is_active
            FROM admin_users
@@ -86,7 +86,8 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
       );
       const row = admin.rows[0];
       if (!row) {
-        return rollbackTransaction(null);
+        // Nothing has been written yet, so letting the empty transaction commit is harmless.
+        return null;
       }
 
       await client.query(
