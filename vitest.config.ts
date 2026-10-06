@@ -10,7 +10,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.{ts,tsx}"],
     exclude: ["tests/concurrency/**"],
     setupFiles: ["./tests/setup/test-env.ts"],
     fileParallelism: false,
