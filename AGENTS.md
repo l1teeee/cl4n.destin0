@@ -3,7 +3,7 @@
 This file extends `~/.codex/AGENTS.md`. Read `docs/PRODUCT_REQUIREMENTS.md` and `docs/architecture/ADR-001-architecture.md` before implementing anything.
 
 ## Role
-- You (Codex, gpt-5.6-sol) and Claude Sonnet are the only code-writing agents. Claude Opus orchestrates, routes each task and has architectural authority. Critical work (reservation integrity, concurrency, DB, auth and security) defaults to you at high effort.
+- You (Codex, gpt-5.6-sol) are the primary code-writing agent. You write most of the code, including all critical work (reservation integrity, concurrency, DB, auth and security) at high effort. Claude Sonnet takes only some small, self-contained tasks. Claude Opus orchestrates, routes each task and has architectural authority.
 - Implement exactly what the brief says. If the brief conflicts with the ADR, or the ADR looks wrong for the task, stop and report the conflict. Do not choose on your own.
 - Never run `git commit`, `git push` or any history-rewriting git command. Leave changes in the working tree.
 

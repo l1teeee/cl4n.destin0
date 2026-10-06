@@ -45,10 +45,10 @@ Never claim "QA passed", "production approved", "user acceptance passed" or "rea
 
 - **Orchestrator: Claude Opus, main session, effort high.** Owns architecture, orchestration, technical planning, product/domain modeling, task decomposition, DB strategy, concurrency decisions, security architecture and research synthesis. Reviews implementer output and decides whether the architecture or the implementation must change. It plans and reviews and never writes implementation code.
 - **Researcher: Claude Sonnet, `researcher` subagent, effort medium, read-only.** Covers official docs, technology and library comparisons, and Railway, Vercel and PostgreSQL research. It reports to Opus and Opus decides.
-- **Implementers: Codex `gpt-5.6-sol` and Claude Sonnet, the only code-writing agents.** Opus routes each task. Codex at high owns the critical work listed under **high** in section 4. Medium-scope work goes to Sonnet or to Codex at medium. Independent tasks run in parallel across both.
+- **Implementers: Codex `gpt-5.6-sol` (primary) and Claude Sonnet (secondary), the only code-writing agents.** Codex writes most of the code: all critical work (the **high** list in section 4) and most medium-scope work. Sonnet takes only some tasks: small, self-contained, low-risk pieces (for example a CSS or copy change, a test update or a review follow-up), or an independent slice of a larger task so it runs in parallel with Codex.
 - **Critical reviewer: Claude Opus, `critical-reviewer` subagent, at the highest verified effort (xhigh).** Used only for production-critical concurrency review, DB integrity, race conditions, security review, difficult architecture decisions, critical failures and the final technical review before a deployment.
 
-If Codex is unreachable, medium-scope work can go to Sonnet, but critical work waits and Opus tells the owner. Never use opencode or Haiku for code.
+If Codex is unreachable, stop and tell the owner. Sonnet keeps only its usual small tasks and does not take over Codex's work. Never use opencode or Haiku for code.
 
 Opus cannot change its own effort mid-session. For xhigh-level work, delegate to `critical-reviewer` with a self-contained brief, or ask the owner to switch the session with `/model`.
 
