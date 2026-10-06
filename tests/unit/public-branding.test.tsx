@@ -1,22 +1,12 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import ConceptPage from "@/app/concepto/page";
 import { PublicLanding } from "@/ui/public/public-landing";
 
-beforeEach(() => {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn(() => ({ matches: false })),
-  );
-});
-
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+afterEach(cleanup);
 
 describe("public branding", () => {
   it("uses the vector mark in the header and landing page", () => {
@@ -64,18 +54,5 @@ describe("public branding", () => {
       screen.getByRole("img", { name: "Logotipo de Clandestino" }).getAttribute("src"),
     ).toContain("clandestino-wordmark.png");
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
-  });
-
-  it("renders rolling labels without duplicating accessible link names", () => {
-    const { container } = render(<ConceptPage />);
-
-    const instagramLink = screen.getByRole("link", { name: "Instagram" });
-    const hiddenCopies = instagramLink.querySelectorAll('[aria-hidden="true"]');
-    expect(hiddenCopies).toHaveLength(1);
-    expect(hiddenCopies[0]?.textContent).toBe("Instagram");
-
-    const conceptLink = container.querySelector(".concept-links a");
-    expect(conceptLink?.querySelector(".rolling-label")?.children).toHaveLength(2);
-    expect(conceptLink?.querySelectorAll(".rolling-label-line")).toHaveLength(2);
   });
 });

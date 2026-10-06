@@ -1,4 +1,3 @@
-import { PointerLight } from "./pointer-light";
 import { ReservationForm } from "./reservation-form";
 import { PublicHeader } from "./public-header";
 
@@ -12,7 +11,6 @@ interface ReservationExperienceProps {
 export function ReservationExperience(props: ReservationExperienceProps) {
   return (
     <div className="public-page">
-      <PointerLight />
       <PublicHeader />
       <main className="reservation-page">
         <div className="reservation-intro">
