@@ -5,7 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PublicLanding } from "@/ui/public/public-landing";
 
+let queuedFrames = new Map<number, FrameRequestCallback>();
+let nextFrameId = 1;
+
 function stubPointerPreferences(finePointer: boolean, reducedMotion: boolean) {
+  queuedFrames = new Map();
+  nextFrameId = 1;
+
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
@@ -20,10 +26,22 @@ function stubPointerPreferences(finePointer: boolean, reducedMotion: boolean) {
     })),
   );
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-    callback(0);
-    return 1;
+    const frameId = nextFrameId++;
+    queuedFrames.set(frameId, callback);
+    return frameId;
   });
-  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  vi.stubGlobal("cancelAnimationFrame", (frameId: number) => {
+    queuedFrames.delete(frameId);
+  });
+}
+
+function flushAnimationFrames() {
+  const frames = [...queuedFrames.values()];
+  queuedFrames.clear();
+
+  for (const frame of frames) {
+    frame(0);
+  }
 }
 
 function firePointerMove(x: number, y: number) {
@@ -53,6 +71,7 @@ describe("public pointer effects", () => {
     const light = container.querySelector<HTMLElement>(".public-pointer-light");
 
     firePointerMove(640, 0);
+    flushAnimationFrames();
 
     expect(mark?.style.getPropertyValue("--pupil-x")).toBe("1.000");
     expect(mark?.style.getPropertyValue("--pupil-y")).toBe("0.000");
@@ -74,6 +93,7 @@ describe("public pointer effects", () => {
     const light = container.querySelector<HTMLElement>(".public-pointer-light");
 
     firePointerMove(640, 0);
+    flushAnimationFrames();
 
     expect(mark?.style.getPropertyValue("--pupil-x")).toBe("");
     expect(light?.hasAttribute("data-visible")).toBe(false);
@@ -86,8 +106,41 @@ describe("public pointer effects", () => {
     const light = container.querySelector<HTMLElement>(".public-pointer-light");
 
     firePointerMove(640, 0);
+    flushAnimationFrames();
 
     expect(mark?.style.getPropertyValue("--pupil-x")).toBe("");
+    expect(light?.hasAttribute("data-visible")).toBe(false);
+  });
+
+  it("applies only the latest pointer position once per animation frame", () => {
+    stubPointerPreferences(true, false);
+    const { container } = renderLanding();
+    const mark = container.querySelector<SVGSVGElement>("svg.public-home-mark");
+    const light = container.querySelector<HTMLElement>(".public-pointer-light");
+
+    firePointerMove(100, 0);
+    firePointerMove(640, 0);
+
+    // Two consumers (light and watching mark) each throttle their own listener: 2 frames, not 4.
+    expect(queuedFrames.size).toBe(2);
+
+    flushAnimationFrames();
+
+    expect(mark?.style.getPropertyValue("--pupil-x")).toBe("1.000");
+    expect(light?.style.getPropertyValue("--light-x")).toBe("640px");
+  });
+
+  it("drops a pending frame when the pointer leaves the window before it runs", () => {
+    stubPointerPreferences(true, false);
+    const { container } = renderLanding();
+    const mark = container.querySelector<SVGSVGElement>("svg.public-home-mark");
+    const light = container.querySelector<HTMLElement>(".public-pointer-light");
+
+    firePointerMove(640, 0);
+    firePointerLeave();
+    flushAnimationFrames();
+
+    expect(mark?.style.getPropertyValue("--pupil-x")).toBe("0");
     expect(light?.hasAttribute("data-visible")).toBe(false);
   });
 });

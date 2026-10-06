@@ -5,10 +5,6 @@ export function useFinePointer(onMove: (x: number, y: number) => void, onLeave: 
   const handleLeave = useEffectEvent(onLeave);
 
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
-      return;
-    }
-
     const hasFinePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -28,19 +24,20 @@ export function useFinePointer(onMove: (x: number, y: number) => void, onLeave: 
         return;
       }
 
-      frameId = -1;
-      const requestedFrameId = window.requestAnimationFrame(() => {
+      frameId = window.requestAnimationFrame(() => {
         frameId = null;
         handleMove(latestX, latestY);
       });
-
-      if (frameId === -1) {
-        frameId = requestedFrameId;
-      }
     };
 
     const onPointerOut = (event: PointerEvent) => {
       if (event.relatedTarget === null) {
+        // A frame still pending here would re-show the effect after the pointer left.
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+          frameId = null;
+        }
+
         handleLeave();
       }
     };
@@ -52,7 +49,7 @@ export function useFinePointer(onMove: (x: number, y: number) => void, onLeave: 
       window.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerout", onPointerOut);
 
-      if (frameId !== null && frameId !== -1) {
+      if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
     };
