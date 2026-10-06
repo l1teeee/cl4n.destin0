@@ -1,11 +1,13 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { PointerLight } from "@/ui/public/pointer-light";
 import { PublicHeader } from "@/ui/public/public-header";
 
 export default function ConceptPage() {
   return (
     <div className="public-page">
+      <PointerLight />
       <PublicHeader aboutHref="/" aboutLabel="Inicio" />
       <main className="concept-page">
         <div className="concept-visual">

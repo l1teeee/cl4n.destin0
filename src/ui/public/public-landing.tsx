@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
-import { BrandMark } from "./brand-mark";
+import { PointerLight } from "./pointer-light";
 import { PublicHeader } from "./public-header";
+import { WatchingMark } from "./watching-mark";
 
 interface PublicLandingProps {
   status: string;
@@ -16,9 +17,10 @@ export function PublicLanding({
 }: PublicLandingProps) {
   return (
     <div className="public-page">
+      <PointerLight />
       <PublicHeader showReservationLink={showReservationLink} />
       <main className="public-home" id="reservar">
-        <BrandMark className="public-home-mark" />
+        <WatchingMark className="public-home-mark" />
         <p className="public-eyebrow">CLANDESTINO SUPPER CLAN</p>
         <h1>{status}</h1>
         {children}

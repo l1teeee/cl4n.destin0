@@ -79,6 +79,28 @@ textarea {
   animation: public-fade 4.2s ease-out both;
 }
 
+.public-pointer-light {
+  position: fixed;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  width: 56rem;
+  height: 56rem;
+  margin: -28rem 0 0 -28rem;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fffbf40f, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(var(--light-x, 50vw), var(--light-y, 35vh), 0);
+  transition:
+    opacity 700ms ease,
+    transform 450ms var(--public-ease);
+}
+
+.public-pointer-light[data-visible="true"] {
+  opacity: 1;
+}
+
 .public-header {
   display: flex;
   align-items: center;
@@ -161,6 +183,17 @@ textarea {
   height: auto;
   aspect-ratio: 100 / 104;
   margin-bottom: 1.5rem;
+}
+
+.public-home-mark .brand-mark-pupil {
+  transform: translate(calc(var(--pupil-x, 0) * 8px), calc(var(--pupil-y, 0) * 9px));
+  transition: transform 600ms var(--public-ease);
+}
+
+@media (hover: none) {
+  .public-home-mark .brand-mark-pupil {
+    animation: public-glance 10s ease-in-out 2s infinite;
+  }
 }
 
 .public-eyebrow {
@@ -403,7 +436,7 @@ textarea.reservation-input {
   font-size: 2rem;
 }
 
-.public-home > :not(.public-home-mark),
+.public-home > :not(.public-home-mark, h1),
 .concept-copy > *,
 .reservation-intro > *,
 .reservation-form,
@@ -415,6 +448,12 @@ textarea.reservation-input {
 .public-home-mark,
 .concept-visual {
   animation: public-fade 800ms ease-out backwards;
+}
+
+.public-home > h1,
+.reservation-intro > h1,
+.concept-copy > h1 {
+  animation: public-emerge 1100ms var(--public-ease) backwards;
 }
 
 .public-home > :nth-child(2),
@@ -449,6 +488,36 @@ textarea.reservation-input {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes public-emerge {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes public-glance {
+  0%,
+  30% {
+    transform: translate(0);
+  }
+  38%,
+  52% {
+    transform: translate(-6px, 2px);
+  }
+  60%,
+  74% {
+    transform: translate(6px, -1px);
+  }
+  82%,
+  100% {
+    transform: translate(0);
   }
 }
 
