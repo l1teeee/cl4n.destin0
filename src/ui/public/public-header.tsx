@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BrandMark } from "./brand-mark";
+import { RollingLabel } from "./rolling-label";
 
 interface PublicHeaderProps {
   showReservationLink?: boolean;
@@ -20,8 +21,14 @@ export function PublicHeader({
         <span>CLANDESTINO</span>
       </Link>
       <nav className="public-nav" aria-label="Navegación principal">
-        {showReservationLink ? <a href="#reservar">RSVP</a> : null}
-        <a href={aboutHref}>{aboutLabel}</a>
+        {showReservationLink ? (
+          <a href="#reservar">
+            <RollingLabel>RSVP</RollingLabel>
+          </a>
+        ) : null}
+        <a href={aboutHref}>
+          <RollingLabel>{aboutLabel}</RollingLabel>
+        </a>
       </nav>
     </header>
   );
