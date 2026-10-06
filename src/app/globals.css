@@ -458,9 +458,12 @@ textarea.reservation-input {
 }
 
 .public-header,
-.public-home-mark,
-.concept-visual {
+.public-home-mark {
   animation: public-fade 800ms ease-out backwards;
+}
+
+.concept-visual {
+  animation: public-unveil 1400ms var(--public-ease) backwards;
 }
 
 .public-home > h1,
@@ -531,6 +534,15 @@ textarea.reservation-input {
   82%,
   100% {
     transform: translate(0);
+  }
+}
+
+@keyframes public-unveil {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0);
   }
 }
 
