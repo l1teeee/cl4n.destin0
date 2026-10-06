@@ -1,14 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { PointerLight } from "@/ui/public/pointer-light";
 import { PublicHeader } from "@/ui/public/public-header";
-import { RollingLabel } from "@/ui/public/rolling-label";
 
 export default function ConceptPage() {
   return (
     <div className="public-page">
-      <PointerLight />
       <PublicHeader aboutHref="/" aboutLabel="Inicio" />
       <main className="concept-page">
         <div className="concept-visual">
@@ -31,15 +28,13 @@ export default function ConceptPage() {
             reunir a las personas alrededor de una mesa.
           </p>
           <div className="concept-links">
-            <Link href="/">
-              <RollingLabel>Volver al inicio</RollingLabel>
-            </Link>
+            <Link href="/">Volver al inicio</Link>
             <a
               href="https://www.instagram.com/cl4n.destin0/"
               target="_blank"
               rel="noopener noreferrer"
             >
-              <RollingLabel>Instagram</RollingLabel>
+              Instagram
             </a>
           </div>
         </div>

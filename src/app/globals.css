@@ -79,28 +79,6 @@ textarea {
   animation: public-fade 4.2s ease-out both;
 }
 
-.public-pointer-light {
-  position: fixed;
-  z-index: -1;
-  top: 0;
-  left: 0;
-  width: 56rem;
-  height: 56rem;
-  margin: -28rem 0 0 -28rem;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, #fffbf40f, transparent);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(var(--light-x, 50vw), var(--light-y, 35vh), 0);
-  transition:
-    opacity 700ms ease,
-    transform 450ms var(--public-ease);
-}
-
-.public-pointer-light[data-visible="true"] {
-  opacity: 1;
-}
-
 .public-header {
   display: flex;
   align-items: center;
@@ -142,37 +120,12 @@ textarea {
 .public-nav a,
 .concept-links a {
   padding-block: 0.35rem;
+  transition: opacity 400ms ease;
 }
 
-.rolling-label {
-  display: inline-grid;
-  overflow: hidden;
-}
-
-.rolling-label-line {
-  grid-area: 1 / 1;
-  transition:
-    transform 550ms var(--public-ease),
-    opacity 550ms ease,
-    filter 550ms ease;
-}
-
-.rolling-label-line:last-child {
-  opacity: 0;
-  filter: blur(3px);
-  transform: translateY(100%);
-}
-
-a:focus-visible .rolling-label-line:first-child {
-  opacity: 0;
-  filter: blur(3px);
-  transform: translateY(-100%);
-}
-
-a:focus-visible .rolling-label-line:last-child {
-  opacity: 1;
-  filter: blur(0);
-  transform: translateY(0);
+.public-nav a:focus-visible,
+.concept-links a:focus-visible {
+  opacity: 0.6;
 }
 
 .public-home {
@@ -194,17 +147,6 @@ a:focus-visible .rolling-label-line:last-child {
   height: auto;
   aspect-ratio: 100 / 104;
   margin-bottom: 1.5rem;
-}
-
-.public-home-mark .brand-mark-pupil {
-  transform: translate(calc(var(--pupil-x, 0) * 8px), calc(var(--pupil-y, 0) * 9px));
-  transition: transform 600ms var(--public-ease);
-}
-
-@media (hover: none) {
-  .public-home-mark .brand-mark-pupil {
-    animation: public-glance 10s ease-in-out 2s infinite;
-  }
 }
 
 .public-eyebrow {
@@ -249,15 +191,12 @@ a:focus-visible .rolling-label-line:last-child {
   line-height: 1;
   text-decoration: underline;
   text-underline-offset: 0.1em;
-  transition:
-    text-underline-offset 300ms var(--public-ease),
-    text-shadow 400ms ease;
+  transition: text-underline-offset 300ms var(--public-ease);
 }
 
 .public-reserve-link:focus-visible,
 .public-reserve-link:active {
   text-underline-offset: 0.22em;
-  text-shadow: 0 0 1.25rem #fffbf466;
 }
 
 .concept-page {
@@ -420,15 +359,13 @@ textarea.reservation-input {
   cursor: pointer;
   transition:
     background-color 250ms ease,
-    color 250ms ease,
-    box-shadow 400ms ease;
+    color 250ms ease;
 }
 
 .reservation-submit:focus-visible:not(:disabled),
 .reservation-submit:active:not(:disabled) {
   background: transparent;
   color: var(--clan-foreground);
-  box-shadow: 0 0 2rem #fffbf426;
 }
 
 .reservation-submit:disabled {
@@ -523,25 +460,6 @@ textarea.reservation-input {
   }
 }
 
-@keyframes public-glance {
-  0%,
-  30% {
-    transform: translate(0);
-  }
-  38%,
-  52% {
-    transform: translate(-6px, 2px);
-  }
-  60%,
-  74% {
-    transform: translate(6px, -1px);
-  }
-  82%,
-  100% {
-    transform: translate(0);
-  }
-}
-
 @keyframes public-unveil {
   from {
     clip-path: inset(0 0 100% 0);
@@ -575,21 +493,13 @@ textarea.reservation-input {
     animation: public-blink 420ms ease-in-out;
   }
 
-  a:hover .rolling-label-line:first-child {
-    opacity: 0;
-    filter: blur(3px);
-    transform: translateY(-100%);
-  }
-
-  a:hover .rolling-label-line:last-child {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(0);
+  .public-nav a:hover,
+  .concept-links a:hover {
+    opacity: 0.6;
   }
 
   .public-reserve-link:hover {
     text-underline-offset: 0.22em;
-    text-shadow: 0 0 1.25rem #fffbf466;
   }
 
   .reservation-input:hover:not(:disabled, :focus) {
@@ -599,7 +509,6 @@ textarea.reservation-input {
   .reservation-submit:hover:not(:disabled) {
     background: transparent;
     color: var(--clan-foreground);
-    box-shadow: 0 0 2rem #fffbf426;
   }
 }
 
