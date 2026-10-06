@@ -16,7 +16,7 @@ function repository(admin: AdminUser | null): AdminAuthRepository {
     findByEmail: vi.fn().mockResolvedValue(admin),
     createSession: vi.fn().mockResolvedValue({
       token: "token",
-      admin: { id: "admin-id", email: "admin@example.com", displayName: "Admin" },
+      admin: { id: "admin-id", email: "admin@example.com", displayName: "Admin", role: "ADMIN" },
       expiresAt: new Date("2026-10-05T00:00:00Z"),
     }),
     validateSession: vi.fn(),
@@ -53,6 +53,7 @@ describe("signIn", () => {
         emailNormalized: "admin@example.com",
         displayName: "Inactive",
         passwordHash: "real-hash-must-not-run",
+        role: "ADMIN",
         isActive: false,
       },
     ],

@@ -56,6 +56,7 @@ Set the variable only for this single command.
 8. **Recommended hardening:** an application role with least privilege, so the app does not run as the `postgres` superuser.
    - Grant SELECT/INSERT/UPDATE/DELETE on the app tables, and only SELECT/INSERT on `audit_logs`, so the append-only rule cannot be bypassed. Migrations keep using the owner role.
    - This needs PgBouncer to authenticate the new role. Confirm Railway's pooler supports it before switching. Until then it is a known limitation.
+   - **Test deployment (2026-10-05):** running without PgBouncer, so the role exists as `clandestino_app` (LOGIN, not superuser). It has SELECT/INSERT/UPDATE/DELETE on the app tables and only SELECT/INSERT on `audit_logs`. Vercel's `DATABASE_URL` uses it over the TCP proxy with `verify-ca`. Any migration that adds a table must also grant it to `clandestino_app`.
 
 ## 4. Migrations and first admin (from this machine, against the UNPOOLED URL)
 
@@ -66,6 +67,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 
 - Migrations never run during Vercel builds, because preview builds would otherwise migrate production.
 - `db:seed` refuses non-local databases by design. Production has no demo data.
+- **Test deployment (2026-10-05):** the operator environment could not reach the TCP proxy, so migrations ran in a temporary Railway service `db-migrate` (`node:24-bookworm`). It clones the exact commit, runs `npm ci --omit=dev` and `node scripts/db-migrate.ts` over the private network with `${{Postgres.DATABASE_URL}}`, then exits. Point its start command at the new commit and redeploy it to apply later migrations, then remove it.
 
 ## 5. Vercel
 

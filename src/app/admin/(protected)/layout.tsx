@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { canManageAdmins } from "@/domain/admin/admin-access";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 
 import { signOutAction } from "./actions";
@@ -21,6 +22,14 @@ export default async function ProtectedAdminLayout({ children }: { children: Rea
             </Link>
             <Link className="text-sm text-zinc-300 hover:text-white" href="/admin/audit">
               Auditoría
+            </Link>
+            {canManageAdmins(authorization.session.admin.role) ? (
+              <Link className="text-sm text-zinc-300 hover:text-white" href="/admin/users">
+                Usuarios
+              </Link>
+            ) : null}
+            <Link className="text-sm text-zinc-300 hover:text-white" href="/admin/account">
+              Mi cuenta
             </Link>
           </nav>
           <div className="flex items-center gap-3">

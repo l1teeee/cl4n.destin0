@@ -42,9 +42,18 @@ export const auditAction = pgEnum("audit_action", [
   "RESERVATION_CREATED",
   "RESERVATION_CANCELLED",
   "ADMIN_SIGNED_IN",
+  "ADMIN_USER_CREATED",
+  "ADMIN_USER_UPDATED",
+  "ADMIN_USER_DEACTIVATED",
+  "ADMIN_USER_REACTIVATED",
+  "ADMIN_PASSWORD_RESET",
+  "ADMIN_PASSWORD_CHANGED",
+  "ADMIN_SESSIONS_REVOKED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
+
+export const adminRole = pgEnum("admin_role", ["SUPER_ADMIN", "ADMIN"]);
 
 export const adminUsers = pgTable(
   "admin_users",
@@ -54,6 +63,7 @@ export const adminUsers = pgTable(
     emailNormalized: text("email_normalized").notNull(),
     passwordHash: text("password_hash").notNull(),
     displayName: text("display_name").notNull(),
+    role: adminRole("role").notNull().default("ADMIN"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

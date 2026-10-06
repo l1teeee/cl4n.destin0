@@ -102,8 +102,8 @@ export async function createAdmin(): Promise<void> {
   });
   try {
     await pool.query(
-      `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
-       VALUES ($1, $2, $3, $4)`,
+      `INSERT INTO admin_users (email, email_normalized, password_hash, display_name, role)
+       VALUES ($1, $2, $3, $4, 'SUPER_ADMIN')`,
       [email, email.toLowerCase(), await hashPassword(password), displayName],
     );
     stdout.write("Administrador creado.\n");
