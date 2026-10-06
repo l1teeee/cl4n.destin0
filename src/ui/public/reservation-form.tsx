@@ -30,8 +30,7 @@ interface ReservationFormProps {
   nonce?: string;
 }
 
-const inputClassName =
-  "w-full rounded border border-zinc-600 bg-black px-3 py-2 text-zinc-100 disabled:opacity-60";
+const inputClassName = "reservation-input";
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -170,9 +169,9 @@ export function ReservationForm({
 
   if (formState?.kind === "success") {
     return (
-      <section className="flex flex-col items-center gap-4 text-center" aria-live="polite">
-        <h2 className="text-2xl font-semibold">SOLICITUD CONFIRMADA</h2>
-        <p className="text-xl font-medium">
+      <section className="reservation-success" aria-live="polite">
+        <h2>SOLICITUD CONFIRMADA</h2>
+        <p className="reservation-success-number">
           #{String(formState.reservationNumber).padStart(3, "0")}
         </p>
         <p>{formState.partySize} personas</p>
@@ -184,13 +183,11 @@ export function ReservationForm({
   return (
     <form
       onSubmit={(event) => void handleSubmit(onSubmit)(event)}
-      className="flex w-full max-w-lg flex-col gap-5"
+      className="reservation-form"
       noValidate
     >
       <div>
-        <label htmlFor="fullName" className="mb-1 block">
-          Nombre completo
-        </label>
+        <label htmlFor="fullName">Nombre completo</label>
         <input
           id="fullName"
           autoComplete="name"
@@ -202,9 +199,7 @@ export function ReservationForm({
       </div>
 
       <div>
-        <label htmlFor="instagram" className="mb-1 block">
-          Usuario de Instagram
-        </label>
+        <label htmlFor="instagram">Usuario de Instagram</label>
         <input
           id="instagram"
           autoComplete="off"
@@ -216,9 +211,7 @@ export function ReservationForm({
       </div>
 
       <div>
-        <label htmlFor="phone" className="mb-1 block">
-          Teléfono
-        </label>
+        <label htmlFor="phone">Teléfono</label>
         <input
           id="phone"
           type="tel"
@@ -231,9 +224,7 @@ export function ReservationForm({
       </div>
 
       <div>
-        <label htmlFor="email" className="mb-1 block">
-          Email
-        </label>
+        <label htmlFor="email">Email</label>
         <input
           id="email"
           type="email"
@@ -246,9 +237,7 @@ export function ReservationForm({
       </div>
 
       <div>
-        <label htmlFor="partySize" className="mb-1 block">
-          Cantidad de personas
-        </label>
+        <label htmlFor="partySize">Cantidad de personas</label>
         <select
           id="partySize"
           className={inputClassName}
@@ -265,9 +254,7 @@ export function ReservationForm({
       </div>
 
       <div>
-        <label htmlFor="notes" className="mb-1 block">
-          Observaciones (opcional)
-        </label>
+        <label htmlFor="notes">Observaciones (opcional)</label>
         <textarea
           id="notes"
           rows={4}
@@ -279,11 +266,10 @@ export function ReservationForm({
       </div>
 
       <div>
-        <div className="flex items-start gap-3">
+        <div className="reservation-terms">
           <input
             id="acceptTerms"
             type="checkbox"
-            className="mt-1 h-4 w-4"
             aria-invalid={Boolean(errors.acceptTerms)}
             {...register("acceptTerms")}
           />
@@ -318,14 +304,14 @@ export function ReservationForm({
 
       {!siteKey ? <p role="alert">La verificación de seguridad no está disponible.</p> : null}
 
-      <div aria-live="polite" className="min-h-6">
+      <div aria-live="polite" className="reservation-message">
         {formState?.kind === "error" ? <p>{formState.message}</p> : null}
       </div>
 
       <button
         type="submit"
         disabled={isSubmitting || !turnstileToken || !idempotencyKey}
-        className="border border-current px-5 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+        className="reservation-submit"
       >
         {isSubmitting ? "ENVIANDO..." : "SOLICITAR ACCESO"}
       </button>

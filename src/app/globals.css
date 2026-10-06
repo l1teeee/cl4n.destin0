@@ -1,8 +1,530 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Canva Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/canva-sans-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+A1, U+AA-AB, U+AF, U+B8, U+BA-BB, U+BF, U+C0-D6, U+D8-F6, U+F8-148, U+14A-17E, U+192,
+    U+1B5-1B6, U+1FC-1FD, U+218-21B, U+237, U+2C6-2C7, U+2C9, U+2D8-2DD, U+1E80-1E85, U+1E9E,
+    U+1EF2-1EF3, U+2030, U+2039-203A, U+20AC, U+20BA, U+2113;
+}
+
+@font-face {
+  font-family: "Canva Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/canva-sans-latin.woff2") format("woff2");
+  unicode-range:
+    U+20-7E, U+A0, U+A2-A9, U+AC-AE, U+B0, U+B4-B7, U+D7, U+F7, U+300-304, U+306-308, U+30A-30C,
+    U+312, U+326-328, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2117, U+2120,
+    U+2122, U+2190-2199, U+FB01-FB02, U+FEFF, U+FFFC-FFFD;
+}
+
+:root {
+  color-scheme: dark;
+  --clan-background: #11120d;
+  --clan-foreground: #fffbf4;
+  --clan-muted: #e4e2dd;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
-  background: #0a0a0a;
-  color: #ededed;
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--clan-background);
+  color: var(--clan-foreground);
+  font-family: "Canva Sans", Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: var(--clan-foreground);
+  color: var(--clan-background);
+}
+
+:focus-visible {
+  outline: 2px solid var(--clan-foreground);
+  outline-offset: 4px;
+}
+
+.public-page {
+  --public-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  background: var(--clan-background);
+  color: var(--clan-foreground);
+}
+
+.public-home::before,
+.reservation-page::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 35%, #fffbf409, transparent 65%);
+  pointer-events: none;
+  content: "";
+  animation: public-fade 4.2s ease-out both;
+}
+
+.public-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  min-height: 5.5rem;
+  padding: 1rem clamp(1.25rem, 4vw, 4rem);
+}
+
+.public-header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  transition: opacity 300ms ease;
+}
+
+.public-header-brand:focus-visible {
+  opacity: 0.7;
+}
+
+.public-header-mark {
+  display: block;
+  width: 1.75rem;
+  height: auto;
+  aspect-ratio: 100 / 104;
+}
+
+.public-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: clamp(0.75rem, 2vw, 2rem);
+  font-size: 0.875rem;
+}
+
+.public-nav a,
+.concept-links a {
+  position: relative;
+  padding-block: 0.35rem;
+}
+
+.public-nav a::after,
+.concept-links a::after {
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: currentColor;
+  content: "";
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 400ms var(--public-ease);
+}
+
+.public-nav a:focus-visible::after,
+.concept-links a:focus-visible::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+.public-home {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  width: min(100%, 72rem);
+  min-height: calc(100svh - 5.5rem);
+  margin: 0 auto;
+  padding: 3rem 1.25rem 6rem;
+  text-align: center;
+}
+
+.public-home-mark {
+  display: block;
+  width: clamp(3.5rem, 7vw, 5.25rem);
+  height: auto;
+  aspect-ratio: 100 / 104;
+  margin-bottom: 1.5rem;
+}
+
+.public-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.public-home h1 {
+  max-width: 14ch;
+  font-size: clamp(3rem, 7vw, 6.5rem);
+  font-weight: 700;
+  letter-spacing: -0.065em;
+  line-height: 1;
+}
+
+.public-home > p:last-child,
+.public-event-date {
+  font-size: clamp(1rem, 2.1vw, 1.35rem);
+}
+
+.public-events {
+  display: grid;
+  gap: 2.5rem;
+  width: min(100%, 40rem);
+  margin-top: 1rem;
+}
+
+.public-event {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.public-reserve-link {
+  margin-top: 0.5rem;
+  font-size: clamp(1.5rem, 3vw, 2.5rem);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  text-decoration: underline;
+  text-underline-offset: 0.1em;
+  transition: text-underline-offset 300ms var(--public-ease);
+}
+
+.public-reserve-link:focus-visible {
+  text-underline-offset: 0.22em;
+}
+
+.concept-page {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: clamp(3rem, 7vw, 7rem);
+  width: min(100%, 82rem);
+  min-height: calc(100svh - 5.5rem);
+  margin: 0 auto;
+  padding: 3rem clamp(1.25rem, 4vw, 4rem) 6rem;
+}
+
+.concept-image {
+  display: block;
+  width: 100%;
+  max-width: 32rem;
+  height: auto;
+}
+
+.concept-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+.concept-copy h1 {
+  font-size: clamp(2.75rem, 5vw, 5rem);
+  font-weight: 700;
+  letter-spacing: -0.065em;
+  line-height: 1;
+}
+
+.concept-copy > p:nth-child(3) {
+  max-width: 38rem;
+  font-size: clamp(1.05rem, 1.7vw, 1.3rem);
+  line-height: 1.6;
+}
+
+.concept-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.concept-links a::after {
+  opacity: 0.5;
+  transform: scaleX(0.25);
+  transform-origin: left;
+}
+
+.reservation-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3.5rem;
+  min-height: calc(100svh - 5.5rem);
+  padding: clamp(3rem, 8vw, 7rem) 1.25rem 7rem;
+}
+
+.reservation-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.reservation-intro h1 {
+  max-width: 13ch;
+  font-size: clamp(3rem, 7vw, 6rem);
+  font-weight: 700;
+  letter-spacing: -0.07em;
+  line-height: 0.98;
+}
+
+.reservation-date {
+  font-size: clamp(1.1rem, 2.2vw, 1.5rem);
+}
+
+.reservation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: min(100%, 34rem);
+}
+
+.reservation-form label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.reservation-input {
+  display: block;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #777972;
+  border-radius: 0;
+  background: transparent;
+  color: var(--clan-foreground);
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.reservation-input:focus {
+  border-color: var(--clan-foreground);
+  background: #fffbf405;
+  box-shadow: 0 0 0 3px #fffbf40d;
+}
+
+.reservation-input:disabled {
+  opacity: 0.6;
+}
+
+textarea.reservation-input {
+  resize: vertical;
+}
+
+.reservation-terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.reservation-terms input {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.2rem;
+  accent-color: var(--clan-foreground);
+}
+
+.reservation-terms label {
+  margin: 0;
+}
+
+.reservation-terms a {
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.reservation-message {
+  min-height: 1.5rem;
+}
+
+.reservation-submit {
+  min-height: 3.5rem;
+  border: 1px solid var(--clan-foreground);
+  border-radius: 999px;
+  background: var(--clan-foreground);
+  color: var(--clan-background);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    background-color 250ms ease,
+    color 250ms ease;
+}
+
+.reservation-submit:focus-visible:not(:disabled) {
+  background: transparent;
+  color: var(--clan-foreground);
+}
+
+.reservation-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.reservation-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.reservation-success h2 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.06em;
+}
+
+.reservation-success-number {
+  font-size: 2rem;
+}
+
+.public-home > :not(.public-home-mark),
+.concept-copy > *,
+.reservation-intro > *,
+.reservation-form,
+.reservation-success {
+  animation: public-reveal 700ms var(--public-ease) backwards;
+}
+
+.public-header,
+.public-home-mark,
+.concept-visual {
+  animation: public-fade 800ms ease-out backwards;
+}
+
+.public-home > :nth-child(2),
+.concept-copy > :nth-child(1),
+.reservation-intro > :nth-child(1) {
+  animation-delay: 120ms;
+}
+
+.public-home > :nth-child(3),
+.concept-copy > :nth-child(2),
+.reservation-intro > :nth-child(2) {
+  animation-delay: 220ms;
+}
+
+.public-home > :nth-child(4),
+.concept-copy > :nth-child(3),
+.reservation-intro > :nth-child(3) {
+  animation-delay: 340ms;
+}
+
+.concept-copy > :nth-child(4),
+.reservation-intro > :nth-child(4),
+.reservation-form {
+  animation-delay: 440ms;
+}
+
+@keyframes public-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes public-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .public-header-brand:hover {
+    opacity: 0.7;
+  }
+
+  .public-nav a:hover::after,
+  .concept-links a:hover::after {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+
+  .public-reserve-link:hover {
+    text-underline-offset: 0.22em;
+  }
+
+  .reservation-submit:hover:not(:disabled) {
+    background: transparent;
+    color: var(--clan-foreground);
+  }
+}
+
+@media (max-width: 640px) {
+  .public-header {
+    min-height: 4.75rem;
+    padding: 0.8rem 1rem;
+  }
+
+  .public-header-brand span {
+    display: none;
+  }
+
+  .public-nav {
+    font-size: 0.75rem;
+  }
+
+  .public-home,
+  .concept-page {
+    min-height: calc(100svh - 4.75rem);
+    padding-top: 3rem;
+    padding-bottom: 4rem;
+  }
+
+  .concept-page {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .concept-image {
+    width: min(100%, 20rem);
+    margin: 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .public-page,
+  .public-page *,
+  .public-page::before,
+  .public-page *::before,
+  .public-page *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

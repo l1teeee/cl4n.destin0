@@ -1,4 +1,5 @@
 import { ReservationForm } from "./reservation-form";
+import { PublicHeader } from "./public-header";
 
 interface ReservationExperienceProps {
   eventSlug: string;
@@ -9,13 +10,17 @@ interface ReservationExperienceProps {
 
 export function ReservationExperience(props: ReservationExperienceProps) {
   return (
-    <main className="flex min-h-screen flex-col items-center gap-8 px-6 py-16">
-      <div className="text-center">
-        <h1 className="text-4xl font-semibold tracking-[0.2em]">CLANDESTINO</h1>
-        <p className="mt-4">{props.formattedDate}</p>
-        <p className="mt-2 text-sm tracking-[0.18em]">ACCESO LIMITADO</p>
-      </div>
-      <ReservationForm {...props} />
-    </main>
+    <div className="public-page">
+      <PublicHeader />
+      <main className="reservation-page">
+        <div className="reservation-intro">
+          <p className="public-eyebrow">CLANDESTINO SUPPER CLAN</p>
+          <h1>SOLICITAR ACCESO</h1>
+          <p className="reservation-date">{props.formattedDate}</p>
+          <p className="public-eyebrow">ACCESO LIMITADO</p>
+        </div>
+        <ReservationForm {...props} />
+      </main>
+    </div>
   );
 }
