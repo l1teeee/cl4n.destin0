@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import {
@@ -47,7 +47,7 @@ export function ReservationForm({
   formattedDate,
   nonce,
 }: ReservationFormProps) {
-  const [turnstile, setTurnstile] = useState<TurnstileInstance | null>(null);
+  const turnstileRef = useRef<TurnstileInstance>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [formState, setFormState] = useState<ReservationFormState | null>(null);
@@ -105,7 +105,7 @@ export function ReservationForm({
         body: JSON.stringify({ ...fields, eventSlug, turnstileToken: token }),
       });
     } catch {
-      turnstile?.reset();
+      turnstileRef.current?.reset();
       setTurnstileToken(null);
       applyFormState({
         kind: "error",
@@ -116,7 +116,7 @@ export function ReservationForm({
       return;
     }
 
-    turnstile?.reset();
+    turnstileRef.current?.reset();
     setTurnstileToken(null);
 
     let body: unknown;
@@ -140,7 +140,7 @@ export function ReservationForm({
       });
       await delay((retryAfterSeconds > 0 ? retryAfterSeconds : 1) * 1000);
       try {
-        const freshToken = await turnstile?.getResponsePromise(30_000);
+        const freshToken = await turnstileRef.current?.getResponsePromise(30_000);
         if (freshToken) {
           await sendReservation(fields, key, freshToken, true);
           return;
@@ -183,7 +183,7 @@ export function ReservationForm({
 
   return (
     <form
-      onSubmit={handleSubmit(onSubmit)}
+      onSubmit={(event) => void handleSubmit(onSubmit)(event)}
       className="flex w-full max-w-lg flex-col gap-5"
       noValidate
     >
@@ -298,7 +298,7 @@ export function ReservationForm({
       {idempotencyKey && siteKey ? (
         <Turnstile
           key={idempotencyKey}
-          ref={(instance) => setTurnstile(instance ?? null)}
+          ref={turnstileRef}
           siteKey={siteKey}
           scriptOptions={{ nonce }}
           options={{ action: "reserve", cData: idempotencyKey, refreshExpired: "auto" }}
