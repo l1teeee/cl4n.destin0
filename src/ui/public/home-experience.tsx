@@ -18,6 +18,11 @@ export function HomeExperience({ viewModel }: HomeExperienceProps) {
             <Link href={`/solicitar/${event.slug}`} className="public-reserve-link">
               SOLICITAR ACCESO
             </Link>
+            {event.waitlistOnly ? (
+              <p className="public-event-note">
+                Los cupos se agotaron. Aún hay lugares en la cola.
+              </p>
+            ) : null}
           </section>
         ))}
       </div>

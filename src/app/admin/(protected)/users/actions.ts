@@ -21,6 +21,7 @@ import {
   updateAdminUserSchema,
 } from "@/contracts/admin-users";
 import { requireSuperAdmin } from "@/infrastructure/auth/require-admin";
+import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 
 import {
   adminUserDependencies,
@@ -53,13 +54,11 @@ export async function createAdminUserAction(
   );
   if (!result.ok) return errorState(result.error);
 
+  scheduleEmailDelivery();
   revalidateAdminUserPaths(result.value.id);
   return {
     ok: true,
-    message:
-      result.value.notification === "SENT"
-        ? `Administrador ${result.value.email} creado. Le enviamos un correo de aviso.`
-        : `Administrador ${result.value.email} creado, pero no se pudo enviar el correo de aviso.`,
+    message: `Administrador ${result.value.email} creado. Le enviaremos un correo de aviso.`,
   };
 }
 
@@ -107,6 +106,7 @@ export async function confirmAdminUserDeletionAction(
   );
   if (!result.ok) return errorState(result.error);
 
+  scheduleEmailDelivery();
   revalidateAdminUserPaths(parsed.data.id);
   redirect("/admin/users?eliminado=1");
 }
@@ -134,6 +134,7 @@ export async function updateAdminUserAction(
   );
   if (!result.ok) return errorState(result.error, "No puedes cambiar tu propio rol.");
 
+  scheduleEmailDelivery();
   revalidateAdminUserPaths(parsed.data.id);
   return { ok: true, message: "Administrador actualizado." };
 }
@@ -158,6 +159,7 @@ export async function deactivateAdminUserAction(
   );
   if (!result.ok) return errorState(result.error, "No puedes desactivar tu propia cuenta.");
 
+  scheduleEmailDelivery();
   revalidateAdminUserPaths(parsed.data.id);
   return { ok: true, message: "Administrador desactivado. Sus sesiones se cerraron." };
 }
@@ -182,6 +184,7 @@ export async function reactivateAdminUserAction(
   );
   if (!result.ok) return errorState(result.error);
 
+  scheduleEmailDelivery();
   revalidateAdminUserPaths(parsed.data.id);
   return { ok: true, message: "Administrador reactivado." };
 }
@@ -208,6 +211,7 @@ export async function resetAdminPasswordAction(
   );
   if (!result.ok) return errorState(result.error, "Para cambiar tu contraseña usa Mi cuenta.");
 
+  scheduleEmailDelivery();
   revalidateAdminUserPaths(parsed.data.id);
   return { ok: true, message: "Contraseña restablecida. Sus sesiones se cerraron." };
 }
@@ -232,6 +236,7 @@ export async function revokeAdminSessionsAction(
   );
   if (!result.ok) return errorState(result.error, "Para cerrar tu sesión usa Cerrar sesión.");
 
+  scheduleEmailDelivery();
   revalidateAdminUserPaths(parsed.data.id);
   return {
     ok: true,

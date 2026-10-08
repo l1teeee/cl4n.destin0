@@ -3,13 +3,21 @@ import { describe, expect, it } from "vitest";
 import type { AdminEventSummary } from "@/application/events/types";
 import {
   dashboardActions,
+  eventPhaseLabel,
   formatAdminDate,
   formatCount,
   formatReservationNumber,
   lifecycleActions,
+  emailKindLabel,
+  emailStatusBadgeClass,
+  emailStatusLabel,
+  parseEmailLogSearchParams,
+  parseRosterView,
   parseAuditSearchParams,
   parseReservationSearchParams,
   reservationStatusLabel,
+  rosterStatusLabel,
+  rosterStatusBadgeClass,
 } from "@/ui/admin/view-model";
 
 const now = new Date("2026-10-05T12:00:00Z");
@@ -26,6 +34,8 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
     opensAt: new Date("2026-10-10T12:00:00Z"),
     closesAt: new Date("2026-10-20T12:00:00Z"),
     autoCloseOnFull: false,
+    waitlistCapacity: 0,
+    waitlistedCount: 0,
     status: "DRAFT",
     phase: "DRAFT",
     availableSeats: 20,
@@ -33,6 +43,21 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
     ...overrides,
   };
 }
+
+describe("event phase labels", () => {
+  it("labels the waitlist-only phase in Spanish and keeps other phases", () => {
+    expect(eventPhaseLabel("WAITLIST")).toBe("Solo cola");
+    expect(eventPhaseLabel("OPEN")).toBe("OPEN");
+  });
+
+  it("treats a waitlist-only event like an open one for dashboard actions", () => {
+    expect(dashboardActions(event({ status: "SCHEDULED", phase: "WAITLIST" }), now)).toEqual([
+      "CLOSE_NOW",
+      "EDIT",
+      "RESERVATIONS",
+    ]);
+  });
+});
 
 describe("admin dashboard actions", () => {
   it("shows only phase-valid dashboard actions", () => {
@@ -102,5 +127,20 @@ describe("admin formatting and query parsing", () => {
       page: 2,
     });
     expect(parseAuditSearchParams({ entityType: "UNKNOWN", page: "-1" })).toEqual({ page: 1 });
+  });
+
+  it("maps roster and email labels and allow-lists their filters", () => {
+    expect(rosterStatusLabel("PROMOTED")).toBe("Promovida");
+    expect(rosterStatusBadgeClass("REJECTED")).toBe("admin-badge admin-badge-full-rejected");
+    expect(emailStatusLabel("FAILED")).toBe("Falló");
+    expect(emailStatusBadgeClass("SENT")).toBe("admin-badge admin-badge-confirmed");
+    expect(emailKindLabel("ADMIN_SIGNED_IN")).toBe("Inicio de sesión");
+    expect(parseRosterView("en-cola", "confirmadas")).toBe("en-cola");
+    expect(parseRosterView("invalida", "confirmadas")).toBe("confirmadas");
+    expect(parseEmailLogSearchParams({ estado: "FAILED", tipo: "RESERVATION_CONFIRMED" })).toEqual({
+      status: "FAILED",
+      kind: "RESERVATION_CONFIRMED",
+    });
+    expect(parseEmailLogSearchParams({ estado: "INVALID", tipo: "INVALID" })).toEqual({});
   });
 });

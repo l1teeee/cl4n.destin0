@@ -170,15 +170,11 @@ describe("POST /api/reservations", () => {
     expect(state.rows[0]).toEqual({ reservations: 1, reserved_seats: 1, records: 1 });
   });
 
-  it("schedules one confirmation for a fresh reservation and none for its replay", async () => {
+  it("schedules one email delivery for a fresh reservation and none for its replay", async () => {
     const event = await insertTestEvent(pool);
-    const eventResult = await pool.query<{ starts_at: Date }>(
-      "SELECT starts_at FROM events WHERE id = $1",
-      [event.id],
-    );
     const key = randomUUID();
-    const onReservationConfirmed = vi.fn();
-    const setup = dependencies({ onReservationConfirmed });
+    const onReservationAccepted = vi.fn();
+    const setup = dependencies({ onReservationAccepted });
     const body = reservationBody(event.slug, 105, {
       fullName: "  Ana Confirmada  ",
       email: "  Ana.Confirmada@Example.com  ",
@@ -191,14 +187,7 @@ describe("POST /api/reservations", () => {
 
     expect(first.status).toBe(201);
     expect(replay.status).toBe(201);
-    expect(onReservationConfirmed).toHaveBeenCalledOnce();
-    expect(onReservationConfirmed).toHaveBeenCalledWith({
-      email: "Ana.Confirmada@Example.com",
-      fullName: "Ana Confirmada",
-      reservationNumber: 1,
-      partySize: 2,
-      eventStartsAt: eventResult.rows[0]!.starts_at,
-    });
+    expect(onReservationAccepted).toHaveBeenCalledOnce();
     expect(firstText).not.toContain("Ana.Confirmada@Example.com");
     expect(firstText).not.toContain("Ana Confirmada");
   });
@@ -209,22 +198,59 @@ describe("POST /api/reservations", () => {
       reservedSeats: 1,
       maxPartySize: 1,
     });
-    const onReservationConfirmed = vi.fn();
-    const setup = dependencies({ onReservationConfirmed });
+    const onReservationAccepted = vi.fn();
+    const setup = dependencies({ onReservationAccepted });
 
     const response = await setup.handler(request(reservationBody(event.slug, 106)));
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "EVENT_FULL" } });
+    expect(onReservationAccepted).not.toHaveBeenCalled();
+  });
+
+  it("returns 202 WAITLISTED with the queue position and replays it unchanged", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 1,
+      reservedSeats: 1,
+      maxPartySize: 1,
+      waitlistCapacity: 2,
+    });
+    const eventResult = await pool.query<{ starts_at: Date }>(
+      "SELECT starts_at FROM events WHERE id = $1",
+      [event.id],
+    );
+    const onReservationConfirmed = vi.fn();
+    const setup = dependencies({ onReservationConfirmed });
+    const key = randomUUID();
+    const body = reservationBody(event.slug, 108);
+
+    const first = await setup.handler(request(body, key));
+    const replay = await setup.handler(request(body, key));
+
+    const expectedBody = {
+      status: "WAITLISTED",
+      waitlist: {
+        position: 1,
+        partySize: 1,
+        eventStartsAt: eventResult.rows[0]!.starts_at.toISOString(),
+      },
+    };
+    expect(first.status).toBe(202);
+    await expect(first.json()).resolves.toEqual(expectedBody);
+    expect(replay.status).toBe(202);
+    expect(replay.headers.get("Idempotent-Replayed")).toBe("true");
+    await expect(replay.json()).resolves.toEqual(expectedBody);
     expect(onReservationConfirmed).not.toHaveBeenCalled();
+    const logOutput = JSON.stringify(log.mock.calls);
+    expect(logOutput).toContain("WAITLISTED");
   });
 
   it("does not schedule a confirmation for DUPLICATE_RESERVATION", async () => {
     const event = await insertTestEvent(pool);
     const body = reservationBody(event.slug, 107);
     await dependencies().handler(request(body));
-    const onReservationConfirmed = vi.fn();
-    const setup = dependencies({ onReservationConfirmed });
+    const onReservationAccepted = vi.fn();
+    const setup = dependencies({ onReservationAccepted });
 
     const response = await setup.handler(request(body));
 
@@ -232,13 +258,13 @@ describe("POST /api/reservations", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "DUPLICATE_RESERVATION" },
     });
-    expect(onReservationConfirmed).not.toHaveBeenCalled();
+    expect(onReservationAccepted).not.toHaveBeenCalled();
   });
 
   it("does not schedule a confirmation for VALIDATION_FAILED", async () => {
     const event = await insertTestEvent(pool);
-    const onReservationConfirmed = vi.fn();
-    const setup = dependencies({ onReservationConfirmed });
+    const onReservationAccepted = vi.fn();
+    const setup = dependencies({ onReservationAccepted });
 
     const response = await setup.handler(
       request(reservationBody(event.slug, 108, { email: "invalid" })),
@@ -248,22 +274,22 @@ describe("POST /api/reservations", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "VALIDATION_FAILED" },
     });
-    expect(onReservationConfirmed).not.toHaveBeenCalled();
+    expect(onReservationAccepted).not.toHaveBeenCalled();
   });
 
   it("does not schedule a confirmation for RATE_LIMITED", async () => {
     const event = await insertTestEvent(pool);
-    const onReservationConfirmed = vi.fn();
+    const onReservationAccepted = vi.fn();
     const rateLimiter = {
       consume: vi.fn(async () => ({ allowed: false, retryAfterSeconds: 10 })),
     };
-    const setup = dependencies({ onReservationConfirmed, rateLimiter });
+    const setup = dependencies({ onReservationAccepted, rateLimiter });
 
     const response = await setup.handler(request(reservationBody(event.slug, 109)));
 
     expect(response.status).toBe(429);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "RATE_LIMITED" } });
-    expect(onReservationConfirmed).not.toHaveBeenCalled();
+    expect(onReservationAccepted).not.toHaveBeenCalled();
   });
 
   it("keeps the confirmed response when confirmation scheduling throws", async () => {
@@ -274,11 +300,11 @@ describe("POST /api/reservations", () => {
     );
     const scheduleError = new Error("scheduler unavailable");
     const captureException = vi.fn();
-    const onReservationConfirmed = vi.fn(() => {
+    const onReservationAccepted = vi.fn(() => {
       throw scheduleError;
     });
     const setup = dependencies({
-      onReservationConfirmed,
+      onReservationAccepted,
       observability: { log, captureException },
     });
 
@@ -296,10 +322,9 @@ describe("POST /api/reservations", () => {
         },
       }),
     );
-    expect(onReservationConfirmed).toHaveBeenCalledOnce();
+    expect(onReservationAccepted).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalledWith("error", "reservation_confirmation_schedule_failed", {
       requestId: expect.any(String),
-      reservationNumber: 1,
     });
     expect(captureException).toHaveBeenCalledWith(scheduleError);
   });
@@ -470,6 +495,9 @@ describe("POST /api/reservations", () => {
         async cancelReservation() {
           return "NOT_FOUND";
         },
+        async cancelWaitlistEntry() {
+          return "NOT_FOUND";
+        },
       };
       const rateLimiter = {
         consume: vi.fn(async () => {
@@ -509,6 +537,9 @@ describe("POST /api/reservations", () => {
         throw new Error(internalMessage);
       },
       async cancelReservation() {
+        return "NOT_FOUND";
+      },
+      async cancelWaitlistEntry() {
         return "NOT_FOUND";
       },
     };

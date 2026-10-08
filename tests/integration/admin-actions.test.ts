@@ -5,12 +5,17 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
 
+const scheduleEmailDeliveryMock = vi.hoisted(() => vi.fn());
+
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
     get: vi.fn(() => (authState.token ? { value: authState.token } : undefined)),
   })),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/infrastructure/email/outbox/schedule-email-delivery", () => ({
+  scheduleEmailDelivery: scheduleEmailDeliveryMock,
+}));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((destination: string) => {
     throw new Error(`REDIRECT:${destination}`);
@@ -21,6 +26,7 @@ import { signOutAction } from "@/app/admin/(protected)/actions";
 import {
   cancelEventAction,
   cancelReservationAction,
+  cancelWaitlistEntryAction,
   changeCapacityAction,
   closeEventNowAction,
   completeEventAction,
@@ -39,6 +45,7 @@ let adminId: string;
 let sessionToken: string;
 
 beforeEach(async () => {
+  scheduleEmailDeliveryMock.mockClear();
   authState.token = undefined;
   if (pool) await pool.end();
   await resetTestDatabase();
@@ -49,7 +56,7 @@ beforeEach(async () => {
      RETURNING id`,
   );
   adminId = admin.rows[0]!.id;
-  sessionToken = (await postgresAdminAuthRepository.createSession(adminId, "hash"))!.token;
+  sessionToken = (await postgresAdminAuthRepository.createSession(adminId, "hash", null))!.token;
 });
 
 afterAll(async () => {
@@ -209,12 +216,14 @@ describe("admin event Server Actions", () => {
     const form = new FormData();
     form.set("newCapacity", "25");
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: false });
+    expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
     ).toBe(20);
     await authorize();
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: true });
+    expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
@@ -249,10 +258,12 @@ describe("admin event Server Actions", () => {
         ])
       ).rows[0]!.status,
     ).toBe("CONFIRMED");
+    expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
     await authorize();
     expect(
       await cancelReservationAction(eventId, reservationId, initialState, new FormData()),
     ).toMatchObject({ ok: true });
+    expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (
         await pool.query<{ status: string }>("SELECT status FROM reservations WHERE id = $1", [
@@ -268,5 +279,40 @@ describe("admin event Server Actions", () => {
         )
       ).rows[0]!.reserved_seats,
     ).toBe(0);
+  });
+
+  it("protects and cancels only a waiting queue entry", async () => {
+    const eventId = await insertEvent("SCHEDULED", "waitlist-cancel-event");
+    const entry = await pool.query<{ id: string }>(
+      `INSERT INTO waitlist_entries (
+         event_id, waitlist_number, status, full_name, instagram_handle, phone_e164,
+         email, email_normalized, party_size, terms_accepted_at, idempotency_key, submitted_at
+       ) VALUES ($1, 1, 'WAITING', 'Beto Gómez', 'betogomez', '+50370000001',
+         'beto@example.com', 'beto@example.com', 1, now(), $2, now())
+       RETURNING id`,
+      [eventId, randomUUID()],
+    );
+    const entryId = entry.rows[0]!.id;
+    await pool.query(
+      "UPDATE events SET waitlisted_count = 1, waitlist_capacity = 5 WHERE id = $1",
+      [eventId],
+    );
+
+    await expect(
+      cancelWaitlistEntryAction(eventId, entryId, initialState, new FormData()),
+    ).resolves.toMatchObject({ ok: false });
+    expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
+
+    await authorize();
+    await expect(
+      cancelWaitlistEntryAction(eventId, entryId, initialState, new FormData()),
+    ).resolves.toMatchObject({ ok: true });
+    expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
+    await expect(
+      pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [entryId]),
+    ).resolves.toMatchObject({ rows: [{ status: "CANCELLED" }] });
+    await expect(
+      pool.query("SELECT kind FROM email_outbox WHERE waitlist_entry_id = $1", [entryId]),
+    ).resolves.toMatchObject({ rows: [{ kind: "WAITLIST_CANCELLED" }] });
   });
 });

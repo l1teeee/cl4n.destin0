@@ -48,7 +48,6 @@ beforeAll(async () => {
     hashPassword,
     verifyPassword,
     notifications: {
-      sendAdminAdded: async () => undefined,
       sendDeletionCode: async (input) => {
         sentDeletionCodes.push(input.code);
       },
@@ -82,7 +81,7 @@ async function insertAdmin(role: AdminRole, active = true) {
 
 function realSignIn(email: string, password: string) {
   return signIn(
-    { email, password, clientIp: randomUUID() },
+    { email, password, clientIp: randomUUID(), rawClientIp: null },
     {
       repository: auth,
       consumeRateLimit: (input) => consumeWithPool(input, pool),
@@ -302,7 +301,7 @@ describe("admin user updates", () => {
   it("removes super-admin access from a demoted admin on the next request", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("SUPER_ADMIN");
-    const session = (await auth.createSession(target.id, initialHash))!;
+    const session = (await auth.createSession(target.id, initialHash, null))!;
 
     await expect(authorizeSuperAdminSession(session.token, auth)).resolves.toMatchObject({
       authorized: true,
@@ -333,8 +332,8 @@ describe("admin access lifecycle", () => {
   it("deactivation revokes sessions and blocks sign-in until reactivated", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("ADMIN");
-    const first = (await auth.createSession(target.id, initialHash))!;
-    const second = (await auth.createSession(target.id, initialHash))!;
+    const first = (await auth.createSession(target.id, initialHash, null))!;
+    const second = (await auth.createSession(target.id, initialHash, null))!;
 
     await expect(deactivateAdminUser(dependencies, actor, target.id)).resolves.toEqual({
       ok: true,
@@ -370,7 +369,7 @@ describe("admin access lifecycle", () => {
   it("password reset replaces the hash and closes the target's sessions", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("ADMIN");
-    const session = (await auth.createSession(target.id, initialHash))!;
+    const session = (await auth.createSession(target.id, initialHash, null))!;
 
     await expect(
       resetAdminPassword(dependencies, actor, { id: target.id, password: "clave-restablecida-1" }),
@@ -391,8 +390,8 @@ describe("admin access lifecycle", () => {
   it("revokes every session of another admin", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("ADMIN");
-    const first = (await auth.createSession(target.id, initialHash))!;
-    const second = (await auth.createSession(target.id, initialHash))!;
+    const first = (await auth.createSession(target.id, initialHash, null))!;
+    const second = (await auth.createSession(target.id, initialHash, null))!;
 
     await expect(revokeAdminSessions(dependencies, actor, target.id)).resolves.toEqual({
       ok: true,
@@ -408,7 +407,7 @@ describe("admin access lifecycle", () => {
 
   it("lists admins with role, status and active session counts", async () => {
     const target = await insertAdmin("ADMIN");
-    await auth.createSession(target.id, initialHash);
+    await auth.createSession(target.id, initialHash, null);
     const listed = (await listAdminUsers(users)).find((admin) => admin.id === target.id);
 
     expect(listed).toMatchObject({
@@ -423,8 +422,8 @@ describe("admin access lifecycle", () => {
 describe("own password change", () => {
   it("keeps the current session, closes the others and audits", async () => {
     const admin = await insertAdmin("ADMIN");
-    const current = (await auth.createSession(admin.id, initialHash))!;
-    const other = (await auth.createSession(admin.id, initialHash))!;
+    const current = (await auth.createSession(admin.id, initialHash, null))!;
+    const other = (await auth.createSession(admin.id, initialHash, null))!;
     const currentSession = await auth.validateSession(current.token);
 
     await expect(
@@ -452,7 +451,7 @@ describe("own password change", () => {
 
   it("rate-limits attempts after five tries", async () => {
     const admin = await insertAdmin("ADMIN");
-    const session = (await auth.createSession(admin.id, initialHash))!;
+    const session = (await auth.createSession(admin.id, initialHash, null))!;
     const sessionId = (await auth.validateSession(session.token))!.id;
     const outcomes = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -476,8 +475,8 @@ describe("admin deletion", () => {
   it("soft-deletes the target, revokes access and audits without the code or email", async () => {
     const actor = await insertAdmin("SUPER_ADMIN");
     const target = await insertAdmin("ADMIN");
-    await auth.createSession(target.id, initialHash);
-    await auth.createSession(target.id, initialHash);
+    await auth.createSession(target.id, initialHash, null);
+    await auth.createSession(target.id, initialHash, null);
 
     await expect(
       requestAdminUserDeletionCode(dependencies, actor, target.id),

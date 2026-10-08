@@ -5,12 +5,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
 
+const scheduleEmailDeliveryMock = vi.hoisted(() => vi.fn());
+
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
     get: vi.fn(() => (authState.token ? { value: authState.token } : undefined)),
   })),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/infrastructure/email/outbox/schedule-email-delivery", () => ({
+  scheduleEmailDelivery: scheduleEmailDeliveryMock,
+}));
 vi.mock("next/navigation", () => ({
   notFound: vi.fn(() => {
     throw new Error("NOT_FOUND");
@@ -51,6 +56,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  scheduleEmailDeliveryMock.mockClear();
   authState.token = undefined;
   await pool.query("TRUNCATE rate_limit_counters");
 });
@@ -68,7 +74,7 @@ async function signedInAdmin(role: AdminRole) {
     [email, initialHash, role],
   );
   const id = inserted.rows[0]!.id;
-  authState.token = (await postgresAdminAuthRepository.createSession(id, initialHash))!.token;
+  authState.token = (await postgresAdminAuthRepository.createSession(id, initialHash, null))!.token;
   return { id, email };
 }
 
@@ -151,8 +157,9 @@ describe("user management actions", () => {
     ).resolves.toEqual({ ok: false, message: "Las contraseñas no coinciden." });
     await expect(createAdminUserAction(initialState, createForm(email))).resolves.toEqual({
       ok: true,
-      message: `Administrador ${email} creado. Le enviamos un correo de aviso.`,
+      message: `Administrador ${email} creado. Le enviaremos un correo de aviso.`,
     });
+    expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
     await expect(createAdminUserAction(initialState, createForm(email))).resolves.toEqual({
       ok: false,
       message: "Ya existe un administrador con ese email.",

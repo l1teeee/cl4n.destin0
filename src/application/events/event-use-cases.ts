@@ -5,6 +5,7 @@ import type {
   AdminReservationQuery,
   AuditLogQuery,
   CreateEventCommand,
+  RosterView,
   UpdateEventCommand,
 } from "./types";
 
@@ -63,6 +64,14 @@ export function getAdminEventDetail(repository: EventRepository, id: string) {
 
 export function getAdminReservationList(repository: EventRepository, query: AdminReservationQuery) {
   return repository.listAdminReservations(query);
+}
+
+export function getEventRoster(repository: EventRepository, eventId: string, view: RosterView) {
+  return repository.listEventRoster(eventId, view);
+}
+
+export function getEventRosterCounts(repository: EventRepository, eventId: string) {
+  return repository.countEventRoster(eventId);
 }
 
 export function getAdminAuditLog(repository: EventRepository, query: AuditLogQuery) {

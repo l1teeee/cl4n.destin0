@@ -15,9 +15,11 @@ import {
 } from "@/application/events/event-use-cases";
 import type { EventOperationErrorCode } from "@/application/events/types";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
+import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import {
   localDateTimeToUtc,
@@ -34,6 +36,12 @@ const reservationActionSchema = z
   .object({
     eventId: z.string().uuid("El evento no es válido."),
     reservationId: z.string().uuid("La reservación no es válida."),
+  })
+  .strict();
+const waitlistActionSchema = z
+  .object({
+    eventId: z.string().uuid("El evento no es válido."),
+    waitlistEntryId: z.string().uuid("La entrada en cola no es válida."),
   })
   .strict();
 const capacitySchema = z
@@ -56,6 +64,7 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
   CLOSES_AT_IN_PAST: "No se puede abrir una experiencia cuya fecha de cierre ya pasó.",
   CAPACITY_BELOW_ALLOCATED: "La capacidad no puede ser menor que los cupos reservados.",
   CAPACITY_BELOW_MAX_PARTY_SIZE: "La capacidad no puede ser menor que el tamaño máximo del grupo.",
+  WAITLIST_CAPACITY_BELOW_WAITING: "No puedes dejar menos lugares en cola que personas esperando.",
 };
 
 function unauthorized(): AdminActionState {
@@ -102,6 +111,7 @@ export async function createEventAction(
     capacity: Number(formData.get("capacity")),
     maxPartySize: Number(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
+    waitlistCapacity: Number(formData.get("waitlistCapacity")),
     status: formData.get("status"),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
@@ -147,6 +157,7 @@ export async function updateEventAction(
     closesAt: formData.get("closesAt"),
     maxPartySize: Number(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
+    waitlistCapacity: Number(formData.get("waitlistCapacity")),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
 
@@ -293,6 +304,7 @@ export async function changeCapacityAction(
     authorization.session.admin.id,
   );
   if (!result.ok) return operationError(result.error);
+  scheduleEmailDelivery();
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Capacidad actualizada." };
 }
@@ -316,8 +328,39 @@ export async function cancelReservationAction(
   });
   if (result === "NOT_FOUND") return invalid("No se encontró la reservación.");
   if (result === "NOT_CANCELLABLE") return invalid("La reservación ya no se puede cancelar.");
+  scheduleEmailDelivery();
   revalidatePath("/admin");
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");
   return { ok: true, message: "Reservación cancelada." };
+}
+
+export async function cancelWaitlistEntryAction(
+  eventId: string,
+  waitlistEntryId: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = waitlistActionSchema.safeParse({ eventId, waitlistEntryId });
+  if (!parsed.success) return firstValidationError(parsed.error);
+
+  const cancelWaitlistEntry = createCancelWaitlistEntry(
+    new PostgresReservationAllocationRepository(),
+  );
+  const result = await cancelWaitlistEntry({
+    waitlistEntryId: parsed.data.waitlistEntryId,
+    actorAdminId: authorization.session.admin.id,
+  });
+  if (result === "NOT_FOUND") return invalid("No se encontró la entrada en cola.");
+  if (result === "NOT_CANCELLABLE") return invalid("La entrada ya no se puede retirar.");
+
+  scheduleEmailDelivery();
+  revalidatePath("/admin");
+  revalidatePath(`/admin/events/${parsed.data.eventId}`);
+  revalidatePath("/admin/audit");
+  return { ok: true, message: "Entrada retirada de la cola." };
 }

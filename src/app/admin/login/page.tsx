@@ -1,13 +1,14 @@
 import Image from "next/image";
+import Link from "next/link";
 
 import { signInAction } from "./actions";
 
 interface LoginPageProps {
-  searchParams: Promise<{ error?: string | string[] }>;
+  searchParams: Promise<{ error?: string | string[]; restablecida?: string | string[] }>;
 }
 
 export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
-  const error = (await searchParams).error;
+  const { error, restablecida } = await searchParams;
   return (
     <main className="admin-login">
       <div className="admin-login-panel">
@@ -22,6 +23,11 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
           />
           <h1 className="admin-eyebrow">Administración</h1>
         </div>
+        {restablecida ? (
+          <p className="admin-notice-success" role="status">
+            Tu contraseña se actualizó. Ya puedes iniciar sesión.
+          </p>
+        ) : null}
         {error ? (
           <p className="admin-notice-error" role="alert">
             No se pudo iniciar sesión. Verifica tus credenciales.
@@ -52,6 +58,9 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
             Ingresar
           </button>
         </form>
+        <Link className="admin-link" href="/admin/forgot">
+          ¿Olvidaste tu contraseña?
+        </Link>
       </div>
     </main>
   );

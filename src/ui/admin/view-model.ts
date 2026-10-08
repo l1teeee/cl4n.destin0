@@ -3,9 +3,18 @@ import type {
   AuditLogItem,
   ReservationSortKey,
   ReservationStatus,
+  RosterEmailStatus,
+  RosterStatus,
+  RosterView,
   SortDirection,
 } from "@/application/events/types";
+import {
+  emailOutboxKinds,
+  type EmailOutboxKind,
+  type EmailOutboxStatus,
+} from "@/application/notifications/email-outbox";
 import type { AdminRole } from "@/domain/admin/admin-access";
+import type { EventPhase } from "@/domain/event/event-phase";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 
 export type DashboardAction = "OPEN_NOW" | "CLOSE_NOW" | "EDIT" | "RESERVATIONS";
@@ -43,11 +52,15 @@ export function dashboardActions(event: AdminEventSummary, databaseTime: Date): 
     (event.status === "DRAFT" || event.status === "SCHEDULED" || event.status === "CLOSED") &&
     event.closesAt > databaseTime &&
     event.phase !== "OPEN" &&
+    event.phase !== "WAITLIST" &&
     event.phase !== "FULL"
   ) {
     actions.push("OPEN_NOW");
   }
-  if (event.status === "SCHEDULED" && (event.phase === "OPEN" || event.phase === "FULL")) {
+  if (
+    event.status === "SCHEDULED" &&
+    (event.phase === "OPEN" || event.phase === "WAITLIST" || event.phase === "FULL")
+  ) {
     actions.push("CLOSE_NOW");
   }
   actions.push("EDIT", "RESERVATIONS");
@@ -67,6 +80,7 @@ export function lifecycleActions(event: AdminEventSummary, databaseTime: Date): 
     (event.status === "DRAFT" || event.status === "SCHEDULED" || event.status === "CLOSED") &&
     event.closesAt > databaseTime &&
     event.phase !== "OPEN" &&
+    event.phase !== "WAITLIST" &&
     event.phase !== "FULL"
   ) {
     actions.push("OPEN_NOW");
@@ -103,6 +117,10 @@ export function adminStatusLabel(isActive: boolean): string {
 
 export function adminStatusBadgeClass(status: string): string {
   return `admin-badge admin-badge-${status.toLowerCase().replaceAll("_", "-")}`;
+}
+
+export function eventPhaseLabel(phase: EventPhase): string {
+  return phase === "WAITLIST" ? "Solo cola" : phase;
 }
 
 export function reservationStatusLabel(status: ReservationStatus): string {
@@ -147,5 +165,115 @@ export function parseAuditSearchParams(params: Record<string, string | string[] 
       ? { entityType: rawEntityType as AuditLogItem["entityType"] }
       : {}),
     page: Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1,
+  };
+}
+
+export const rosterViews: readonly { view: RosterView; label: string }[] = [
+  { view: "confirmadas", label: "Confirmadas" },
+  { view: "en-cola", label: "En cola" },
+  { view: "rechazadas", label: "Rechazadas" },
+  { view: "canceladas", label: "Canceladas" },
+  { view: "todas", label: "Todas" },
+];
+
+export function parseRosterView(
+  value: string | string[] | undefined,
+  fallback: RosterView,
+): RosterView {
+  const raw = first(value);
+  const match = rosterViews.find((entry) => entry.view === raw);
+  return match ? match.view : fallback;
+}
+
+export function rosterStatusLabel(status: RosterStatus): string {
+  const labels: Record<RosterStatus, string> = {
+    CONFIRMED: "Confirmada",
+    WAITING: "En cola",
+    REJECTED: "Rechazada",
+    CANCELLED: "Cancelada",
+    PROMOTED: "Promovida",
+  };
+  return labels[status];
+}
+
+export function rosterStatusBadgeClass(status: RosterStatus): string {
+  const badgeStatus: Record<RosterStatus, string> = {
+    CONFIRMED: "confirmed",
+    WAITING: "waitlist",
+    REJECTED: "full-rejected",
+    CANCELLED: "cancelled",
+    PROMOTED: "confirmed",
+  };
+  return `admin-badge admin-badge-${badgeStatus[status]}`;
+}
+
+export function emailStatusLabel(status: RosterEmailStatus): string {
+  const labels: Record<RosterEmailStatus, string> = {
+    SENT: "Enviado",
+    PENDING: "Pendiente",
+    FAILED: "Falló",
+  };
+  return labels[status];
+}
+
+export function emailStatusBadgeClass(status: EmailOutboxStatus): string {
+  const badgeStatus: Record<EmailOutboxStatus, string> = {
+    PENDING: "draft",
+    SENT: "confirmed",
+    FAILED: "full-rejected",
+  };
+  return `admin-badge admin-badge-${badgeStatus[status]}`;
+}
+
+export function rosterEmailLabel(status: RosterEmailStatus | null, sentAt: Date | null): string {
+  if (status === null) return "-";
+  if (status === "SENT" && sentAt) {
+    return `Enviado ${formatUtcForElSalvador(sentAt, "HH:mm")}`;
+  }
+  return emailStatusLabel(status);
+}
+
+export function emailKindLabel(kind: EmailOutboxKind): string {
+  const labels: Record<EmailOutboxKind, string> = {
+    RESERVATION_CONFIRMED: "Confirmación de reserva",
+    RESERVATION_WAITLISTED: "Entrada a la cola",
+    WAITLIST_PROMOTED: "Promoción desde la cola",
+    RESERVATION_CANCELLED: "Reserva cancelada",
+    WAITLIST_CANCELLED: "Retiro de la cola",
+    ADMIN_ADDED: "Alta de administrador",
+    ADMIN_SIGNED_IN: "Inicio de sesión",
+    ADMIN_PASSWORD_RESET_BY_ADMIN: "Contraseña restablecida por un administrador",
+    ADMIN_PASSWORD_CHANGED: "Cambio de contraseña",
+    ADMIN_PASSWORD_RESET_COMPLETED: "Recuperación de contraseña",
+    ADMIN_DEACTIVATED: "Cuenta desactivada",
+    ADMIN_REACTIVATED: "Cuenta reactivada",
+    ADMIN_ROLE_CHANGED: "Cambio de rol",
+    ADMIN_DELETED: "Cuenta eliminada",
+    ADMIN_SESSIONS_REVOKED: "Sesiones cerradas",
+  };
+  return labels[kind];
+}
+
+export const emailStatusFilters: readonly {
+  status: EmailOutboxStatus | undefined;
+  label: string;
+}[] = [
+  { status: undefined, label: "Todos" },
+  { status: "PENDING", label: "Pendientes" },
+  { status: "SENT", label: "Enviados" },
+  { status: "FAILED", label: "Fallidos" },
+];
+
+export function parseEmailLogSearchParams(params: Record<string, string | string[] | undefined>): {
+  status?: EmailOutboxStatus;
+  kind?: EmailOutboxKind;
+} {
+  const rawStatus = first(params.estado);
+  const rawKind = first(params.tipo);
+  const status = emailStatusFilters.find((entry) => entry.status === rawStatus)?.status;
+  const kind = emailOutboxKinds.find((entry) => entry === rawKind);
+  return {
+    ...(status ? { status } : {}),
+    ...(kind ? { kind } : {}),
   };
 }

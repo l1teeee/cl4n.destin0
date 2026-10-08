@@ -6,6 +6,8 @@ import type {
   AllocationResult,
   CancelReservationCommand,
   CancelReservationOutcome,
+  CancelWaitlistEntryCommand,
+  CancelWaitlistEntryOutcome,
   CompletedIdempotencyRecord,
   ReservationAllocationRepository,
   ReservationResponse,
@@ -14,11 +16,14 @@ import { classifyAllocationFailure } from "@/domain/reservation/allocation-failu
 
 import { pool as applicationPool } from "../client";
 import { retryableDatabaseErrorCode } from "../retryable-database-error";
+import { promoteWaitlist } from "./waitlist-promotion";
 
 interface DatabaseError {
   code?: string;
   constraint?: string;
 }
+
+class DuplicateReservationAfterWaitlistClaimError extends Error {}
 
 interface EventRow {
   id: string;
@@ -46,6 +51,8 @@ interface AcquiredEventRow {
 const duplicateConstraints = new Set([
   "reservations_one_confirmed_per_email_uq",
   "reservations_one_confirmed_per_phone_uq",
+  "waitlist_entries_one_waiting_per_email_uq",
+  "waitlist_entries_one_waiting_per_phone_uq",
 ]);
 
 function databaseError(error: unknown): DatabaseError {
@@ -56,20 +63,38 @@ async function rollback(client: PoolClient): Promise<void> {
   await client.query("ROLLBACK");
 }
 
+interface IdempotencySubject {
+  reservationId?: string;
+  waitlistEntryId?: string;
+}
+
+interface WaitlistPlacement {
+  waitlistNumber: number;
+  position: number;
+  eventClosed: boolean;
+}
+
 async function completeIdempotencyRecord(
   client: PoolClient,
   key: string,
   response: ReservationResponse,
-  reservationId: string | null,
+  subject: IdempotencySubject,
 ): Promise<void> {
   await client.query(
     `UPDATE idempotency_records
         SET response_status = $2,
             response_body = $3::jsonb,
             reservation_id = $4,
+            waitlist_entry_id = $5,
             completed_at = clock_timestamp()
       WHERE key = $1`,
-    [key, response.status, JSON.stringify(response.body), reservationId],
+    [
+      key,
+      response.status,
+      JSON.stringify(response.body),
+      subject.reservationId ?? null,
+      subject.waitlistEntryId ?? null,
+    ],
   );
 }
 
@@ -77,12 +102,128 @@ async function commitResult(
   client: PoolClient,
   command: AllocationCommand,
   outcome: AllocationOutcome,
-  reservationId: string | null = null,
+  subject: IdempotencySubject = {},
 ): Promise<AllocationResult> {
   const response = command.mapOutcome(outcome);
-  await completeIdempotencyRecord(client, command.idempotencyKey, response, reservationId);
+  await completeIdempotencyRecord(client, command.idempotencyKey, response, subject);
   await client.query("COMMIT");
   return { ...response, replayed: false, outcome };
+}
+
+async function insertEventClosedAudit(client: PoolClient, eventId: string): Promise<void> {
+  await client.query(
+    `INSERT INTO audit_logs (
+       actor_type, action, entity_type, entity_id, metadata
+     )
+     VALUES (
+       'SYSTEM', 'EVENT_CLOSED', 'EVENT', $1, $2::jsonb
+     )`,
+    [eventId, JSON.stringify({ reason: "CAPACITY_REACHED" })],
+  );
+}
+
+async function claimWaitlistPlace(
+  client: PoolClient,
+  eventId: string,
+  partySize: number,
+): Promise<WaitlistPlacement | null> {
+  const result = await client.query<{
+    last_waitlist_number: number;
+    waitlisted_count: number;
+    status: EventRow["status"];
+  }>(
+    `UPDATE events
+        SET waitlisted_count = waitlisted_count + 1,
+            last_waitlist_number = last_waitlist_number + 1,
+            status = CASE
+              WHEN auto_close_on_full
+                   AND waitlisted_count + 1 = waitlist_capacity
+                   AND reserved_seats = capacity
+              THEN 'CLOSED'::event_status
+              ELSE status
+            END,
+            updated_at = clock_timestamp()
+      WHERE id = $1
+        AND status = 'SCHEDULED'
+        AND opens_at <= clock_timestamp()
+        AND closes_at > clock_timestamp()
+        AND $2 <= max_party_size
+        AND reserved_seats + $2 > capacity
+        AND waitlisted_count < waitlist_capacity
+      RETURNING last_waitlist_number, waitlisted_count, status`,
+    [eventId, partySize],
+  );
+  const row = result.rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    waitlistNumber: row.last_waitlist_number,
+    position: row.waitlisted_count,
+    eventClosed: row.status === "CLOSED",
+  };
+}
+
+async function insertWaitlistEntry(
+  client: PoolClient,
+  eventId: string,
+  waitlistNumber: number,
+  command: AllocationCommand,
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO waitlist_entries (
+       event_id, waitlist_number, status, full_name, instagram_handle,
+       phone_e164, email, email_normalized, party_size, notes,
+       terms_accepted_at, idempotency_key, submitted_at
+     )
+     VALUES (
+       $1, $2, 'WAITING', $3, $4,
+       $5, $6, $7, $8, $9,
+       transaction_timestamp(), $10, transaction_timestamp()
+     )
+     RETURNING id`,
+    [
+      eventId,
+      waitlistNumber,
+      command.fullName,
+      command.instagramHandle,
+      command.phoneE164,
+      command.email,
+      command.emailNormalized,
+      command.partySize,
+      command.notes ?? null,
+      command.idempotencyKey,
+    ],
+  );
+  return result.rows[0]!.id;
+}
+
+async function recordWaitlisting(
+  client: PoolClient,
+  eventId: string,
+  entryId: string,
+  placement: WaitlistPlacement,
+  partySize: number,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO audit_logs (
+       actor_type, action, entity_type, entity_id, metadata
+     )
+     VALUES (
+       'PUBLIC', 'RESERVATION_WAITLISTED', 'WAITLIST_ENTRY', $1, $2::jsonb
+     )`,
+    [entryId, JSON.stringify({ eventId, waitlistNumber: placement.waitlistNumber, partySize })],
+  );
+  await client.query(
+    `INSERT INTO email_outbox (kind, waitlist_entry_id, payload)
+     VALUES ('RESERVATION_WAITLISTED', $1, $2::jsonb)`,
+    [entryId, JSON.stringify({ position: placement.position })],
+  );
+  if (placement.eventClosed) {
+    await insertEventClosedAudit(client, eventId);
+  }
 }
 
 async function readCompletedRecord(
@@ -176,8 +317,17 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           LIMIT 1`,
         [event.id, command.emailNormalized, command.phoneE164],
       );
+      const waitingDuplicate = await client.query(
+        `SELECT 1
+           FROM waitlist_entries
+          WHERE event_id = $1
+            AND status = 'WAITING'
+            AND (email_normalized = $2 OR phone_e164 = $3)
+          LIMIT 1`,
+        [event.id, command.emailNormalized, command.phoneE164],
+      );
 
-      if ((duplicate.rowCount ?? 0) > 0) {
+      if ((duplicate.rowCount ?? 0) > 0 || (waitingDuplicate.rowCount ?? 0) > 0) {
         return await commitResult(client, command, { code: "DUPLICATE_RESERVATION" });
       }
 
@@ -186,7 +336,9 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             SET reserved_seats = reserved_seats + $2,
                 last_reservation_number = last_reservation_number + 1,
                 status = CASE
-                  WHEN auto_close_on_full AND reserved_seats + $2 = capacity
+                  WHEN auto_close_on_full
+                    AND reserved_seats + $2 = capacity
+                    AND waitlisted_count = waitlist_capacity
                   THEN 'CLOSED'::event_status
                   ELSE status
                 END,
@@ -242,6 +394,43 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           return await commitResult(client, command, { code: failure });
         }
 
+        const placement = await claimWaitlistPlace(client, event.id, command.partySize);
+
+        if (placement) {
+          const lockedDuplicate = await client.query(
+            `SELECT 1
+               FROM reservations
+              WHERE event_id = $1
+                AND status = 'CONFIRMED'
+                AND (email_normalized = $2 OR phone_e164 = $3)
+              LIMIT 1`,
+            [event.id, command.emailNormalized, command.phoneE164],
+          );
+          if ((lockedDuplicate.rowCount ?? 0) > 0) {
+            throw new DuplicateReservationAfterWaitlistClaimError();
+          }
+
+          const entryId = await insertWaitlistEntry(
+            client,
+            event.id,
+            placement.waitlistNumber,
+            command,
+          );
+          await recordWaitlisting(client, event.id, entryId, placement, command.partySize);
+
+          return await commitResult(
+            client,
+            command,
+            {
+              code: "WAITLISTED",
+              position: placement.position,
+              partySize: command.partySize,
+              eventStartsAt: event.starts_at,
+            },
+            { waitlistEntryId: entryId },
+          );
+        }
+
         const rejected = await client.query<{ id: string }>(
           `INSERT INTO reservations (
              event_id, status, full_name, instagram_handle, phone_e164,
@@ -267,7 +456,12 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           ],
         );
 
-        return await commitResult(client, command, { code: "EVENT_FULL" }, rejected.rows[0]!.id);
+        return await commitResult(
+          client,
+          command,
+          { code: "EVENT_FULL" },
+          { reservationId: rejected.rows[0]!.id },
+        );
       }
 
       const reservation = await client.query<{ id: string }>(
@@ -315,16 +509,14 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         ],
       );
 
+      await client.query(
+        `INSERT INTO email_outbox (kind, reservation_id)
+         VALUES ('RESERVATION_CONFIRMED', $1)`,
+        [reservationId],
+      );
+
       if (allocation.status === "CLOSED") {
-        await client.query(
-          `INSERT INTO audit_logs (
-             actor_type, action, entity_type, entity_id, metadata
-           )
-           VALUES (
-             'SYSTEM', 'EVENT_CLOSED', 'EVENT', $1, $2::jsonb
-           )`,
-          [event.id, JSON.stringify({ reason: "CAPACITY_REACHED" })],
-        );
+        await insertEventClosedAudit(client, event.id);
       }
 
       return await commitResult(
@@ -336,7 +528,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           partySize: command.partySize,
           eventStartsAt: event.starts_at,
         },
-        reservationId,
+        { reservationId },
       );
     } catch (error) {
       if (client) {
@@ -349,7 +541,10 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       }
       const details = databaseError(error);
 
-      if (details.code === "23505" && duplicateConstraints.has(details.constraint ?? "")) {
+      if (
+        error instanceof DuplicateReservationAfterWaitlistClaimError ||
+        (details.code === "23505" && duplicateConstraints.has(details.constraint ?? ""))
+      ) {
         return {
           ...command.mapOutcome({ code: "DUPLICATE_RESERVATION" }),
           replayed: false,
@@ -423,6 +618,86 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
            'ADMIN', $2, 'RESERVATION_CANCELLED', 'RESERVATION', $1, $3::jsonb
          )`,
         [command.reservationId, command.actorAdminId, JSON.stringify({ eventId, partySize })],
+      );
+      await client.query(
+        `INSERT INTO email_outbox (kind, reservation_id)
+         VALUES ('RESERVATION_CANCELLED', $1)`,
+        [command.reservationId],
+      );
+      await promoteWaitlist(client, eventId);
+      await client.query("COMMIT");
+      return "CANCELLED";
+    } catch (error) {
+      try {
+        await rollback(client);
+      } catch {
+        releaseError = error instanceof Error ? error : true;
+      }
+      throw error;
+    } finally {
+      client.release(releaseError);
+    }
+  }
+
+  async cancelWaitlistEntry(
+    command: CancelWaitlistEntryCommand,
+  ): Promise<CancelWaitlistEntryOutcome> {
+    const client = await this.pool.connect();
+    let releaseError: Error | boolean | undefined;
+
+    try {
+      await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+      await client.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
+      const eventResult = await client.query<{ event_id: string }>(
+        `SELECT e.id AS event_id
+           FROM waitlist_entries w
+           JOIN events e ON e.id = w.event_id
+          WHERE w.id = $1
+          FOR UPDATE OF e`,
+        [command.waitlistEntryId],
+      );
+      const eventId = eventResult.rows[0]?.event_id;
+
+      if (!eventId) {
+        await client.query("COMMIT");
+        return "NOT_FOUND";
+      }
+
+      const cancelled = await client.query(
+        `UPDATE waitlist_entries
+            SET status = 'CANCELLED',
+                cancelled_at = clock_timestamp(),
+                updated_at = clock_timestamp()
+          WHERE id = $1
+            AND status = 'WAITING'`,
+        [command.waitlistEntryId],
+      );
+
+      if (cancelled.rowCount === 0) {
+        await client.query("COMMIT");
+        return "NOT_CANCELLABLE";
+      }
+
+      await client.query(
+        `UPDATE events
+            SET waitlisted_count = waitlisted_count - 1,
+                updated_at = clock_timestamp()
+          WHERE id = $1`,
+        [eventId],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (
+           actor_type, actor_admin_id, action, entity_type, entity_id, metadata
+         )
+         VALUES (
+           'ADMIN', $2, 'WAITLIST_CANCELLED', 'WAITLIST_ENTRY', $1, $3::jsonb
+         )`,
+        [command.waitlistEntryId, command.actorAdminId, JSON.stringify({ eventId })],
+      );
+      await client.query(
+        `INSERT INTO email_outbox (kind, waitlist_entry_id)
+         VALUES ('WAITLIST_CANCELLED', $1)`,
+        [command.waitlistEntryId],
       );
       await client.query("COMMIT");
       return "CANCELLED";

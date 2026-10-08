@@ -6,6 +6,7 @@ import { postgresEventRepository } from "@/infrastructure/db/repositories/postgr
 import { MutationForm } from "@/ui/admin/mutation-form";
 import {
   adminStatusBadgeClass,
+  eventPhaseLabel,
   dashboardActions,
   formatAdminDate,
   formatCount,
@@ -44,6 +45,7 @@ export default async function AdminPage() {
                   "Reservados",
                   "Disponibles",
                   "Reservaciones",
+                  "En cola",
                   "Abre",
                   "Cierra",
                   "Acciones",
@@ -60,12 +62,17 @@ export default async function AdminPage() {
                     <td className="font-medium">{event.internalName}</td>
                     <td>{formatAdminDate(event.startsAt)}</td>
                     <td>
-                      <span className={adminStatusBadgeClass(event.phase)}>{event.phase}</span>
+                      <span className={adminStatusBadgeClass(event.phase)}>
+                        {eventPhaseLabel(event.phase)}
+                      </span>
                     </td>
                     <td>{formatCount(event.capacity)}</td>
                     <td>{formatCount(event.reservedSeats)}</td>
                     <td>{formatCount(event.availableSeats)}</td>
                     <td>{formatCount(event.confirmedReservationCount)}</td>
+                    <td>
+                      {formatCount(event.waitlistedCount)} / {formatCount(event.waitlistCapacity)}
+                    </td>
                     <td>{formatAdminDate(event.opensAt)}</td>
                     <td>{formatAdminDate(event.closesAt)}</td>
                     <td>

@@ -35,8 +35,21 @@ describe("admin proxy", () => {
     expect(response.headers.get("location")).toBe("http://localhost/admin/login");
   });
 
+  it("guards event CSV exports without a session cookie", () => {
+    const response = proxy(
+      new NextRequest("http://localhost/admin/events/00000000-0000-4000-8000-000000000001/export"),
+    );
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/admin/login");
+  });
+
   it("allows the login page without a session cookie", () => {
     const response = proxy(new NextRequest("http://localhost/admin/login"));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it.each(["/admin/forgot", "/admin/reset"])("allows %s without a session cookie", (pathname) => {
+    const response = proxy(new NextRequest(`http://localhost${pathname}`));
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 

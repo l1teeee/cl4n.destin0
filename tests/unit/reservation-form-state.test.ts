@@ -24,6 +24,24 @@ describe("toFormState", () => {
     expect(toFormState(response)).toEqual(toFormState(response));
   });
 
+  it("maps a 202 WAITLISTED response to the queue state", () => {
+    expect(
+      toFormState({
+        status: 202,
+        body: {
+          status: "WAITLISTED",
+          waitlist: { position: 3, partySize: 2, eventStartsAt: "2026-11-22T01:30:00.000Z" },
+        },
+      }),
+    ).toEqual({ kind: "waitlisted", position: 3, partySize: 2 });
+  });
+
+  it("does not treat a malformed 202 as a queue state", () => {
+    expect(toFormState({ status: 202, body: { status: "WAITLISTED" } })).toMatchObject({
+      kind: "error",
+    });
+  });
+
   it("maps EVENT_FULL", () => {
     expect(toFormState({ status: 409, body: errorBody("EVENT_FULL") })).toMatchObject({
       kind: "error",
@@ -34,7 +52,7 @@ describe("toFormState", () => {
 
   it("maps DUPLICATE_RESERVATION", () => {
     expect(toFormState({ status: 409, body: errorBody("DUPLICATE_RESERVATION") })).toMatchObject({
-      message: "Ya existe una reservación con este email o teléfono para esta experiencia.",
+      message: "Ya existe una reservación o un lugar en la cola con este email o teléfono.",
     });
   });
 

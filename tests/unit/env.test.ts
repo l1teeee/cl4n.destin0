@@ -25,6 +25,7 @@ const validProductionEnvironment: Record<string, string | undefined> = {
   DATABASE_SSL_MODE: "verify-ca",
   DATABASE_CA_CERT: "test-ca-certificate",
   APP_SECRET: "production-secret-with-at-least-32-characters",
+  CRON_SECRET: "cron-secret-with-at-least-32-characters-long",
   EMAIL_MODE: "brevo",
   BREVO_API_KEY: "production-brevo-api-key",
   EMAIL_FROM_ADDRESS: "reservations@clandestino.example.com",
@@ -211,6 +212,19 @@ describe("parseServerEnv", () => {
     expect(() =>
       parseServerEnv({ ...validProductionEnvironment, APP_SECRET: "short-secret" }),
     ).toThrow(/APP_SECRET[\s\S]*32/);
+  });
+
+  it.each([undefined, "", "short-cron-secret"])(
+    "rejects CRON_SECRET %j in protected environments",
+    (cronSecret) => {
+      expect(() =>
+        parseServerEnv({ ...validProductionEnvironment, CRON_SECRET: cronSecret }),
+      ).toThrow(/CRON_SECRET: must contain at least 32 characters/);
+    },
+  );
+
+  it("allows a missing CRON_SECRET locally", () => {
+    expect(parseServerEnv(validEnvironment).CRON_SECRET).toBeUndefined();
   });
 
   it("rejects disabled database TLS in protected environments", () => {

@@ -9,6 +9,7 @@ import type {
 import type { AdminRole, AdminSession, AdminUser } from "@/application/auth/types";
 
 import { pool as applicationPool } from "../db/client";
+import { insertAdminEmailOutbox } from "../db/insert-email-outbox";
 import { inTransaction } from "../db/transaction";
 
 const ABSOLUTE_LIFETIME_HOURS = 12;
@@ -72,6 +73,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
   createSession(
     adminId: string,
     verifiedPasswordHash: string,
+    clientIp: string | null,
   ): Promise<CreatedAdminSession | null> {
     const token = generateSessionToken();
     const tokenHash = hashSessionToken(token);
@@ -96,7 +98,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
         "DELETE FROM admin_sessions WHERE admin_user_id = $1 AND expires_at <= clock_timestamp()",
         [adminId],
       );
-      const inserted = await client.query<{ expires_at: Date }>(
+      const inserted = await client.query<{ created_at: Date; expires_at: Date }>(
         `WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS db_now)
          INSERT INTO admin_sessions (
            token_hash,
@@ -112,7 +114,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
            db_now,
            db_now + make_interval(hours => $3)
          FROM db_clock
-         RETURNING expires_at`,
+         RETURNING created_at, expires_at`,
         [tokenHash, adminId, ABSOLUTE_LIFETIME_HOURS],
       );
       await client.query(
@@ -134,6 +136,11 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
          VALUES ('ADMIN', $1, 'ADMIN_SIGNED_IN', 'ADMIN_USER', $1, '{}'::jsonb)`,
         [adminId],
       );
+      await insertAdminEmailOutbox(client, {
+        kind: "ADMIN_SIGNED_IN",
+        adminUserId: adminId,
+        payload: { ipAddress: clientIp, occurredAt: inserted.rows[0]!.created_at.toISOString() },
+      });
       return {
         token,
         admin: {

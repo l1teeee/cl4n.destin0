@@ -16,6 +16,7 @@ export interface EventFormValues {
   capacity?: number;
   maxPartySize: number;
   autoCloseOnFull: boolean;
+  waitlistCapacity?: number;
   status?: "DRAFT" | "SCHEDULED";
 }
 
@@ -98,6 +99,19 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           defaultValue={values?.maxPartySize}
           required
         />
+      </label>
+      <label className="admin-label grid gap-2">
+        <span>Lugares en cola</span>
+        <input
+          className={inputClass}
+          name="waitlistCapacity"
+          type="number"
+          min={0}
+          max={50}
+          defaultValue={values?.waitlistCapacity ?? 5}
+          required
+        />
+        <span className="admin-muted">0 desactiva la cola.</span>
       </label>
       <label className="admin-label grid gap-2">
         <span>Apertura</span>

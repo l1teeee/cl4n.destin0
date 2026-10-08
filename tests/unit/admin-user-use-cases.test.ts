@@ -62,7 +62,6 @@ function dependencies(
       async (password: string, encoded: string) => encoded === `hash:${password}`,
     ),
     notifications: {
-      sendAdminAdded: vi.fn().mockResolvedValue(undefined),
       sendDeletionCode: vi.fn().mockResolvedValue(undefined),
     },
     generateDeletionCode: vi.fn(() => "012345"),
@@ -97,7 +96,7 @@ describe("admin user use cases", () => {
     });
   });
 
-  it("reports admin-added notification success and failure without rolling back creation", async () => {
+  it("returns the created admin without sending email itself", async () => {
     const created = {
       id: targetId,
       email: "target@example.com",
@@ -110,26 +109,17 @@ describe("admin user use cases", () => {
       activeSessionCount: 0,
     };
     const repo = repository({ create: vi.fn().mockResolvedValue({ ok: true, value: created }) });
-    const sent = dependencies(repo);
-    const input = {
-      email: created.email,
-      displayName: created.displayName,
-      role: created.role,
-      password: "clave-nueva-123",
-    };
+    const deps = dependencies(repo);
 
-    await expect(createAdminUser(sent, actor, input)).resolves.toMatchObject({
-      ok: true,
-      value: { notification: "SENT" },
-    });
-
-    const failed = dependencies(repo);
-    vi.mocked(failed.notifications.sendAdminAdded).mockRejectedValue(new Error("delivery"));
-    await expect(createAdminUser(failed, actor, input)).resolves.toMatchObject({
-      ok: true,
-      value: { notification: "FAILED" },
-    });
-    expect(failed.logError).toHaveBeenCalledWith("admin_added_email_failed");
+    await expect(
+      createAdminUser(deps, actor, {
+        email: created.email,
+        displayName: created.displayName,
+        role: created.role,
+        password: "clave-nueva-123",
+      }),
+    ).resolves.toEqual({ ok: true, value: created });
+    expect(deps.notifications.sendDeletionCode).not.toHaveBeenCalled();
   });
 
   it("stops management mutations when the actor is rate limited", async () => {

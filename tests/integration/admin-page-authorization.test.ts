@@ -25,6 +25,7 @@ import AdminPage from "@/app/admin/(protected)/page";
 import AuditPage from "@/app/admin/(protected)/audit/page";
 import EditEventPage from "@/app/admin/(protected)/events/[id]/edit/page";
 import EventDetailPage from "@/app/admin/(protected)/events/[id]/page";
+import EmailsPage from "@/app/admin/(protected)/emails/page";
 import NewEventPage from "@/app/admin/(protected)/events/new/page";
 
 import { resetTestDatabase } from "../helpers/test-db";
@@ -45,6 +46,7 @@ describe("protected admin pages", () => {
     ["layout", () => ProtectedAdminLayout({ children: null })],
     ["dashboard", () => AdminPage()],
     ["audit", () => AuditPage({ searchParams: Promise.resolve({}) })],
+    ["emails", () => EmailsPage({ searchParams: Promise.resolve({}) })],
     ["new event", () => NewEventPage()],
     [
       "event detail",
