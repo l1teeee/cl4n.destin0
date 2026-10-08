@@ -100,6 +100,10 @@ export function adminStatusLabel(isActive: boolean): string {
   return isActive ? "Activo" : "Inactivo";
 }
 
+export function adminStatusBadgeClass(status: string): string {
+  return `admin-badge admin-badge-${status.toLowerCase().replaceAll("_", "-")}`;
+}
+
 export function reservationStatusLabel(status: ReservationStatus): string {
   const labels: Record<ReservationStatus, string> = {
     SUBMITTED: "Enviada",

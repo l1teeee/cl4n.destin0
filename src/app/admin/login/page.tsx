@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { signInAction } from "./actions";
 
 interface LoginPageProps {
@@ -7,38 +9,50 @@ interface LoginPageProps {
 export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
   const error = (await searchParams).error;
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center gap-6 px-4">
-      <h1 className="text-3xl font-semibold">Administración</h1>
-      {error ? (
-        <p className="rounded border border-red-800 bg-red-950 p-3 text-red-200" role="alert">
-          No se pudo iniciar sesión. Verifica tus credenciales.
-        </p>
-      ) : null}
-      <form action={signInAction} className="grid gap-4">
-        <label className="grid gap-1">
-          <span>Email</span>
-          <input
-            className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-            name="email"
-            type="email"
-            autoComplete="username"
-            required
+    <main className="admin-login">
+      <div className="admin-login-panel">
+        <div className="admin-login-brand">
+          <Image
+            className="admin-wordmark"
+            src="/clandestino-wordmark.png"
+            alt="Clandestino"
+            width={800}
+            height={800}
+            priority
           />
-        </label>
-        <label className="grid gap-1">
-          <span>Contraseña</span>
-          <input
-            className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        <button className="rounded bg-zinc-100 px-4 py-2 font-medium text-zinc-950" type="submit">
-          Ingresar
-        </button>
-      </form>
+          <h1 className="admin-eyebrow">Administración</h1>
+        </div>
+        {error ? (
+          <p className="admin-notice-error" role="alert">
+            No se pudo iniciar sesión. Verifica tus credenciales.
+          </p>
+        ) : null}
+        <form action={signInAction} className="grid gap-4">
+          <label className="admin-label grid gap-2">
+            <span>Email</span>
+            <input
+              className="admin-input"
+              name="email"
+              type="email"
+              autoComplete="username"
+              required
+            />
+          </label>
+          <label className="admin-label grid gap-2">
+            <span>Contraseña</span>
+            <input
+              className="admin-input"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          <button className="admin-button admin-button-full mt-2" type="submit">
+            Ingresar
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

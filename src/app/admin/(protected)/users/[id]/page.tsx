@@ -43,13 +43,14 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
   const isSelf = user.id === authorization.session.admin.id;
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-8 px-4 py-8">
+    <main className="admin-page space-y-10">
       <div>
-        <Link className="text-sm underline" href="/admin/users">
+        <Link className="admin-link admin-muted" href="/admin/users">
           Volver a usuarios
         </Link>
-        <h1 className="mt-3 text-3xl font-semibold">{user.displayName}</h1>
-        <p className="text-zinc-400">{user.email}</p>
+        <p className="admin-eyebrow mt-6">Administrador</p>
+        <h1 className="admin-title">{user.displayName}</h1>
+        <p className="admin-description">{user.email}</p>
       </div>
 
       <StatGrid
@@ -62,8 +63,8 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         ]}
       />
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Datos</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Datos</h2>
         <AdminUserProfileForm
           action={updateAdminUserAction.bind(null, user.id)}
           displayName={user.displayName}
@@ -72,10 +73,10 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         />
       </section>
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Acceso</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Acceso</h2>
         {isSelf ? (
-          <p className="text-zinc-400">
+          <p className="admin-muted">
             No puedes desactivar tu propia cuenta ni cerrar tus sesiones desde aquí.
           </p>
         ) : (
@@ -102,19 +103,19 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         )}
       </section>
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Contraseña</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Contraseña</h2>
         {isSelf ? (
-          <p className="text-zinc-400">
+          <p className="admin-muted">
             Para cambiar tu contraseña ve a{" "}
-            <Link className="underline" href="/admin/account">
+            <Link className="admin-link admin-secondary" href="/admin/account">
               Mi cuenta
             </Link>
             .
           </p>
         ) : (
           <>
-            <p className="text-zinc-400">
+            <p className="admin-muted">
               Asigna una contraseña nueva. Se cerrarán todas sus sesiones.
             </p>
             <PasswordForm action={resetAdminPasswordAction.bind(null, user.id)} mode="reset" />
@@ -122,14 +123,14 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         )}
       </section>
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Actividad</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Actividad</h2>
         <AuditLogTable items={audit.value.items} />
       </section>
 
       {!isSelf ? (
-        <section className="space-y-4">
-          <h2 className="text-xl font-semibold">Eliminar administrador</h2>
+        <section className="admin-section admin-danger-section space-y-4">
+          <h2 className="admin-section-title">Eliminar administrador</h2>
           <AdminUserDeletionForm
             requestAction={requestAdminUserDeletionCodeAction.bind(null, user.id)}
             confirmAction={confirmAdminUserDeletionAction.bind(null, user.id)}

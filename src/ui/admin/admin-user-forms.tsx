@@ -10,14 +10,13 @@ import { adminRoleLabel } from "./view-model";
 type FormAction = (state: AdminActionState, formData: FormData) => Promise<AdminActionState>;
 
 const initialState: AdminActionState = { ok: false, message: "" };
-const inputClass = "rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100";
-const submitClass =
-  "rounded bg-zinc-100 px-4 py-2 font-medium text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50";
+const inputClass = "admin-input";
+const submitClass = "admin-button";
 
 function StatusMessage({ state }: { state: AdminActionState }) {
   if (!state.message) return null;
   return (
-    <p className={state.ok ? "text-sm text-emerald-400" : "text-sm text-red-400"} role="status">
+    <p className={state.ok ? "admin-notice-success" : "admin-notice-error"} role="status">
       {state.message}
     </p>
   );
@@ -45,7 +44,7 @@ function PasswordInput({
   autoComplete: "new-password" | "current-password";
 }) {
   return (
-    <label className="grid gap-1">
+    <label className="admin-label grid gap-2">
       <span>{label}</span>
       <input
         className={inputClass}
@@ -65,7 +64,7 @@ export function AdminUserCreateForm({ action }: { action: FormAction }) {
 
   return (
     <form action={formAction} className="grid max-w-xl gap-4">
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Email</span>
         <input
           className={inputClass}
@@ -76,11 +75,11 @@ export function AdminUserCreateForm({ action }: { action: FormAction }) {
           required
         />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Nombre</span>
         <input className={inputClass} name="displayName" maxLength={80} required />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Rol</span>
         <RoleSelect defaultValue="ADMIN" />
       </label>
@@ -90,7 +89,7 @@ export function AdminUserCreateForm({ action }: { action: FormAction }) {
         label="Confirmar contraseña"
         autoComplete="new-password"
       />
-      <p className="text-sm text-zinc-400">
+      <p className="admin-muted text-sm">
         Mínimo 12 caracteres. Comparte la contraseña por un canal seguro.
       </p>
       <div>
@@ -119,7 +118,7 @@ export function AdminUserProfileForm({
   return (
     <form action={formAction} className="grid max-w-xl gap-4">
       <input type="hidden" name="expectedRole" value={role} />
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Nombre</span>
         <input
           className={inputClass}
@@ -129,13 +128,15 @@ export function AdminUserProfileForm({
           required
         />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Rol</span>
         <RoleSelect defaultValue={role} disabled={roleLocked} />
         {roleLocked ? (
           <>
             <input type="hidden" name="role" value={role} />
-            <span className="text-sm text-zinc-400">No puedes cambiar tu propio rol.</span>
+            <span className="admin-muted text-sm normal-case tracking-normal">
+              No puedes cambiar tu propio rol.
+            </span>
           </>
         ) : null}
       </label>
@@ -210,7 +211,7 @@ export function AdminUserDeletionForm({
 
   return (
     <div className="grid max-w-xl gap-4">
-      <p className="text-zinc-400">
+      <p className="admin-muted">
         Esta acción es permanente. Te enviaremos un código a tu correo para confirmarla.
       </p>
       <form action={requestFormAction}>
@@ -222,7 +223,7 @@ export function AdminUserDeletionForm({
 
       {requestState.ok ? (
         <form action={confirmFormAction} className="grid gap-4">
-          <label className="grid gap-1">
+          <label className="admin-label grid gap-2">
             <span>Código de confirmación</span>
             <input
               className={inputClass}
@@ -235,11 +236,11 @@ export function AdminUserDeletionForm({
             />
           </label>
           <div className="flex flex-wrap items-center gap-4">
-            <button className={submitClass} type="submit" disabled={confirmPending}>
+            <button className="admin-button-danger" type="submit" disabled={confirmPending}>
               {confirmPending ? "Eliminando..." : "Eliminar definitivamente"}
             </button>
             <button
-              className="text-sm underline disabled:cursor-not-allowed disabled:opacity-50"
+              className="admin-link text-sm"
               type="submit"
               formAction={requestFormAction}
               disabled={requestPending}

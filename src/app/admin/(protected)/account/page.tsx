@@ -9,10 +9,11 @@ export default async function AccountPage() {
   const admin = authorization.session.admin;
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-8 px-4 py-8">
+    <main className="admin-page space-y-10">
       <div>
-        <h1 className="text-3xl font-semibold">Mi cuenta</h1>
-        <p className="mt-1 text-zinc-400">Tus datos de acceso al panel.</p>
+        <p className="admin-eyebrow">Administración</p>
+        <h1 className="admin-title">Mi cuenta</h1>
+        <p className="admin-description">Tus datos de acceso al panel.</p>
       </div>
       <StatGrid
         items={[
@@ -21,9 +22,9 @@ export default async function AccountPage() {
           { label: "Rol", value: adminRoleLabel(admin.role) },
         ]}
       />
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Cambiar contraseña</h2>
-        <p className="text-zinc-400">
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Cambiar contraseña</h2>
+        <p className="admin-muted">
           Mínimo 12 caracteres. Al cambiarla se cerrarán tus otras sesiones.
         </p>
         <PasswordForm action={changeOwnPasswordAction} mode="change" />
