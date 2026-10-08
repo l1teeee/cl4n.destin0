@@ -32,6 +32,8 @@ interface ReservationFormProps {
   nonce?: string;
 }
 
+type ConfirmedReservationState = Extract<ReservationFormState, { kind: "success" | "waitlisted" }>;
+
 const inputClassName = "reservation-input";
 
 function delay(milliseconds: number): Promise<void> {
@@ -57,6 +59,7 @@ export function ReservationForm({
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [formState, setFormState] = useState<ReservationFormState | null>(null);
+  const [confirmedState, setConfirmedState] = useState<ConfirmedReservationState | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const {
@@ -167,6 +170,10 @@ export function ReservationForm({
       ...(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? { retryAfterSeconds } : {}),
     });
 
+    if (nextState.kind === "success" || nextState.kind === "waitlisted") {
+      setConfirmedState(nextState);
+    }
+
     if (nextState.kind === "error" && nextState.automaticRetry && !alreadyRetried) {
       setFormState({
         ...nextState,
@@ -204,14 +211,9 @@ export function ReservationForm({
 
   async function confirmReservation(): Promise<ReservationFormState> {
     let result: ReservationFormState | undefined;
-    await handleSubmit(
-      async (fields) => {
-        result = await onSubmit(fields);
-      },
-      () => {
-        throw new Error("Reservation form validation failed.");
-      },
-    )();
+    await handleSubmit(async (fields) => {
+      result = await onSubmit(fields);
+    })();
 
     if (!result || result.kind === "error") {
       throw result ?? new Error("Reservation submission did not return a result.");
@@ -234,25 +236,25 @@ export function ReservationForm({
     confirmationTimer.current = setTimeout(() => setShowConfirmation(true), 700);
   }
 
-  if (showConfirmation && formState?.kind === "success") {
+  if (showConfirmation && confirmedState?.kind === "success") {
     return (
       <section className="reservation-success" aria-live="polite">
         <h2>SOLICITUD CONFIRMADA</h2>
         <p className="reservation-success-number">
-          #{String(formState.reservationNumber).padStart(3, "0")}
+          #{String(confirmedState.reservationNumber).padStart(3, "0")}
         </p>
-        <p>{formState.partySize} personas</p>
+        <p>{confirmedState.partySize} personas</p>
         <p>{formattedDate}</p>
       </section>
     );
   }
 
-  if (showConfirmation && formState?.kind === "waitlisted") {
+  if (showConfirmation && confirmedState?.kind === "waitlisted") {
     return (
       <section className="reservation-success" aria-live="polite">
         <h2>HAS QUEDADO EN COLA</h2>
-        <p className="reservation-success-number">#{formState.position}</p>
-        <p>{formState.partySize} personas</p>
+        <p className="reservation-success-number">#{confirmedState.position}</p>
+        <p>{confirmedState.partySize} personas</p>
         <p>{formattedDate}</p>
         <p>Te avisaremos por correo si se libera un lugar.</p>
       </section>
@@ -418,7 +420,7 @@ export function ReservationForm({
         <FieldError message={errors.acceptTerms?.message} />
       </div>
 
-      {idempotencyKey && siteKey ? (
+      {idempotencyKey && siteKey && !confirmedState ? (
         <Turnstile
           key={idempotencyKey}
           ref={turnstileRef}

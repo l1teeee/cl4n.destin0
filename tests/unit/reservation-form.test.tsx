@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReservationForm } from "@/ui/public/reservation-form";
@@ -9,12 +9,16 @@ const turnstileMethods = vi.hoisted(() => ({
   reset: vi.fn(),
   getResponsePromise: vi.fn(),
 }));
+const turnstileCallbacks = vi.hoisted(() => ({
+  onError: undefined as (() => void) | undefined,
+}));
 
 vi.mock("@marsidev/react-turnstile", async () => {
   const { forwardRef, useEffect, useImperativeHandle } = await import("react");
 
   interface MockTurnstileProps {
     onSuccess(token: string): void;
+    onError(): void;
   }
 
   return {
@@ -30,6 +34,7 @@ vi.mock("@marsidev/react-turnstile", async () => {
       useEffect(() => {
         onSuccess("test-token");
       }, [onSuccess]);
+      turnstileCallbacks.onError = props.onError;
 
       return <div data-testid="turnstile" />;
     }),
@@ -119,6 +124,7 @@ describe("ReservationForm", () => {
     );
     turnstileMethods.reset.mockReset();
     turnstileMethods.getResponsePromise.mockReset();
+    turnstileCallbacks.onError = undefined;
   });
 
   afterEach(() => {
@@ -179,8 +185,8 @@ describe("ReservationForm", () => {
     });
 
     fireEvent.keyDown(slider, { key: "End" });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     fireEvent.keyDown(slider, { key: "End" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [, request] = fetchMock.mock.calls[0] ?? [];
@@ -202,6 +208,120 @@ describe("ReservationForm", () => {
     expect(slideCommit).not.toBeNull();
     await waitFor(() => expect(slideCommit?.getAttribute("data-phase")).toBe("done"));
     expect(screen.queryByRole("heading", { name: "SOLICITUD CONFIRMADA" })).toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+    ).toBeDefined();
+  });
+
+  it("sends one request when End is pressed during a pointer grip", async () => {
+    const handlers: Partial<Record<"pointerup", EventListener>> = {};
+    const addEventListener = window.addEventListener.bind(window);
+    vi.spyOn(window, "addEventListener").mockImplementation((type, listener, options) => {
+      if (type === "pointerup" && typeof listener === "function") {
+        handlers.pointerup = listener;
+      }
+      addEventListener(type, listener, options);
+    });
+
+    let resolveFetch: (response: Response) => void = () => {};
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    fillValidFields();
+    const slider = await screen.findByRole("slider", {
+      name: "DESLIZA PARA SOLICITAR ACCESO",
+    });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+
+    fireEvent.pointerDown(slider, { button: 0, pointerId: 1, clientX: 10 });
+    expect(handlers.pointerup).toBeDefined();
+    fireEvent.keyDown(slider, { key: "End" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      handlers.pointerup?.({ isTrusted: true, pointerId: 1 } as PointerEvent);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFetch(successResponse());
+    expect(
+      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+    ).toBeDefined();
+  });
+
+  it("keeps a confirmed reservation when Turnstile errors during the done delay", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    fillValidFields();
+    const slider = await screen.findByRole("slider", {
+      name: "DESLIZA PARA SOLICITAR ACCESO",
+    });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+
+    fireEvent.keyDown(slider, { key: "End" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId("turnstile")).toBeNull());
+    act(() => turnstileCallbacks.onError?.());
+
+    expect(
+      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+    ).toBeDefined();
+    expect(screen.getByText("#007")).toBeDefined();
+  });
+
+  it("retries TRY_AGAIN once with the same key and a fresh token", async () => {
+    turnstileMethods.getResponsePromise.mockResolvedValue("fresh-token");
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "TRY_AGAIN",
+              message: "Intenta de nuevo.",
+            },
+          }),
+          {
+            status: 503,
+            headers: { "Content-Type": "application/json", "Retry-After": "0.001" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    fillValidFields();
+    const slider = await screen.findByRole("slider", {
+      name: "DESLIZA PARA SOLICITAR ACCESO",
+    });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+    fireEvent.keyDown(slider, { key: "End" });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const firstRequest = fetchMock.mock.calls[0]?.[1];
+    const secondRequest = fetchMock.mock.calls[1]?.[1];
+    expect(firstRequest?.headers).toMatchObject({
+      "Idempotency-Key": expect.any(String),
+    });
+    expect(secondRequest?.headers).toMatchObject({
+      "Idempotency-Key": (firstRequest?.headers as Record<string, string>)["Idempotency-Key"],
+    });
+    expect(JSON.parse(String(firstRequest?.body)).turnstileToken).toBe("test-token");
+    expect(JSON.parse(String(secondRequest?.body)).turnstileToken).toBe("fresh-token");
     expect(
       await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
     ).toBeDefined();
