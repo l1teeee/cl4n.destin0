@@ -6,12 +6,24 @@ import { postgresEmailOutboxRepository } from "@/infrastructure/email/outbox/pos
 import { MutationForm } from "@/ui/admin/mutation-form";
 import {
   emailKindLabel,
-  emailStatusBadgeClass,
+  emailStatusBadgeVariant,
   emailStatusFilters,
   emailStatusLabel,
   formatAdminDate,
   parseEmailLogSearchParams,
 } from "@/ui/admin/view-model";
+import { Badge } from "@/ui/primitives/badge";
+import { Button } from "@/ui/primitives/button";
+import { Label } from "@/ui/primitives/label";
+import { NativeSelect } from "@/ui/primitives/native-select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/ui/primitives/table";
 
 import { retryEmailAction } from "./actions";
 
@@ -39,87 +51,91 @@ export default async function EmailsPage({
       </div>
 
       <form className="flex flex-wrap items-end gap-3" method="get">
-        <label className="admin-label grid gap-2">
+        <Label className="grid gap-2">
           <span>Estado</span>
-          <select className="admin-input" name="estado" defaultValue={filters.status ?? ""}>
+          <NativeSelect name="estado" defaultValue={filters.status ?? ""}>
             {emailStatusFilters.map((filter) => (
               <option key={filter.status ?? "todos"} value={filter.status ?? ""}>
                 {filter.label}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="admin-label grid gap-2">
+          </NativeSelect>
+        </Label>
+        <Label className="grid gap-2">
           <span>Tipo</span>
-          <select className="admin-input" name="tipo" defaultValue={filters.kind ?? ""}>
+          <NativeSelect name="tipo" defaultValue={filters.kind ?? ""}>
             <option value="">Todos</option>
             {emailOutboxKinds.map((kind) => (
               <option key={kind} value={kind}>
                 {emailKindLabel(kind)}
               </option>
             ))}
-          </select>
-        </label>
-        <button className="admin-button-ghost" type="submit">
+          </NativeSelect>
+        </Label>
+        <Button variant="outline" type="submit">
           Aplicar
-        </button>
-        <Link className="admin-link" href="/admin/emails">
-          Limpiar filtros
-        </Link>
+        </Button>
+        <Button variant="link" asChild>
+          <Link href="/admin/emails">Limpiar filtros</Link>
+        </Button>
       </form>
 
       {emails.length === 0 ? (
         <p className="admin-empty">No hay correos con estos filtros.</p>
       ) : (
-        <div className="admin-table-scroll">
-          <table className="admin-table min-w-[1250px]">
-            <thead>
-              <tr>
-                {[
-                  "Fecha",
-                  "Tipo",
-                  "Destinatario",
-                  "Estado",
-                  "Intentos",
-                  "Último error",
-                  "Enviado",
-                  "Próximo intento",
-                  "Acciones",
-                ].map((heading) => (
-                  <th key={heading}>{heading}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {emails.map((email) => (
-                <tr className="align-top" key={email.id}>
-                  <td>{formatAdminDate(email.createdAt)}</td>
-                  <td>{emailKindLabel(email.kind)}</td>
-                  <td>{email.recipientEmail}</td>
-                  <td>
-                    <span className={emailStatusBadgeClass(email.status)}>
-                      {emailStatusLabel(email.status)}
-                    </span>
-                  </td>
-                  <td>{email.attempts}</td>
-                  <td className={email.status === "FAILED" ? "admin-notice-error" : undefined}>
-                    {email.lastError ?? "-"}
-                  </td>
-                  <td>{formatAdminDate(email.sentAt)}</td>
-                  <td>{email.status === "PENDING" ? formatAdminDate(email.nextAttemptAt) : "-"}</td>
-                  <td>
-                    {email.status === "FAILED" ? (
-                      <MutationForm
-                        action={retryEmailAction.bind(null, email.id)}
-                        label="Reintentar"
-                      />
-                    ) : null}
-                  </td>
-                </tr>
+        <Table className="min-w-[1250px]">
+          <TableHeader>
+            <TableRow>
+              {[
+                "Fecha",
+                "Tipo",
+                "Destinatario",
+                "Estado",
+                "Intentos",
+                "Último error",
+                "Enviado",
+                "Próximo intento",
+                "Acciones",
+              ].map((heading) => (
+                <TableHead key={heading}>{heading}</TableHead>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {emails.map((email, index) => (
+              <TableRow
+                className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
+                key={email.id}
+                style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+              >
+                <TableCell>{formatAdminDate(email.createdAt)}</TableCell>
+                <TableCell>{emailKindLabel(email.kind)}</TableCell>
+                <TableCell>{email.recipientEmail}</TableCell>
+                <TableCell>
+                  <Badge variant={emailStatusBadgeVariant(email.status)}>
+                    {emailStatusLabel(email.status)}
+                  </Badge>
+                </TableCell>
+                <TableCell>{email.attempts}</TableCell>
+                <TableCell className={email.status === "FAILED" ? "text-destructive" : undefined}>
+                  {email.lastError ?? "-"}
+                </TableCell>
+                <TableCell>{formatAdminDate(email.sentAt)}</TableCell>
+                <TableCell>
+                  {email.status === "PENDING" ? formatAdminDate(email.nextAttemptAt) : "-"}
+                </TableCell>
+                <TableCell>
+                  {email.status === "FAILED" ? (
+                    <MutationForm
+                      action={retryEmailAction.bind(null, email.id)}
+                      label="Reintentar"
+                    />
+                  ) : null}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
     </main>
   );

@@ -1,6 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { Alert } from "@/ui/primitives/alert";
+import { Button } from "@/ui/primitives/button";
+import { Input } from "@/ui/primitives/input";
+import { Label } from "@/ui/primitives/label";
+
 import { requestPasswordResetAction } from "./actions";
 
 interface ForgotPageProps {
@@ -24,34 +29,28 @@ export default async function AdminForgotPage({ searchParams }: ForgotPageProps)
           <h1 className="admin-eyebrow">Recuperar acceso</h1>
         </div>
         {enviado ? (
-          <p className="admin-notice-success" role="status">
+          <Alert variant="success" role="status">
             Si el correo pertenece a un administrador, te enviamos un enlace para crear una nueva
             contraseña.
-          </p>
+          </Alert>
         ) : null}
         {error ? (
-          <p className="admin-notice-error" role="alert">
+          <Alert variant="destructive" role="alert">
             Ingresa un email válido.
-          </p>
+          </Alert>
         ) : null}
         <form action={requestPasswordResetAction} className="grid gap-4">
-          <label className="admin-label grid gap-2">
+          <Label className="grid gap-2">
             <span>Email</span>
-            <input
-              className="admin-input"
-              name="email"
-              type="email"
-              autoComplete="username"
-              required
-            />
-          </label>
-          <button className="admin-button admin-button-full mt-2" type="submit">
+            <Input name="email" type="email" autoComplete="username" required />
+          </Label>
+          <Button className="mt-2 w-full" type="submit">
             Enviar enlace
-          </button>
+          </Button>
         </form>
-        <Link className="admin-link" href="/admin/login">
-          Volver a ingresar
-        </Link>
+        <Button variant="link" asChild>
+          <Link href="/admin/login">Volver a ingresar</Link>
+        </Button>
       </div>
     </main>
   );

@@ -1,8 +1,14 @@
 "use client";
 
 import { useActionState } from "react";
+import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
+import { Alert } from "@/ui/primitives/alert";
+import { Button } from "@/ui/primitives/button";
+import { Input } from "@/ui/primitives/input";
+import { Label } from "@/ui/primitives/label";
+import { NativeSelect } from "@/ui/primitives/native-select";
 
 const initialState: AdminActionState = { ok: false, message: "" };
 
@@ -27,27 +33,18 @@ interface EventFormProps {
   slugEditable?: boolean;
 }
 
-const inputClass = "admin-input";
-
 export function EventForm({ action, values, mode, slugEditable = true }: EventFormProps) {
   const [state, formAction, pending] = useActionState(action, initialState);
 
   return (
     <form action={formAction} className="grid max-w-3xl gap-5 md:grid-cols-2">
-      <label className="admin-label grid gap-2">
+      <Label className="grid gap-2">
         <span>Nombre interno</span>
-        <input
-          className={inputClass}
-          name="internalName"
-          defaultValue={values?.internalName}
-          maxLength={120}
-          required
-        />
-      </label>
-      <label className="admin-label grid gap-2">
+        <Input name="internalName" defaultValue={values?.internalName} maxLength={120} required />
+      </Label>
+      <Label className="grid gap-2">
         <span>Slug</span>
-        <input
-          className={inputClass}
+        <Input
           name="slug"
           defaultValue={values?.slug}
           maxLength={80}
@@ -55,55 +52,34 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           readOnly={!slugEditable}
           required
         />
-      </label>
-      <label className="admin-label grid gap-2">
+      </Label>
+      <Label className="grid gap-2">
         <span>Fecha del evento</span>
-        <input
-          className={inputClass}
-          name="eventDate"
-          type="date"
-          defaultValue={values?.eventDate}
-          required
-        />
-      </label>
-      <label className="admin-label grid gap-2">
+        <Input name="eventDate" type="date" defaultValue={values?.eventDate} required />
+      </Label>
+      <Label className="grid gap-2">
         <span>Hora del evento</span>
-        <input
-          className={inputClass}
-          name="eventTime"
-          type="time"
-          defaultValue={values?.eventTime}
-          required
-        />
-      </label>
+        <Input name="eventTime" type="time" defaultValue={values?.eventTime} required />
+      </Label>
       {mode === "create" ? (
-        <label className="admin-label grid gap-2">
+        <Label className="grid gap-2">
           <span>Capacidad total</span>
-          <input
-            className={inputClass}
-            name="capacity"
-            type="number"
-            min={1}
-            defaultValue={values?.capacity}
-            required
-          />
-        </label>
+          <Input name="capacity" type="number" min={1} defaultValue={values?.capacity} required />
+        </Label>
       ) : null}
-      <label className="admin-label grid gap-2">
+      <Label className="grid gap-2">
         <span>Tamaño máximo del grupo</span>
-        <input
-          className={inputClass}
+        <Input
           name="maxPartySize"
           type="number"
           min={1}
           defaultValue={values?.maxPartySize}
           required
         />
-      </label>
-      <label className="admin-label grid gap-2">
+      </Label>
+      <Label className="grid gap-2">
         <span>Lugares en cola</span>
-        <input
-          className={inputClass}
+        <Input
           name="waitlistCapacity"
           type="number"
           min={0}
@@ -112,37 +88,25 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           required
         />
         <span className="admin-muted">0 desactiva la cola.</span>
-      </label>
-      <label className="admin-label grid gap-2">
+      </Label>
+      <Label className="grid gap-2">
         <span>Apertura</span>
-        <input
-          className={inputClass}
-          name="opensAt"
-          type="datetime-local"
-          defaultValue={values?.opensAt}
-          required
-        />
-      </label>
-      <label className="admin-label grid gap-2">
+        <Input name="opensAt" type="datetime-local" defaultValue={values?.opensAt} required />
+      </Label>
+      <Label className="grid gap-2">
         <span>Cierre</span>
-        <input
-          className={inputClass}
-          name="closesAt"
-          type="datetime-local"
-          defaultValue={values?.closesAt}
-          required
-        />
-      </label>
+        <Input name="closesAt" type="datetime-local" defaultValue={values?.closesAt} required />
+      </Label>
       {mode === "create" ? (
-        <label className="admin-label grid gap-2">
+        <Label className="grid gap-2">
           <span>Estado inicial</span>
-          <select className={inputClass} name="status" defaultValue={values?.status ?? "DRAFT"}>
+          <NativeSelect name="status" defaultValue={values?.status ?? "DRAFT"}>
             <option value="DRAFT">Borrador</option>
             <option value="SCHEDULED">Programada</option>
-          </select>
-        </label>
+          </NativeSelect>
+        </Label>
       ) : null}
-      <label className="admin-label flex items-center gap-2 md:col-span-2">
+      <Label className="flex items-center gap-2 md:col-span-2">
         <input
           className="admin-checkbox"
           name="autoCloseOnFull"
@@ -150,15 +114,16 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           defaultChecked={values?.autoCloseOnFull}
         />
         Cerrar automáticamente al alcanzar la capacidad
-      </label>
+      </Label>
       <div className="space-y-2 md:col-span-2">
-        <button className="admin-button" type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null}
           {pending ? "Guardando..." : mode === "create" ? "Crear experiencia" : "Guardar cambios"}
-        </button>
+        </Button>
         {state.message ? (
-          <p className={state.ok ? "admin-notice-success" : "admin-notice-error"} role="status">
+          <Alert variant={state.ok ? "success" : "destructive"} role="status">
             {state.message}
-          </p>
+          </Alert>
         ) : null}
       </div>
     </form>

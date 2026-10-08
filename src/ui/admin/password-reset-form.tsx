@@ -2,12 +2,17 @@
 
 import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 import {
   completePasswordResetAction,
   type PasswordResetFormState,
 } from "@/app/admin/reset/actions";
 import { PASSWORD_RESET_INVALID_LINK_MESSAGE } from "@/contracts/admin-auth";
+import { Alert } from "@/ui/primitives/alert";
+import { Button } from "@/ui/primitives/button";
+import { Input } from "@/ui/primitives/input";
+import { Label } from "@/ui/primitives/label";
 
 const initialState: PasswordResetFormState = { message: "" };
 
@@ -28,12 +33,12 @@ export function PasswordResetForm() {
   if (token === null) {
     return (
       <>
-        <p className="admin-notice-error" role="alert">
+        <Alert variant="destructive" role="alert">
           {PASSWORD_RESET_INVALID_LINK_MESSAGE}
-        </p>
-        <Link className="admin-link" href="/admin/forgot">
-          Solicitar un nuevo enlace
-        </Link>
+        </Alert>
+        <Button variant="link" asChild>
+          <Link href="/admin/forgot">Solicitar un nuevo enlace</Link>
+        </Button>
       </>
     );
   }
@@ -41,37 +46,36 @@ export function PasswordResetForm() {
   return (
     <>
       {state.message ? (
-        <p className="admin-notice-error" role="alert">
+        <Alert variant="destructive" role="alert">
           {state.message}
-        </p>
+        </Alert>
       ) : null}
       <form action={formAction} className="grid gap-4">
         <input type="hidden" name="token" value={token ?? ""} />
-        <label className="admin-label grid gap-2">
+        <Label className="grid gap-2">
           <span>Nueva contraseña</span>
-          <input
-            className="admin-input"
+          <Input
             name="password"
             type="password"
             autoComplete="new-password"
             minLength={12}
             required
           />
-        </label>
-        <label className="admin-label grid gap-2">
+        </Label>
+        <Label className="grid gap-2">
           <span>Confirmar contraseña</span>
-          <input
-            className="admin-input"
+          <Input
             name="passwordConfirmation"
             type="password"
             autoComplete="new-password"
             minLength={12}
             required
           />
-        </label>
-        <button className="admin-button admin-button-full mt-2" type="submit" disabled={pending}>
+        </Label>
+        <Button className="mt-2 w-full" type="submit" disabled={pending}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null}
           {pending ? "Guardando..." : "Guardar contraseña"}
-        </button>
+        </Button>
       </form>
     </>
   );

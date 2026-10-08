@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { PasswordResetForm } from "@/ui/admin/password-reset-form";
+import { Button } from "@/ui/primitives/button";
 
 export default function AdminResetPage() {
   return (
@@ -19,9 +20,9 @@ export default function AdminResetPage() {
           <h1 className="admin-eyebrow">Nueva contraseña</h1>
         </div>
         <PasswordResetForm />
-        <Link className="admin-link" href="/admin/login">
-          Volver a ingresar
-        </Link>
+        <Button variant="link" asChild>
+          <Link href="/admin/login">Volver a ingresar</Link>
+        </Button>
       </div>
     </main>
   );

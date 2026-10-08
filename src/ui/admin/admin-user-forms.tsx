@@ -1,36 +1,39 @@
 "use client";
 
 import { useActionState } from "react";
+import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { adminRoles, type AdminRole } from "@/domain/admin/admin-access";
+import { Alert } from "@/ui/primitives/alert";
+import { Button } from "@/ui/primitives/button";
+import { Input } from "@/ui/primitives/input";
+import { Label } from "@/ui/primitives/label";
+import { NativeSelect } from "@/ui/primitives/native-select";
 
 import { adminRoleLabel } from "./view-model";
 
 type FormAction = (state: AdminActionState, formData: FormData) => Promise<AdminActionState>;
 
 const initialState: AdminActionState = { ok: false, message: "" };
-const inputClass = "admin-input";
-const submitClass = "admin-button";
-
 function StatusMessage({ state }: { state: AdminActionState }) {
   if (!state.message) return null;
   return (
-    <p className={state.ok ? "admin-notice-success" : "admin-notice-error"} role="status">
+    <Alert variant={state.ok ? "success" : "destructive"} role="status">
       {state.message}
-    </p>
+    </Alert>
   );
 }
 
 function RoleSelect({ defaultValue, disabled }: { defaultValue: AdminRole; disabled?: boolean }) {
   return (
-    <select className={inputClass} name="role" defaultValue={defaultValue} disabled={disabled}>
+    <NativeSelect name="role" defaultValue={defaultValue} disabled={disabled}>
       {adminRoles.map((role) => (
         <option key={role} value={role}>
           {adminRoleLabel(role)}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 }
 
@@ -44,10 +47,9 @@ function PasswordInput({
   autoComplete: "new-password" | "current-password";
 }) {
   return (
-    <label className="admin-label grid gap-2">
+    <Label className="grid gap-2">
       <span>{label}</span>
-      <input
-        className={inputClass}
+      <Input
         name={name}
         type="password"
         autoComplete={autoComplete}
@@ -55,7 +57,7 @@ function PasswordInput({
         maxLength={autoComplete === "new-password" ? 256 : 1024}
         required
       />
-    </label>
+    </Label>
   );
 }
 
@@ -64,25 +66,18 @@ export function AdminUserCreateForm({ action }: { action: FormAction }) {
 
   return (
     <form action={formAction} className="grid max-w-xl gap-4">
-      <label className="admin-label grid gap-2">
+      <Label className="grid gap-2">
         <span>Email</span>
-        <input
-          className={inputClass}
-          name="email"
-          type="email"
-          autoComplete="off"
-          maxLength={254}
-          required
-        />
-      </label>
-      <label className="admin-label grid gap-2">
+        <Input name="email" type="email" autoComplete="off" maxLength={254} required />
+      </Label>
+      <Label className="grid gap-2">
         <span>Nombre</span>
-        <input className={inputClass} name="displayName" maxLength={80} required />
-      </label>
-      <label className="admin-label grid gap-2">
+        <Input name="displayName" maxLength={80} required />
+      </Label>
+      <Label className="grid gap-2">
         <span>Rol</span>
         <RoleSelect defaultValue="ADMIN" />
-      </label>
+      </Label>
       <PasswordInput name="password" label="Contraseña inicial" autoComplete="new-password" />
       <PasswordInput
         name="passwordConfirmation"
@@ -93,9 +88,10 @@ export function AdminUserCreateForm({ action }: { action: FormAction }) {
         Mínimo 12 caracteres. Comparte la contraseña por un canal seguro.
       </p>
       <div>
-        <button className={submitClass} type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null}
           {pending ? "Creando..." : "Crear administrador"}
-        </button>
+        </Button>
       </div>
       <StatusMessage state={state} />
     </form>
@@ -118,17 +114,11 @@ export function AdminUserProfileForm({
   return (
     <form action={formAction} className="grid max-w-xl gap-4">
       <input type="hidden" name="expectedRole" value={role} />
-      <label className="admin-label grid gap-2">
+      <Label className="grid gap-2">
         <span>Nombre</span>
-        <input
-          className={inputClass}
-          name="displayName"
-          defaultValue={displayName}
-          maxLength={80}
-          required
-        />
-      </label>
-      <label className="admin-label grid gap-2">
+        <Input name="displayName" defaultValue={displayName} maxLength={80} required />
+      </Label>
+      <Label className="grid gap-2">
         <span>Rol</span>
         <RoleSelect defaultValue={role} disabled={roleLocked} />
         {roleLocked ? (
@@ -139,11 +129,12 @@ export function AdminUserProfileForm({
             </span>
           </>
         ) : null}
-      </label>
+      </Label>
       <div>
-        <button className={submitClass} type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null}
           {pending ? "Guardando..." : "Guardar cambios"}
-        </button>
+        </Button>
       </div>
       <StatusMessage state={state} />
     </form>
@@ -180,13 +171,14 @@ export function PasswordForm({ action, mode }: { action: FormAction; mode: "rese
         </>
       )}
       <div>
-        <button className={submitClass} type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null}
           {pending
             ? "Guardando..."
             : mode === "change"
               ? "Cambiar contraseña"
               : "Restablecer contraseña"}
-        </button>
+        </Button>
       </div>
       <StatusMessage state={state} />
     </form>
@@ -215,18 +207,18 @@ export function AdminUserDeletionForm({
         Esta acción es permanente. Te enviaremos un código a tu correo para confirmarla.
       </p>
       <form action={requestFormAction}>
-        <button className={submitClass} type="submit" disabled={requestPending}>
+        <Button type="submit" disabled={requestPending}>
+          {requestPending ? <Loader2 className="size-4 animate-spin" /> : null}
           {requestPending ? "Enviando..." : "Enviar código"}
-        </button>
+        </Button>
       </form>
       <StatusMessage state={requestState} />
 
       {requestState.ok ? (
         <form action={confirmFormAction} className="grid gap-4">
-          <label className="admin-label grid gap-2">
+          <Label className="grid gap-2">
             <span>Código de confirmación</span>
-            <input
-              className={inputClass}
+            <Input
               name="code"
               inputMode="numeric"
               autoComplete="one-time-code"
@@ -234,19 +226,23 @@ export function AdminUserDeletionForm({
               pattern="\d{6}"
               required
             />
-          </label>
+          </Label>
           <div className="flex flex-wrap items-center gap-4">
-            <button className="admin-button-danger" type="submit" disabled={confirmPending}>
+            <Button variant="destructive" type="submit" disabled={confirmPending}>
+              {confirmPending ? <Loader2 className="size-4 animate-spin" /> : null}
               {confirmPending ? "Eliminando..." : "Eliminar definitivamente"}
-            </button>
-            <button
-              className="admin-link text-sm"
+            </Button>
+            <Button
+              variant="link"
+              size="sm"
+              className="text-sm"
               type="submit"
               formAction={requestFormAction}
               disabled={requestPending}
             >
+              {requestPending ? <Loader2 className="size-4 animate-spin" /> : null}
               Solicitar un código nuevo
-            </button>
+            </Button>
           </div>
           <StatusMessage state={confirmState} />
         </form>
