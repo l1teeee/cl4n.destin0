@@ -84,124 +84,10 @@
   text-transform: uppercase;
 }
 
-.admin-label {
-  color: var(--clan-muted);
-  font-size: 0.72rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  opacity: 0.7;
-  transition: opacity 200ms ease;
-}
-
-.admin-label:focus-within {
-  opacity: 1;
-}
-
-.admin-input {
-  display: block;
-  width: 100%;
-  min-height: 2.75rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid #777972;
-  border-radius: 0;
-  background: transparent;
-  color: var(--clan-foreground);
-  transition:
-    border-color 200ms ease,
-    background-color 200ms ease;
-}
-
-.admin-input:focus {
-  border-color: var(--clan-foreground);
-  background: #fffbf405;
-}
-
-.admin-input:disabled,
-.admin-input:read-only {
-  opacity: 0.5;
-}
-
-.admin-input option {
-  background: var(--clan-background);
-  color: var(--clan-foreground);
-}
-
 .admin-checkbox {
   width: 1rem;
   height: 1rem;
   accent-color: var(--clan-foreground);
-}
-
-.admin-button,
-.admin-button-ghost,
-.admin-button-danger {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  padding: 0 1.5rem;
-  border: 1px solid var(--clan-foreground);
-  border-radius: 999px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition:
-    background-color 250ms ease,
-    color 250ms ease,
-    border-color 250ms ease,
-    opacity 250ms ease;
-}
-
-.admin-button {
-  background: var(--clan-foreground);
-  color: var(--clan-background);
-}
-
-.admin-button-ghost {
-  background: transparent;
-  color: var(--clan-foreground);
-}
-
-.admin-button-danger {
-  border-color: #c9736a;
-  background: transparent;
-  color: #c9736a;
-}
-
-.admin-button:focus-visible:not(:disabled) {
-  background: transparent;
-  color: var(--clan-foreground);
-}
-
-.admin-button-ghost:focus-visible:not(:disabled),
-.admin-button-danger:focus-visible:not(:disabled) {
-  opacity: 0.6;
-}
-
-.admin-button:disabled,
-.admin-button-ghost:disabled,
-.admin-button-danger:disabled,
-.admin-link:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.admin-button-full {
-  width: 100%;
-}
-
-.admin-link {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  transition: opacity 250ms ease;
-}
-
-.admin-link:focus-visible {
-  opacity: 0.6;
 }
 
 .admin-brand {
@@ -219,129 +105,6 @@
   width: 1.75rem;
   height: auto;
   aspect-ratio: 100 / 104;
-}
-
-.admin-table-scroll {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.admin-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 0.9rem;
-}
-
-.admin-table th {
-  padding: 0.9rem 0.75rem;
-  color: #8d8b85;
-  font-size: 0.68rem;
-  font-weight: 400;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-.admin-table td {
-  padding: 0.9rem 0.75rem;
-  border-top: 1px solid #2b2c26;
-}
-
-.admin-table tbody tr {
-  transition: background-color 200ms ease;
-}
-
-.admin-badge {
-  display: inline-block;
-  padding: 0.25rem 0.4rem;
-  border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
-  border-radius: 0;
-  color: var(--clan-muted);
-  font-size: 0.65rem;
-  letter-spacing: 0.18em;
-  line-height: 1.3;
-  text-transform: uppercase;
-}
-
-.admin-badge-open,
-.admin-badge-waitlist {
-  color: var(--clan-foreground);
-}
-
-.admin-badge-draft,
-.admin-badge-closed,
-.admin-badge-inactive {
-  color: #8d8b85;
-}
-
-.admin-badge-cancelled,
-.admin-badge-full-rejected {
-  color: #c9736a;
-}
-
-.admin-badge-confirmed,
-.admin-badge-active {
-  color: #a9b59a;
-}
-
-.admin-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-top: 1px solid #2b2c26;
-}
-
-.admin-stat {
-  min-width: 0;
-  padding: 1.25rem 1rem;
-  border-bottom: 1px solid #2b2c26;
-}
-
-.admin-stat:nth-child(odd) {
-  border-right: 1px solid #2b2c26;
-}
-
-.admin-stat-label {
-  color: #8d8b85;
-  font-size: 0.68rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-.admin-stat-value {
-  margin-top: 0.4rem;
-  overflow-wrap: anywhere;
-  color: var(--clan-foreground);
-  font-size: 2rem;
-  font-weight: 300;
-  line-height: 1.1;
-}
-
-.admin-notice,
-.admin-notice-error,
-.admin-notice-success {
-  padding: 0.15rem 0 0.15rem 0.8rem;
-  border-left: 1px solid #8d8b85;
-  color: var(--clan-muted);
-}
-
-.admin-notice-error {
-  border-left-color: #c9736a;
-  color: #c9736a;
-}
-
-.admin-notice-success {
-  border-left-color: #a9b59a;
-  color: #a9b59a;
-}
-
-.admin-confirmation {
-  padding: 0.8rem;
-  border: 1px solid #2b2c26;
-  border-radius: 0;
-}
-
-.admin-confirmation > summary {
-  cursor: pointer;
 }
 
 .admin-danger-section {
@@ -364,23 +127,8 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .admin-button:hover:not(:disabled) {
-    background: transparent;
-    color: var(--clan-foreground);
-  }
-
-  .admin-button-ghost:hover:not(:disabled),
-  .admin-button-danger:hover:not(:disabled),
-  .admin-link:hover {
-    opacity: 0.6;
-  }
-
   .admin-brand:hover .admin-brand-mark {
     animation: public-blink 420ms ease-in-out;
-  }
-
-  .admin-table tbody tr:hover {
-    background: #fffbf405;
   }
 }
 
@@ -388,19 +136,6 @@
   .admin-page {
     padding-right: 2rem;
     padding-left: 2rem;
-  }
-
-  .admin-stat-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .admin-stat,
-  .admin-stat:nth-child(odd) {
-    border-right: 1px solid #2b2c26;
-  }
-
-  .admin-stat:nth-child(4n) {
-    border-right: 0;
   }
 }
 
