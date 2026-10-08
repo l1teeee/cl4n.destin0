@@ -1,5 +1,5 @@
 import { TZDate } from "@date-fns/tz";
-import { format } from "date-fns";
+import { format, type Locale } from "date-fns";
 import { es } from "date-fns/locale";
 
 export const EL_SALVADOR_TIME_ZONE = "America/El_Salvador";
@@ -54,8 +54,12 @@ function buildUtcDate(
   return new Date(zoned.getTime());
 }
 
-export function formatUtcForElSalvador(date: Date, pattern = "yyyy-MM-dd HH:mm"): string {
-  return format(TZDate.tz(EL_SALVADOR_TIME_ZONE, date), pattern);
+export function formatUtcForElSalvador(
+  date: Date,
+  pattern = "yyyy-MM-dd HH:mm",
+  locale?: Locale,
+): string {
+  return format(TZDate.tz(EL_SALVADOR_TIME_ZONE, date), pattern, { locale });
 }
 
 export function formatPublicEventDate(date: Date): string {
