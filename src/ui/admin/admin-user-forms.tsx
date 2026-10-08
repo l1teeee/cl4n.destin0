@@ -118,6 +118,7 @@ export function AdminUserProfileForm({
 
   return (
     <form action={formAction} className="grid max-w-xl gap-4">
+      <input type="hidden" name="expectedRole" value={role} />
       <label className="grid gap-1">
         <span>Nombre</span>
         <input

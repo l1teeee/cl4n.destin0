@@ -49,7 +49,7 @@ beforeEach(async () => {
      RETURNING id`,
   );
   adminId = admin.rows[0]!.id;
-  sessionToken = (await postgresAdminAuthRepository.createSession(adminId)).token;
+  sessionToken = (await postgresAdminAuthRepository.createSession(adminId, "hash"))!.token;
 });
 
 afterAll(async () => {

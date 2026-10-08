@@ -6,6 +6,7 @@ export type AdminUserErrorCode =
   | "EMAIL_TAKEN"
   | "SELF_ACTION"
   | "LAST_SUPER_ADMIN"
+  | "ROLE_CHANGED"
   | "ALREADY_ACTIVE"
   | "ALREADY_INACTIVE"
   | "INVALID_CURRENT_PASSWORD"
@@ -42,6 +43,7 @@ export interface UpdateAdminUserCommand {
   id: string;
   displayName: string;
   role: AdminRole;
+  expectedRole: AdminRole;
 }
 
 export interface AdminActor {

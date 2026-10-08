@@ -70,7 +70,10 @@ export async function signIn(
     return { ok: false, error: "INVALID_CREDENTIALS" };
   }
 
-  const session = await dependencies.repository.createSession(admin.id);
+  const session = await dependencies.repository.createSession(admin.id, admin.passwordHash);
+  if (!session) {
+    return { ok: false, error: "INVALID_CREDENTIALS" };
+  }
   return {
     ok: true,
     token: session.token,

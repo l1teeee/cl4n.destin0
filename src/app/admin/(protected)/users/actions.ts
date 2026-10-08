@@ -64,6 +64,7 @@ export async function updateAdminUserAction(
     id,
     displayName: formData.get("displayName"),
     role: formData.get("role"),
+    expectedRole: formData.get("expectedRole"),
   });
   if (!parsed.success) return validationState(parsed.error);
 

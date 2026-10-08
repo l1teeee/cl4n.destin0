@@ -41,7 +41,9 @@ export const createAdminUserSchema = z
     message: passwordMismatchMessage,
   });
 
-export const updateAdminUserSchema = z.object({ id, displayName, role }).strict();
+export const updateAdminUserSchema = z
+  .object({ id, displayName, role, expectedRole: role })
+  .strict();
 
 export const adminUserIdSchema = z.object({ id }).strict();
 

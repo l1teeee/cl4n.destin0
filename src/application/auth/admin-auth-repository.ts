@@ -8,7 +8,7 @@ export interface CreatedAdminSession {
 
 export interface AdminAuthRepository {
   findByEmail(emailNormalized: string): Promise<AdminUser | null>;
-  createSession(adminId: string): Promise<CreatedAdminSession>;
+  createSession(adminId: string, verifiedPasswordHash: string): Promise<CreatedAdminSession | null>;
   validateSession(token: string): Promise<AdminSession | null>;
   deleteSession(token: string): Promise<void>;
 }

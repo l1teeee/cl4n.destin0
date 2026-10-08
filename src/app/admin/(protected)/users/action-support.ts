@@ -14,6 +14,8 @@ const errorMessages: Record<AdminUserErrorCode, string> = {
   EMAIL_TAKEN: "Ya existe un administrador con ese email.",
   SELF_ACTION: "No puedes realizar esta acción sobre tu propia cuenta.",
   LAST_SUPER_ADMIN: "Debe quedar al menos un superadministrador activo.",
+  ROLE_CHANGED:
+    "El rol de este administrador cambió mientras editabas. Recarga la página e inténtalo de nuevo.",
   ALREADY_ACTIVE: "El administrador ya está activo.",
   ALREADY_INACTIVE: "El administrador ya está desactivado.",
   INVALID_CURRENT_PASSWORD: "La contraseña actual no es correcta.",

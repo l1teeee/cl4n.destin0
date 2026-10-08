@@ -14,6 +14,7 @@ import { checkAccessChange, type AdminRole } from "@/domain/admin/admin-access";
 
 import { ADMIN_SESSION_IDLE_TIMEOUT_HOURS } from "../../auth/session-store";
 import { pool as applicationPool } from "../client";
+import { inTransaction as runInTransaction } from "../transaction";
 
 interface AdminUserRow extends QueryResultRow {
   id: string;
@@ -86,21 +87,12 @@ function isEmailViolation(error: unknown): boolean {
   );
 }
 
-async function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("SET LOCAL lock_timeout = '5s'");
-    await client.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
-    const result = await work(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
+  return runInTransaction(
+    pool,
+    ["SET LOCAL lock_timeout = '5s'", "SET LOCAL idle_in_transaction_session_timeout = '5s'"],
+    work,
+  );
 }
 
 async function selectSummary(executor: Executor, id: string): Promise<AdminUserSummary | null> {
@@ -118,7 +110,7 @@ async function lockActiveSuperAdmins(client: PoolClient): Promise<string[]> {
        FROM admin_users
       WHERE role = 'SUPER_ADMIN' AND is_active = true
       ORDER BY id
-      FOR UPDATE`,
+      FOR NO KEY UPDATE`,
   );
   return result.rows.map((row) => row.id);
 }
@@ -128,7 +120,7 @@ async function lockAdmin(client: PoolClient, id: string): Promise<LockedAdminRow
     `SELECT id, display_name, role, is_active
        FROM admin_users
       WHERE id = $1
-      FOR UPDATE`,
+      FOR NO KEY UPDATE`,
     [id],
   );
   return result.rows[0] ?? null;
@@ -216,6 +208,9 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
       const target = await lockAdmin(client, command.id);
       if (!target) {
         return failed("NOT_FOUND");
+      }
+      if (target.role !== command.expectedRole) {
+        return failed("ROLE_CHANGED");
       }
 
       const violation = checkAccessChange({
