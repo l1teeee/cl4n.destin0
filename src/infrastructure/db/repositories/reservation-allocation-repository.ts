@@ -23,7 +23,7 @@ interface DatabaseError {
   constraint?: string;
 }
 
-class DuplicateReservationAfterWaitlistClaimError extends Error {}
+class DuplicateUnderEventLockError extends Error {}
 
 interface EventRow {
   id: string;
@@ -408,7 +408,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             [event.id, command.emailNormalized, command.phoneE164],
           );
           if ((lockedDuplicate.rowCount ?? 0) > 0) {
-            throw new DuplicateReservationAfterWaitlistClaimError();
+            throw new DuplicateUnderEventLockError();
           }
 
           const entryId = await insertWaitlistEntry(
@@ -453,7 +453,8 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             command.emailNormalized,
             command.partySize,
             command.notes ?? null,
-            command.allergies,
+            // Rejected guests get no seat, so their health data is not kept.
+            null,
             command.idempotencyKey,
           ],
         );
@@ -464,6 +465,19 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           { code: "EVENT_FULL" },
           { reservationId: rejected.rows[0]!.id },
         );
+      }
+
+      const lockedWaitingDuplicate = await client.query(
+        `SELECT 1
+           FROM waitlist_entries
+          WHERE event_id = $1
+            AND status = 'WAITING'
+            AND (email_normalized = $2 OR phone_e164 = $3)
+          LIMIT 1`,
+        [event.id, command.emailNormalized, command.phoneE164],
+      );
+      if ((lockedWaitingDuplicate.rowCount ?? 0) > 0) {
+        throw new DuplicateUnderEventLockError();
       }
 
       const reservation = await client.query<{ id: string }>(
@@ -545,7 +559,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       const details = databaseError(error);
 
       if (
-        error instanceof DuplicateReservationAfterWaitlistClaimError ||
+        error instanceof DuplicateUnderEventLockError ||
         (details.code === "23505" && duplicateConstraints.has(details.constraint ?? ""))
       ) {
         return {

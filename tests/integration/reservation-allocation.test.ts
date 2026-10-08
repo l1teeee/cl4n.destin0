@@ -221,7 +221,7 @@ describe("reservation allocation repository", () => {
         status: "FULL_REJECTED",
         reservation_number: null,
         accepted_at: null,
-        allergies: "Mariscos",
+        allergies: null,
       },
     ]);
     const eventState = await pool.query(

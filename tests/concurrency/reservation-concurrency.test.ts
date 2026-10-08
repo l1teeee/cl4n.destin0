@@ -335,6 +335,21 @@ async function expectPromotionsInFifoOrder(eventId: string): Promise<number[]> {
   return promoted.rows.map((row) => row.waitlist_number);
 }
 
+async function waitForEventLockWaiters(expected: number): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const waiters = await pool.query<{ waiting: number }>(
+      `SELECT COUNT(*)::int AS waiting
+         FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+    );
+    if (waiters.rows[0]!.waiting >= expected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Expected ${expected} requests waiting on the event lock`);
+}
+
 describe("reservation allocation concurrency", () => {
   it.each([1, 2, 3])(
     "A repeat %i: confirms exactly 20 of 100 simultaneous party-one requests",
@@ -487,6 +502,57 @@ describe("reservation allocation concurrency", () => {
       expect(identities.rows).toEqual([{ source: "CONFIRMED" }]);
       expect(summary.waiting).toBe(0);
     }
+  });
+
+  it("never confirms a guest who queued while the seat request waited on the event lock", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 20,
+      maxPartySize: 2,
+      waitlistCapacity: 5,
+    });
+    await seedReservations(event.slug, 19, 660_000);
+    const guest = { email: "reverse-direction@example.com", phone: "+50379998888" };
+    const holder = await pool.connect();
+    let results: RequestResult[];
+
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM events WHERE id = $1 FOR UPDATE", [event.id]);
+
+      const queued = fireTogether(event.slug, [
+        { sequence: 661_000, overrides: { ...guest, partySize: 2 } },
+      ]);
+      await waitForEventLockWaiters(1);
+      const seated = fireTogether(event.slug, [
+        { sequence: 661_001, overrides: { ...guest, partySize: 1 } },
+      ]);
+      await waitForEventLockWaiters(2);
+      await holder.query("COMMIT");
+      results = (await Promise.all([queued, seated])).flat();
+    } finally {
+      holder.release();
+    }
+
+    const summary = await assertInvariants(event.id, results);
+    const identities = await pool.query<{ source: string }>(
+      `SELECT 'CONFIRMED' AS source
+         FROM reservations
+        WHERE event_id = $1
+          AND status = 'CONFIRMED'
+          AND (email_normalized = $2 OR phone_e164 = $3)
+        UNION ALL
+       SELECT 'WAITING' AS source
+         FROM waitlist_entries
+        WHERE event_id = $1
+          AND status = 'WAITING'
+          AND (email_normalized = $2 OR phone_e164 = $3)`,
+      [event.id, guest.email, guest.phone],
+    );
+
+    expect(results.map(resultCode)).toEqual(["WAITLISTED", "DUPLICATE_RESERVATION"]);
+    expect(identities.rows).toEqual([{ source: "WAITING" }]);
+    expect(summary.reservedSeats).toBe(19);
+    expect(summary.waiting).toBe(1);
   });
 
   it("G: preserves invariants while cancelling five and submitting 50 on a full event", async () => {
