@@ -150,6 +150,21 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
     }));
   }
 
+  async countByStatusSince(days: number): Promise<Record<EmailOutboxStatus, number>> {
+    const result = await this.pool.query<{ status: EmailOutboxStatus; total: number }>(
+      `SELECT status, COUNT(*)::int AS total
+         FROM email_outbox
+        WHERE created_at >= clock_timestamp() - make_interval(days => $1)
+        GROUP BY status`,
+      [days],
+    );
+    const totals: Record<EmailOutboxStatus, number> = { PENDING: 0, SENT: 0, FAILED: 0 };
+    for (const row of result.rows) {
+      totals[row.status] = row.total;
+    }
+    return totals;
+  }
+
   async retry(id: string): Promise<boolean> {
     const result = await this.pool.query(
       `UPDATE email_outbox

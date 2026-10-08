@@ -11,8 +11,14 @@ import { postgresEmailOutboxRepository } from "@/infrastructure/email/outbox/pos
 
 const emailIdSchema = z.uuid("El identificador no es válido.");
 
-export async function retryEmailAction(id: string): Promise<AdminActionState> {
+export async function retryEmailAction(
+  id: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
   const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
   if (!authorization.authorized) {
     return { ok: false, message: "Tu sesión no es válida. Inicia sesión nuevamente." };
   }

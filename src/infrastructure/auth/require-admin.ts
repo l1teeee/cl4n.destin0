@@ -49,8 +49,9 @@ export async function requireAdmin(
   mode: "page",
 ): Promise<AdminAuthorizationResult & { authorized: true }>;
 export async function requireAdmin(mode: "action"): Promise<AdminAuthorizationResult>;
+export async function requireAdmin(mode: "route"): Promise<AdminAuthorizationResult>;
 export async function requireAdmin(
-  mode: "page" | "action" = "page",
+  mode: "page" | "action" | "route" = "page",
 ): Promise<AdminAuthorizationResult> {
   const authorization = await authorizeAdminSession(
     await sessionToken(),

@@ -524,4 +524,72 @@ describe("event read models", () => {
       "EVENT_CREATED",
     ]);
   });
+
+  it("lists every roster view with live queue positions and the latest email state", async () => {
+    const eventId = await insertEvent("SCHEDULED");
+    const reservationIds = [randomUUID(), randomUUID(), randomUUID()];
+    await pool.query(
+      `INSERT INTO reservations (
+         id, event_id, reservation_number, status, full_name, instagram_handle, phone_e164,
+         email, email_normalized, party_size, terms_accepted_at, idempotency_key, submitted_at,
+         accepted_at, cancelled_at
+       ) VALUES
+         ($2, $1, 1, 'CONFIRMED', 'Confirmada', 'confirmada', '+50371000001', 'c@example.com', 'c@example.com', 1, now(), $5, now() - interval '5 minutes', now(), NULL),
+         ($3, $1, NULL, 'FULL_REJECTED', 'Rechazada', 'rechazada', '+50371000002', 'r@example.com', 'r@example.com', 2, now(), $6, now() - interval '4 minutes', NULL, NULL),
+         ($4, $1, 2, 'CANCELLED', 'Cancelada', 'cancelada', '+50371000003', 'x@example.com', 'x@example.com', 1, now(), $7, now() - interval '3 minutes', now(), now())`,
+      [eventId, ...reservationIds, randomUUID(), randomUUID(), randomUUID()],
+    );
+    const waitingOne = randomUUID();
+    const waitingTwo = randomUUID();
+    const cancelled = randomUUID();
+    await pool.query(
+      `INSERT INTO waitlist_entries (
+         id, event_id, waitlist_number, status, full_name, instagram_handle, phone_e164,
+         email, email_normalized, party_size, terms_accepted_at, idempotency_key, submitted_at,
+         cancelled_at
+       ) VALUES
+         ($2, $1, 2, 'WAITING', 'Primera', 'primera', '+50372000001', 'w1@example.com', 'w1@example.com', 1, now(), $5, now() - interval '2 minutes', NULL),
+         ($3, $1, 5, 'WAITING', 'Segunda', 'segunda', '+50372000002', 'w2@example.com', 'w2@example.com', 1, now(), $6, now() - interval '1 minute', NULL),
+         ($4, $1, 3, 'CANCELLED', 'Retirada', 'retirada', '+50372000003', 'wc@example.com', 'wc@example.com', 1, now(), $7, now(), now())`,
+      [eventId, waitingOne, waitingTwo, cancelled, randomUUID(), randomUUID(), randomUUID()],
+    );
+    await pool.query(
+      `INSERT INTO email_outbox (
+         kind, waitlist_entry_id, status, attempts, last_error, created_at
+       ) VALUES
+         ('RESERVATION_WAITLISTED', $1, 'PENDING', 0, NULL, now() - interval '2 minutes'),
+         ('WAITLIST_CANCELLED', $1, 'FAILED', 1, 'HTTP_400', now() - interval '1 minute')`,
+      [waitingOne],
+    );
+
+    const confirmed = await repository.listEventRoster(eventId, "confirmadas");
+    const waiting = await repository.listEventRoster(eventId, "en-cola");
+    const rejected = await repository.listEventRoster(eventId, "rechazadas");
+    const cancelledRows = await repository.listEventRoster(eventId, "canceladas");
+    const all = await repository.listEventRoster(eventId, "todas");
+    const counts = await repository.countEventRoster(eventId);
+
+    expect(confirmed.value.map((row) => row.fullName)).toEqual(["Confirmada"]);
+    expect(waiting.value.map((row) => [row.fullName, row.queuePosition])).toEqual([
+      ["Primera", 1],
+      ["Segunda", 2],
+    ]);
+    expect(waiting.value[0]).toMatchObject({
+      emailStatus: "FAILED",
+      emailLastError: "HTTP_400",
+    });
+    expect(rejected.value.map((row) => row.fullName)).toEqual(["Rechazada"]);
+    expect(cancelledRows.value.map((row) => row.fullName).sort()).toEqual([
+      "Cancelada",
+      "Retirada",
+    ]);
+    expect(all.value).toHaveLength(6);
+    expect(counts).toEqual({
+      confirmadas: 1,
+      "en-cola": 2,
+      rechazadas: 1,
+      canceladas: 2,
+      todas: 6,
+    });
+  });
 });

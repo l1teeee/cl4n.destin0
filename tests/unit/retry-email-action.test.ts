@@ -25,7 +25,9 @@ beforeEach(() => {
 
 describe("retryEmailAction", () => {
   it("requeues a failed email and triggers delivery for any signed-in admin", async () => {
-    await expect(retryEmailAction(emailId)).resolves.toMatchObject({ ok: true });
+    await expect(
+      retryEmailAction(emailId, { ok: false, message: "" }, new FormData()),
+    ).resolves.toMatchObject({ ok: true });
 
     expect(requireAdmin).toHaveBeenCalledWith("action");
     expect(retry).toHaveBeenCalledWith(emailId);
@@ -35,14 +37,18 @@ describe("retryEmailAction", () => {
   it("rejects an unauthenticated caller before touching the outbox", async () => {
     requireAdmin.mockResolvedValue({ authorized: false, error: "UNAUTHORIZED" });
 
-    await expect(retryEmailAction(emailId)).resolves.toMatchObject({ ok: false });
+    await expect(
+      retryEmailAction(emailId, { ok: false, message: "" }, new FormData()),
+    ).resolves.toMatchObject({ ok: false });
 
     expect(retry).not.toHaveBeenCalled();
     expect(scheduleEmailDelivery).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed id", async () => {
-    await expect(retryEmailAction("not-a-uuid")).resolves.toMatchObject({ ok: false });
+    await expect(
+      retryEmailAction("not-a-uuid", { ok: false, message: "" }, new FormData()),
+    ).resolves.toMatchObject({ ok: false });
 
     expect(retry).not.toHaveBeenCalled();
   });
@@ -50,7 +56,9 @@ describe("retryEmailAction", () => {
   it("reports rows that are not in a failed state", async () => {
     retry.mockResolvedValue(false);
 
-    await expect(retryEmailAction(emailId)).resolves.toMatchObject({ ok: false });
+    await expect(
+      retryEmailAction(emailId, { ok: false, message: "" }, new FormData()),
+    ).resolves.toMatchObject({ ok: false });
 
     expect(scheduleEmailDelivery).not.toHaveBeenCalled();
   });

@@ -100,6 +100,29 @@ export interface AdminReservationQuery {
   direction?: SortDirection;
 }
 
+export type RosterView = "confirmadas" | "en-cola" | "rechazadas" | "canceladas" | "todas";
+export type RosterStatus = "CONFIRMED" | "WAITING" | "REJECTED" | "CANCELLED" | "PROMOTED";
+export type RosterEmailStatus = "PENDING" | "SENT" | "FAILED";
+
+export interface EventRosterRow {
+  kind: "RESERVATION" | "WAITLIST_ENTRY";
+  id: string;
+  status: RosterStatus;
+  reservationNumber: number | null;
+  queuePosition: number | null;
+  fullName: string;
+  instagram: string;
+  phone: string;
+  email: string;
+  partySize: number;
+  submittedAt: Date;
+  emailStatus: RosterEmailStatus | null;
+  emailSentAt: Date | null;
+  emailLastError: string | null;
+}
+
+export type EventRosterCounts = Record<RosterView, number>;
+
 export interface AuditLogItem {
   id: bigint;
   occurredAt: Date;

@@ -8,9 +8,16 @@ import {
   formatCount,
   formatReservationNumber,
   lifecycleActions,
+  emailKindLabel,
+  emailStatusBadgeClass,
+  emailStatusLabel,
+  parseEmailLogSearchParams,
+  parseRosterView,
   parseAuditSearchParams,
   parseReservationSearchParams,
   reservationStatusLabel,
+  rosterStatusLabel,
+  rosterStatusBadgeClass,
 } from "@/ui/admin/view-model";
 
 const now = new Date("2026-10-05T12:00:00Z");
@@ -120,5 +127,20 @@ describe("admin formatting and query parsing", () => {
       page: 2,
     });
     expect(parseAuditSearchParams({ entityType: "UNKNOWN", page: "-1" })).toEqual({ page: 1 });
+  });
+
+  it("maps roster and email labels and allow-lists their filters", () => {
+    expect(rosterStatusLabel("PROMOTED")).toBe("Promovida");
+    expect(rosterStatusBadgeClass("REJECTED")).toBe("admin-badge admin-badge-full-rejected");
+    expect(emailStatusLabel("FAILED")).toBe("Falló");
+    expect(emailStatusBadgeClass("SENT")).toBe("admin-badge admin-badge-confirmed");
+    expect(emailKindLabel("ADMIN_SIGNED_IN")).toBe("Inicio de sesión");
+    expect(parseRosterView("en-cola", "confirmadas")).toBe("en-cola");
+    expect(parseRosterView("invalida", "confirmadas")).toBe("confirmadas");
+    expect(parseEmailLogSearchParams({ estado: "FAILED", tipo: "RESERVATION_CONFIRMED" })).toEqual({
+      status: "FAILED",
+      kind: "RESERVATION_CONFIRMED",
+    });
+    expect(parseEmailLogSearchParams({ estado: "INVALID", tipo: "INVALID" })).toEqual({});
   });
 });

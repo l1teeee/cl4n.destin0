@@ -15,6 +15,7 @@ import {
 } from "@/application/events/event-use-cases";
 import type { EventOperationErrorCode } from "@/application/events/types";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
+import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
@@ -35,6 +36,12 @@ const reservationActionSchema = z
   .object({
     eventId: z.string().uuid("El evento no es válido."),
     reservationId: z.string().uuid("La reservación no es válida."),
+  })
+  .strict();
+const waitlistActionSchema = z
+  .object({
+    eventId: z.string().uuid("El evento no es válido."),
+    waitlistEntryId: z.string().uuid("La entrada en cola no es válida."),
   })
   .strict();
 const capacitySchema = z
@@ -325,4 +332,34 @@ export async function cancelReservationAction(
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");
   return { ok: true, message: "Reservación cancelada." };
+}
+
+export async function cancelWaitlistEntryAction(
+  eventId: string,
+  waitlistEntryId: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = waitlistActionSchema.safeParse({ eventId, waitlistEntryId });
+  if (!parsed.success) return firstValidationError(parsed.error);
+
+  const cancelWaitlistEntry = createCancelWaitlistEntry(
+    new PostgresReservationAllocationRepository(),
+  );
+  const result = await cancelWaitlistEntry({
+    waitlistEntryId: parsed.data.waitlistEntryId,
+    actorAdminId: authorization.session.admin.id,
+  });
+  if (result === "NOT_FOUND") return invalid("No se encontró la entrada en cola.");
+  if (result === "NOT_CANCELLABLE") return invalid("La entrada ya no se puede retirar.");
+
+  scheduleEmailDelivery();
+  revalidatePath("/admin");
+  revalidatePath(`/admin/events/${parsed.data.eventId}`);
+  revalidatePath("/admin/audit");
+  return { ok: true, message: "Entrada retirada de la cola." };
 }

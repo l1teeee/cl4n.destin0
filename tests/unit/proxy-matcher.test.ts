@@ -22,6 +22,7 @@ describe("proxy matcher", () => {
     "/admin",
     "/admin/login",
     "/admin/users",
+    "/admin/events/00000000-0000-4000-8000-000000000001/export",
     "/api/reservations",
     "/api/health",
   ])("runs the proxy for %s", (path) => {

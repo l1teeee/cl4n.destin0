@@ -37,6 +37,11 @@ export default async function ProtectedAdminLayout({ children }: { children: Rea
                   Auditoría
                 </Link>
               </AdminNavItem>
+              <AdminNavItem href="/admin/emails">
+                <Link className="admin-link admin-nav-link" href="/admin/emails">
+                  Correos
+                </Link>
+              </AdminNavItem>
               {canManageAdmins(authorization.session.admin.role) ? (
                 <AdminNavItem href="/admin/users">
                   <Link className="admin-link admin-nav-link" href="/admin/users">

@@ -45,6 +45,7 @@ export default async function AdminPage() {
                   "Reservados",
                   "Disponibles",
                   "Reservaciones",
+                  "En cola",
                   "Abre",
                   "Cierra",
                   "Acciones",
@@ -69,6 +70,9 @@ export default async function AdminPage() {
                     <td>{formatCount(event.reservedSeats)}</td>
                     <td>{formatCount(event.availableSeats)}</td>
                     <td>{formatCount(event.confirmedReservationCount)}</td>
+                    <td>
+                      {formatCount(event.waitlistedCount)} / {formatCount(event.waitlistCapacity)}
+                    </td>
                     <td>{formatAdminDate(event.opensAt)}</td>
                     <td>{formatAdminDate(event.closesAt)}</td>
                     <td>

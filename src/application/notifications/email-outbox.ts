@@ -59,6 +59,7 @@ export interface EmailOutboxRepository {
     status?: EmailOutboxStatus;
     kind?: EmailOutboxKind;
   }): Promise<RecentEmailOutboxItem[]>;
+  countByStatusSince(days: number): Promise<Record<EmailOutboxStatus, number>>;
   retry(id: string): Promise<boolean>;
   deleteSentOlderThan(days: number): Promise<number>;
 }
