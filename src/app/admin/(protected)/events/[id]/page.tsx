@@ -12,6 +12,7 @@ import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import {
+  adminStatusBadgeClass,
   formatAdminDate,
   formatReservationNumber,
   lifecycleActions,
@@ -55,21 +56,19 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const controls = lifecycleActions(event, eventResult.databaseTime);
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-8 px-4 py-8">
+    <main className="admin-page space-y-10">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link className="text-sm underline" href="/admin">
+          <Link className="admin-link admin-muted" href="/admin">
             Volver a experiencias
           </Link>
-          <h1 className="mt-3 text-3xl font-semibold">{event.internalName}</h1>
-          <p className="text-zinc-400">
+          <p className="admin-eyebrow mt-6">Experiencia</p>
+          <h1 className="admin-title">{event.internalName}</h1>
+          <p className="admin-description">
             {formatAdminDate(event.startsAt)} - {event.phase}
           </p>
         </div>
-        <Link
-          className="rounded border border-zinc-600 px-4 py-2"
-          href={`/admin/events/${id}/edit`}
-        >
+        <Link className="admin-button-ghost" href={`/admin/events/${id}/edit`}>
           Editar experiencia
         </Link>
       </div>
@@ -86,8 +85,8 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         ]}
       />
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Ciclo de vida</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Ciclo de vida</h2>
         <div className="flex flex-wrap gap-3">
           {controls.includes("PUBLISH") ? (
             <MutationForm action={publishEventAction.bind(null, id)} label="Publicar" />
@@ -120,13 +119,13 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         </div>
       </section>
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Capacidad</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Capacidad</h2>
         <MutationForm action={changeCapacityAction.bind(null, id)} label="Cambiar capacidad">
-          <label className="grid gap-1 text-sm">
+          <label className="admin-label grid gap-2">
             <span>Nueva capacidad</span>
             <input
-              className="w-40 rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+              className="admin-input w-40"
               name="newCapacity"
               type="number"
               min={1}
@@ -137,24 +136,16 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         </MutationForm>
       </section>
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Reservaciones</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Reservaciones</h2>
         <form className="flex flex-wrap items-end gap-3" method="get">
-          <label className="grid gap-1 text-sm">
+          <label className="admin-label grid gap-2">
             <span>Buscar</span>
-            <input
-              className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-              name="q"
-              defaultValue={query.q}
-            />
+            <input className="admin-input" name="q" defaultValue={query.q} />
           </label>
-          <label className="grid gap-1 text-sm">
+          <label className="admin-label grid gap-2">
             <span>Estado</span>
-            <select
-              className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-              name="status"
-              defaultValue={query.status ?? ""}
-            >
+            <select className="admin-input" name="status" defaultValue={query.status ?? ""}>
               <option value="">Todos</option>
               <option value="CONFIRMED">Confirmada</option>
               <option value="FULL_REJECTED">Rechazada por capacidad</option>
@@ -163,39 +154,31 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
               <option value="EXPIRED">Expirada</option>
             </select>
           </label>
-          <label className="grid gap-1 text-sm">
+          <label className="admin-label grid gap-2">
             <span>Ordenar por</span>
-            <select
-              className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-              name="sort"
-              defaultValue={query.sort}
-            >
+            <select className="admin-input" name="sort" defaultValue={query.sort}>
               <option value="submittedAt">Fecha de envío</option>
               <option value="number">Número</option>
               <option value="name">Nombre</option>
             </select>
           </label>
-          <label className="grid gap-1 text-sm">
+          <label className="admin-label grid gap-2">
             <span>Dirección</span>
-            <select
-              className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-              name="dir"
-              defaultValue={query.direction}
-            >
+            <select className="admin-input" name="dir" defaultValue={query.direction}>
               <option value="desc">Descendente</option>
               <option value="asc">Ascendente</option>
             </select>
           </label>
-          <button className="rounded border border-zinc-600 px-3 py-2" type="submit">
+          <button className="admin-button-ghost" type="submit">
             Aplicar
           </button>
         </form>
         {reservations.value.length === 0 ? (
-          <p className="text-zinc-400">No hay reservaciones con estos filtros.</p>
+          <p className="admin-empty">No hay reservaciones con estos filtros.</p>
         ) : (
-          <div className="overflow-x-auto rounded border border-zinc-800">
-            <table className="w-full min-w-[1100px] text-left text-sm">
-              <thead className="bg-zinc-900 text-zinc-400">
+          <div className="admin-table-scroll">
+            <table className="admin-table min-w-[1100px]">
+              <thead>
                 <tr>
                   {[
                     "Número",
@@ -209,29 +192,31 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
                     "Aceptada",
                     "Detalle",
                   ].map((heading) => (
-                    <th className="p-3" key={heading}>
-                      {heading}
-                    </th>
+                    <th key={heading}>{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {reservations.value.map((reservation) => (
-                  <tr className="border-t border-zinc-800 align-top" key={reservation.id}>
-                    <td className="p-3 font-mono">
+                  <tr className="align-top" key={reservation.id}>
+                    <td className="font-mono">
                       {formatReservationNumber(reservation.reservationNumber)}
                     </td>
-                    <td className="p-3">{reservation.fullName}</td>
-                    <td className="p-3">@{reservation.instagram}</td>
-                    <td className="p-3">{reservation.phone}</td>
-                    <td className="p-3">{reservation.email}</td>
-                    <td className="p-3">{reservation.partySize}</td>
-                    <td className="p-3">{reservationStatusLabel(reservation.status)}</td>
-                    <td className="p-3">{formatAdminDate(reservation.submittedAt)}</td>
-                    <td className="p-3">{formatAdminDate(reservation.acceptedAt)}</td>
-                    <td className="p-3">
+                    <td>{reservation.fullName}</td>
+                    <td>@{reservation.instagram}</td>
+                    <td>{reservation.phone}</td>
+                    <td>{reservation.email}</td>
+                    <td>{reservation.partySize}</td>
+                    <td>
+                      <span className={adminStatusBadgeClass(reservation.status)}>
+                        {reservationStatusLabel(reservation.status)}
+                      </span>
+                    </td>
+                    <td>{formatAdminDate(reservation.submittedAt)}</td>
+                    <td>{formatAdminDate(reservation.acceptedAt)}</td>
+                    <td>
                       <details>
-                        <summary className="cursor-pointer underline">Ver</summary>
+                        <summary className="admin-link cursor-pointer">Ver</summary>
                         <div className="mt-3 min-w-64 space-y-3">
                           <p>
                             <strong>Notas:</strong> {reservation.notes || "Sin notas"}
@@ -255,8 +240,8 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         )}
       </section>
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Auditoría de la experiencia</h2>
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Auditoría de la experiencia</h2>
         <AuditLogTable items={audit.value.items} />
       </section>
     </main>

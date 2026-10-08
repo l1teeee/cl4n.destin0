@@ -34,31 +34,31 @@ const actionLabels: Record<AuditLogItem["action"], string> = {
 
 export function AuditLogTable({ items }: { items: AuditLogItem[] }) {
   if (items.length === 0) {
-    return <p className="text-zinc-400">No hay actividad registrada.</p>;
+    return <p className="admin-empty">No hay actividad registrada.</p>;
   }
 
   return (
-    <div className="overflow-x-auto rounded border border-zinc-800">
-      <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="bg-zinc-900 text-zinc-300">
+    <div className="admin-table-scroll">
+      <table className="admin-table min-w-[760px]">
+        <thead>
           <tr>
-            <th className="p-3">Fecha</th>
-            <th className="p-3">Actor</th>
-            <th className="p-3">Acción</th>
-            <th className="p-3">Entidad</th>
-            <th className="p-3">Identificador</th>
-            <th className="p-3">Metadatos</th>
+            <th>Fecha</th>
+            <th>Actor</th>
+            <th>Acción</th>
+            <th>Entidad</th>
+            <th>Identificador</th>
+            <th>Metadatos</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item) => (
-            <tr key={item.id.toString()} className="border-t border-zinc-800 align-top">
-              <td className="p-3">{formatAdminDate(item.occurredAt)}</td>
-              <td className="p-3">{actorLabels[item.actorType]}</td>
-              <td className="p-3">{actionLabels[item.action]}</td>
-              <td className="p-3">{entityLabels[item.entityType]}</td>
-              <td className="p-3 font-mono text-xs">{item.entityId}</td>
-              <td className="max-w-sm p-3 font-mono text-xs">{JSON.stringify(item.metadata)}</td>
+            <tr key={item.id.toString()} className="align-top">
+              <td>{formatAdminDate(item.occurredAt)}</td>
+              <td>{actorLabels[item.actorType]}</td>
+              <td>{actionLabels[item.action]}</td>
+              <td>{entityLabels[item.entityType]}</td>
+              <td className="font-mono text-xs">{item.entityId}</td>
+              <td className="max-w-sm font-mono text-xs">{JSON.stringify(item.metadata)}</td>
             </tr>
           ))}
         </tbody>

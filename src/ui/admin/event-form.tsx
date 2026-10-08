@@ -26,14 +26,14 @@ interface EventFormProps {
   slugEditable?: boolean;
 }
 
-const inputClass = "rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100";
+const inputClass = "admin-input";
 
 export function EventForm({ action, values, mode, slugEditable = true }: EventFormProps) {
   const [state, formAction, pending] = useActionState(action, initialState);
 
   return (
     <form action={formAction} className="grid max-w-3xl gap-5 md:grid-cols-2">
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Nombre interno</span>
         <input
           className={inputClass}
@@ -43,7 +43,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           required
         />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Slug</span>
         <input
           className={inputClass}
@@ -55,7 +55,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           required
         />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Fecha del evento</span>
         <input
           className={inputClass}
@@ -65,7 +65,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           required
         />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Hora del evento</span>
         <input
           className={inputClass}
@@ -76,7 +76,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
         />
       </label>
       {mode === "create" ? (
-        <label className="grid gap-1">
+        <label className="admin-label grid gap-2">
           <span>Capacidad total</span>
           <input
             className={inputClass}
@@ -88,7 +88,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           />
         </label>
       ) : null}
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Tamaño máximo del grupo</span>
         <input
           className={inputClass}
@@ -99,7 +99,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           required
         />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Apertura</span>
         <input
           className={inputClass}
@@ -109,7 +109,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           required
         />
       </label>
-      <label className="grid gap-1">
+      <label className="admin-label grid gap-2">
         <span>Cierre</span>
         <input
           className={inputClass}
@@ -120,7 +120,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
         />
       </label>
       {mode === "create" ? (
-        <label className="grid gap-1">
+        <label className="admin-label grid gap-2">
           <span>Estado inicial</span>
           <select className={inputClass} name="status" defaultValue={values?.status ?? "DRAFT"}>
             <option value="DRAFT">Borrador</option>
@@ -128,20 +128,21 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           </select>
         </label>
       ) : null}
-      <label className="flex items-center gap-2 md:col-span-2">
-        <input name="autoCloseOnFull" type="checkbox" defaultChecked={values?.autoCloseOnFull} />
+      <label className="admin-label flex items-center gap-2 md:col-span-2">
+        <input
+          className="admin-checkbox"
+          name="autoCloseOnFull"
+          type="checkbox"
+          defaultChecked={values?.autoCloseOnFull}
+        />
         Cerrar automáticamente al alcanzar la capacidad
       </label>
       <div className="space-y-2 md:col-span-2">
-        <button
-          className="rounded bg-zinc-100 px-4 py-2 font-medium text-zinc-950 disabled:opacity-50"
-          type="submit"
-          disabled={pending}
-        >
+        <button className="admin-button" type="submit" disabled={pending}>
           {pending ? "Guardando..." : mode === "create" ? "Crear experiencia" : "Guardar cambios"}
         </button>
         {state.message ? (
-          <p className={state.ok ? "text-emerald-400" : "text-red-400"} role="status">
+          <p className={state.ok ? "admin-notice-success" : "admin-notice-error"} role="status">
             {state.message}
           </p>
         ) : null}

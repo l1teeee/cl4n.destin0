@@ -5,6 +5,7 @@ import { requireSuperAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 import {
   adminRoleLabel,
+  adminStatusBadgeClass,
   adminStatusLabel,
   formatAdminDate,
   formatCount,
@@ -20,23 +21,21 @@ export default async function AdminUsersPage({
   const users = await listAdminUsers(postgresAdminUserRepository);
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-8">
+    <main className="admin-page space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold">Usuarios</h1>
-          <p className="mt-1 text-zinc-400">Administradores con acceso al panel.</p>
+          <p className="admin-eyebrow">Administración</p>
+          <h1 className="admin-title">Usuarios</h1>
+          <p className="admin-description">Administradores con acceso al panel.</p>
         </div>
-        <Link
-          className="rounded bg-zinc-100 px-4 py-2 font-medium text-zinc-950"
-          href="/admin/users/new"
-        >
+        <Link className="admin-button" href="/admin/users/new">
           Nuevo administrador
         </Link>
       </div>
-      {deleted ? <p className="text-sm text-zinc-400">Administrador eliminado.</p> : null}
-      <div className="overflow-x-auto rounded border border-zinc-800">
-        <table className="w-full min-w-[900px] text-left text-sm">
-          <thead className="bg-zinc-900 text-xs uppercase tracking-wide text-zinc-400">
+      {deleted ? <p className="admin-notice-success">Administrador eliminado.</p> : null}
+      <div className="admin-table-scroll">
+        <table className="admin-table min-w-[900px]">
+          <thead>
             <tr>
               {[
                 "Nombre",
@@ -47,30 +46,30 @@ export default async function AdminUsersPage({
                 "Sesiones activas",
                 "Acciones",
               ].map((heading) => (
-                <th className="p-3" key={heading}>
-                  {heading}
-                </th>
+                <th key={heading}>{heading}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {users.map((user) => (
-              <tr key={user.id} className="border-t border-zinc-800">
-                <td className="p-3 font-medium">
+              <tr key={user.id}>
+                <td className="font-medium">
                   {user.displayName}
                   {user.id === authorization.session.admin.id ? (
-                    <span className="ml-2 text-xs text-zinc-400">(tú)</span>
+                    <span className="admin-muted ml-2 text-xs">(tú)</span>
                   ) : null}
                 </td>
-                <td className="p-3">{user.email}</td>
-                <td className="p-3">{adminRoleLabel(user.role)}</td>
-                <td className={user.isActive ? "p-3" : "p-3 text-zinc-500"}>
-                  {adminStatusLabel(user.isActive)}
+                <td>{user.email}</td>
+                <td>{adminRoleLabel(user.role)}</td>
+                <td>
+                  <span className={adminStatusBadgeClass(user.isActive ? "ACTIVE" : "INACTIVE")}>
+                    {adminStatusLabel(user.isActive)}
+                  </span>
                 </td>
-                <td className="p-3">{formatAdminDate(user.lastSignInAt)}</td>
-                <td className="p-3">{formatCount(user.activeSessionCount)}</td>
-                <td className="p-3">
-                  <Link className="underline" href={`/admin/users/${user.id}`}>
+                <td>{formatAdminDate(user.lastSignInAt)}</td>
+                <td>{formatCount(user.activeSessionCount)}</td>
+                <td>
+                  <Link className="admin-link" href={`/admin/users/${user.id}`}>
                     Ver
                   </Link>
                 </td>

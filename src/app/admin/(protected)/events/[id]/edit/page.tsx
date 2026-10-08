@@ -16,13 +16,14 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
   if (!event) notFound();
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-8">
-      <Link className="text-sm underline" href={`/admin/events/${id}`}>
+    <main className="admin-page space-y-8">
+      <Link className="admin-link admin-muted" href={`/admin/events/${id}`}>
         Volver al detalle
       </Link>
       <div>
-        <h1 className="text-3xl font-semibold">Editar experiencia</h1>
-        <p className="mt-1 text-zinc-400">
+        <p className="admin-eyebrow">Administración</p>
+        <h1 className="admin-title">Editar experiencia</h1>
+        <p className="admin-description">
           Todas las fechas y horas están en horario de El Salvador.
         </p>
       </div>

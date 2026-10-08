@@ -1,8 +1,10 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { canManageAdmins } from "@/domain/admin/admin-access";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { AdminNavItem } from "@/ui/admin/admin-nav";
 
 import { signOutAction } from "./actions";
 
@@ -10,32 +12,49 @@ export default async function ProtectedAdminLayout({ children }: { children: Rea
   const authorization = await requireAdmin("page");
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="border-b border-zinc-800 bg-zinc-900">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4">
-          <nav className="flex flex-wrap items-center gap-4" aria-label="Administración">
-            <Link className="font-semibold" href="/admin">
-              Clandestino Admin
+    <div className="admin-shell">
+      <header className="admin-header">
+        <div className="admin-header-inner">
+          <div className="admin-header-main">
+            <Link className="admin-link" href="/admin" aria-label="Clandestino Admin">
+              <Image
+                className="admin-wordmark admin-wordmark-small"
+                src="/clandestino-wordmark.png"
+                alt="Clandestino"
+                width={800}
+                height={800}
+                priority
+              />
             </Link>
-            <Link className="text-sm text-zinc-300 hover:text-white" href="/admin">
-              Experiencias
-            </Link>
-            <Link className="text-sm text-zinc-300 hover:text-white" href="/admin/audit">
-              Auditoría
-            </Link>
-            {canManageAdmins(authorization.session.admin.role) ? (
-              <Link className="text-sm text-zinc-300 hover:text-white" href="/admin/users">
-                Usuarios
-              </Link>
-            ) : null}
-            <Link className="text-sm text-zinc-300 hover:text-white" href="/admin/account">
-              Mi cuenta
-            </Link>
-          </nav>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-zinc-400">{authorization.session.admin.displayName}</span>
+            <nav className="admin-nav" aria-label="Administración">
+              <AdminNavItem href="/admin">
+                <Link className="admin-link admin-nav-link" href="/admin">
+                  Experiencias
+                </Link>
+              </AdminNavItem>
+              <AdminNavItem href="/admin/audit">
+                <Link className="admin-link admin-nav-link" href="/admin/audit">
+                  Auditoría
+                </Link>
+              </AdminNavItem>
+              {canManageAdmins(authorization.session.admin.role) ? (
+                <AdminNavItem href="/admin/users">
+                  <Link className="admin-link admin-nav-link" href="/admin/users">
+                    Usuarios
+                  </Link>
+                </AdminNavItem>
+              ) : null}
+              <AdminNavItem href="/admin/account">
+                <Link className="admin-link admin-nav-link" href="/admin/account">
+                  Mi cuenta
+                </Link>
+              </AdminNavItem>
+            </nav>
+          </div>
+          <div className="admin-header-account">
+            <span className="admin-muted">{authorization.session.admin.displayName}</span>
             <form action={signOutAction}>
-              <button className="rounded border border-zinc-700 px-3 py-2 text-sm" type="submit">
+              <button className="admin-link" type="submit">
                 Cerrar sesión
               </button>
             </form>

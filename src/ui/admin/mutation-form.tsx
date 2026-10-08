@@ -29,11 +29,7 @@ function FormContent({
       <button
         type="submit"
         disabled={pending}
-        className={
-          danger
-            ? "rounded border border-red-500 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
-            : "rounded border border-zinc-600 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50"
-        }
+        className={danger ? "admin-button-danger" : "admin-button-ghost"}
       >
         {pending ? "Procesando..." : label}
       </button>
@@ -60,16 +56,16 @@ export function MutationForm({
   return (
     <div className="space-y-2">
       {confirmation ? (
-        <details className="rounded border border-zinc-700 p-2">
-          <summary className="cursor-pointer text-sm">{label}</summary>
-          <p className="my-2 max-w-md text-sm text-zinc-300">{confirmation}</p>
+        <details className="admin-confirmation">
+          <summary className="admin-link">{label}</summary>
+          <p className="admin-secondary my-3 max-w-md text-sm">{confirmation}</p>
           {form}
         </details>
       ) : (
         form
       )}
       {state.message ? (
-        <p className={state.ok ? "text-sm text-emerald-400" : "text-sm text-red-400"} role="status">
+        <p className={state.ok ? "admin-notice-success" : "admin-notice-error"} role="status">
           {state.message}
         </p>
       ) : null}
