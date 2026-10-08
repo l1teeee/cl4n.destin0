@@ -67,17 +67,6 @@ textarea {
   color: var(--clan-foreground);
 }
 
-.public-home::before,
-.reservation-page::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background: radial-gradient(ellipse at 50% 35%, #fffbf409, transparent 65%);
-  pointer-events: none;
-  content: "";
-  animation: public-fade 4.2s ease-out both;
-}
-
 .public-header {
   display: flex;
   align-items: center;
