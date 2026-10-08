@@ -4,19 +4,22 @@ import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 export type HomeViewModel =
   | {
       state: "OPEN";
-      events: Array<{ slug: string; formattedDate: string }>;
+      events: Array<{ slug: string; formattedDate: string; waitlistOnly?: true }>;
     }
   | { state: "FULL" }
   | { state: "CLOSED" };
 
 export function buildHomeViewModel(readModel: readonly PublicEvent[]): HomeViewModel {
-  const openEvents = readModel.filter((event) => event.phase === "OPEN");
-  if (openEvents.length > 0) {
+  const reservableEvents = readModel.filter(
+    (event) => event.phase === "OPEN" || event.phase === "WAITLIST",
+  );
+  if (reservableEvents.length > 0) {
     return {
       state: "OPEN",
-      events: openEvents.map((event) => ({
+      events: reservableEvents.map((event) => ({
         slug: event.slug,
         formattedDate: formatPublicEventDate(event.startsAt),
+        ...(event.phase === "WAITLIST" ? { waitlistOnly: true as const } : {}),
       })),
     };
   }

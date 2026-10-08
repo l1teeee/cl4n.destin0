@@ -66,6 +66,9 @@ function outcomeCode(body: Record<string, unknown>): string {
   if (body.status === "CONFIRMED") {
     return "CONFIRMED";
   }
+  if (body.status === "WAITLISTED") {
+    return "WAITLISTED";
+  }
 
   const error = body.error;
   if (typeof error === "object" && error !== null && "code" in error) {

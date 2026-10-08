@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AdminEventSummary } from "@/application/events/types";
 import {
   dashboardActions,
+  eventPhaseLabel,
   formatAdminDate,
   formatCount,
   formatReservationNumber,
@@ -26,6 +27,8 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
     opensAt: new Date("2026-10-10T12:00:00Z"),
     closesAt: new Date("2026-10-20T12:00:00Z"),
     autoCloseOnFull: false,
+    waitlistCapacity: 0,
+    waitlistedCount: 0,
     status: "DRAFT",
     phase: "DRAFT",
     availableSeats: 20,
@@ -33,6 +36,21 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
     ...overrides,
   };
 }
+
+describe("event phase labels", () => {
+  it("labels the waitlist-only phase in Spanish and keeps other phases", () => {
+    expect(eventPhaseLabel("WAITLIST")).toBe("Solo cola");
+    expect(eventPhaseLabel("OPEN")).toBe("OPEN");
+  });
+
+  it("treats a waitlist-only event like an open one for dashboard actions", () => {
+    expect(dashboardActions(event({ status: "SCHEDULED", phase: "WAITLIST" }), now)).toEqual([
+      "CLOSE_NOW",
+      "EDIT",
+      "RESERVATIONS",
+    ]);
+  });
+});
 
 describe("admin dashboard actions", () => {
   it("shows only phase-valid dashboard actions", () => {

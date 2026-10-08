@@ -56,6 +56,7 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
   CLOSES_AT_IN_PAST: "No se puede abrir una experiencia cuya fecha de cierre ya pasó.",
   CAPACITY_BELOW_ALLOCATED: "La capacidad no puede ser menor que los cupos reservados.",
   CAPACITY_BELOW_MAX_PARTY_SIZE: "La capacidad no puede ser menor que el tamaño máximo del grupo.",
+  WAITLIST_CAPACITY_BELOW_WAITING: "No puedes dejar menos lugares en cola que personas esperando.",
 };
 
 function unauthorized(): AdminActionState {
@@ -102,6 +103,7 @@ export async function createEventAction(
     capacity: Number(formData.get("capacity")),
     maxPartySize: Number(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
+    waitlistCapacity: Number(formData.get("waitlistCapacity")),
     status: formData.get("status"),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
@@ -147,6 +149,7 @@ export async function updateEventAction(
     closesAt: formData.get("closesAt"),
     maxPartySize: Number(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
+    waitlistCapacity: Number(formData.get("waitlistCapacity")),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
 

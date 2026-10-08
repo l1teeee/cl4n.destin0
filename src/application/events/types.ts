@@ -9,7 +9,8 @@ export type EventOperationErrorCode =
   | "INVALID_TRANSITION"
   | "CLOSES_AT_IN_PAST"
   | "CAPACITY_BELOW_ALLOCATED"
-  | "CAPACITY_BELOW_MAX_PARTY_SIZE";
+  | "CAPACITY_BELOW_MAX_PARTY_SIZE"
+  | "WAITLIST_CAPACITY_BELOW_WAITING";
 
 export type EventOperationResult<T> =
   { ok: true; value: T } | { ok: false; error: EventOperationErrorCode };
@@ -25,6 +26,8 @@ export interface EventRecord {
   opensAt: Date;
   closesAt: Date;
   autoCloseOnFull: boolean;
+  waitlistCapacity: number;
+  waitlistedCount: number;
   status: EventLifecycleStatus;
 }
 
@@ -37,6 +40,7 @@ export interface CreateEventCommand {
   capacity: number;
   maxPartySize: number;
   autoCloseOnFull: boolean;
+  waitlistCapacity: number;
   status: "DRAFT" | "SCHEDULED";
 }
 
@@ -49,6 +53,7 @@ export interface UpdateEventCommand {
   opensAt: Date;
   closesAt: Date;
   autoCloseOnFull: boolean;
+  waitlistCapacity: number;
 }
 
 export interface AdminEventSummary extends EventRecord {

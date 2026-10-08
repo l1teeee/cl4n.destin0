@@ -13,6 +13,7 @@ import { MutationForm } from "@/ui/admin/mutation-form";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import {
   adminStatusBadgeClass,
+  eventPhaseLabel,
   formatAdminDate,
   formatReservationNumber,
   lifecycleActions,
@@ -65,7 +66,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           <p className="admin-eyebrow mt-6">Experiencia</p>
           <h1 className="admin-title">{event.internalName}</h1>
           <p className="admin-description">
-            {formatAdminDate(event.startsAt)} - {event.phase}
+            {formatAdminDate(event.startsAt)} - {eventPhaseLabel(event.phase)}
           </p>
         </div>
         <Link className="admin-button-ghost" href={`/admin/events/${id}/edit`}>
@@ -75,10 +76,11 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
 
       <StatGrid
         items={[
-          { label: "Estado", value: event.phase },
+          { label: "Estado", value: eventPhaseLabel(event.phase) },
           { label: "Capacidad", value: event.capacity },
           { label: "Reservados", value: event.reservedSeats },
           { label: "Disponibles", value: event.availableSeats },
+          { label: "En cola", value: `${event.waitlistedCount} / ${event.waitlistCapacity}` },
           { label: "Reservaciones", value: event.confirmedReservationCount },
           { label: "Abre", value: formatAdminDate(event.opensAt) },
           { label: "Cierra", value: formatAdminDate(event.closesAt) },

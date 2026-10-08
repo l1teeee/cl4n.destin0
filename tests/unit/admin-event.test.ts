@@ -17,6 +17,7 @@ const validCreate = {
   capacity: 20,
   maxPartySize: 2,
   autoCloseOnFull: false,
+  waitlistCapacity: 5,
   status: "DRAFT",
 } as const;
 
@@ -32,6 +33,7 @@ describe("admin event contracts", () => {
       closesAt: validCreate.closesAt,
       maxPartySize: validCreate.maxPartySize,
       autoCloseOnFull: validCreate.autoCloseOnFull,
+      waitlistCapacity: validCreate.waitlistCapacity,
     };
     expect(updateAdminEventSchema.parse(update)).toEqual(update);
   });
@@ -43,6 +45,40 @@ describe("admin event contracts", () => {
     expect(
       createAdminEventSchema.safeParse({ ...validCreate, capacity: 1, maxPartySize: 2 }).success,
     ).toBe(false);
+  });
+});
+
+describe("waitlist capacity contract", () => {
+  it.each([0, 5, 50])("accepts %i queue places", (waitlistCapacity) => {
+    expect(createAdminEventSchema.safeParse({ ...validCreate, waitlistCapacity }).success).toBe(
+      true,
+    );
+  });
+
+  it.each([-1, 51, 2.5, Number.NaN])("rejects %s queue places", (waitlistCapacity) => {
+    expect(createAdminEventSchema.safeParse({ ...validCreate, waitlistCapacity }).success).toBe(
+      false,
+    );
+  });
+
+  it("requires the queue size on update", () => {
+    const { waitlistCapacity, ...withoutQueue } = validCreate;
+    void waitlistCapacity;
+    const update = {
+      internalName: withoutQueue.internalName,
+      slug: withoutQueue.slug,
+      eventDate: withoutQueue.eventDate,
+      eventTime: withoutQueue.eventTime,
+      opensAt: withoutQueue.opensAt,
+      closesAt: withoutQueue.closesAt,
+      maxPartySize: withoutQueue.maxPartySize,
+      autoCloseOnFull: withoutQueue.autoCloseOnFull,
+    };
+
+    expect(updateAdminEventSchema.safeParse(update).success).toBe(false);
+    expect(updateAdminEventSchema.safeParse({ ...update, waitlistCapacity: 51 }).success).toBe(
+      false,
+    );
   });
 });
 

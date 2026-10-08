@@ -301,7 +301,8 @@
   text-transform: uppercase;
 }
 
-.admin-badge-open {
+.admin-badge-open,
+.admin-badge-waitlist {
   color: var(--clan-foreground);
 }
 

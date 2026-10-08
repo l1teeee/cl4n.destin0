@@ -46,4 +46,17 @@ describe("buildHomeViewModel", () => {
   it("shows closed when the read model has neither open nor full events", () => {
     expect(buildHomeViewModel([event("proxima", "SCHEDULED")])).toEqual({ state: "CLOSED" });
   });
+
+  it("keeps a waitlist-only event reservable and flags it", () => {
+    expect(buildHomeViewModel([event("cola", "WAITLIST")])).toEqual({
+      state: "OPEN",
+      events: [
+        {
+          slug: "cola",
+          formattedDate: "Sábado 21 de noviembre, 7:30 p. m.",
+          waitlistOnly: true,
+        },
+      ],
+    });
+  });
 });
