@@ -40,9 +40,83 @@ vi.mock("next/link", () => ({
   default: ({ children, href }: React.ComponentProps<"a">) => <a href={href}>{children}</a>,
 }));
 
+function fillValidFields(partySize = "2") {
+  fireEvent.change(screen.getByLabelText("Nombre completo"), {
+    target: { value: "Ana Martinez" },
+  });
+  fireEvent.change(screen.getByLabelText("Usuario de Instagram"), {
+    target: { value: "ana.martinez" },
+  });
+  fireEvent.change(screen.getByLabelText(/Tel.fono/), {
+    target: { value: "+503 7000 0000" },
+  });
+  fireEvent.change(screen.getByLabelText("Email"), {
+    target: { value: "ana@example.com" },
+  });
+  fireEvent.change(screen.getByLabelText("Cantidad de personas"), {
+    target: { value: partySize },
+  });
+  fireEvent.click(screen.getByRole("radio", { name: "No" }));
+  fireEvent.click(screen.getByRole("checkbox"));
+}
+
+function successResponse() {
+  return new Response(
+    JSON.stringify({
+      status: "CONFIRMED",
+      reservation: {
+        number: 7,
+        partySize: 2,
+        eventStartsAt: "2026-10-10T01:00:00.000Z",
+      },
+    }),
+    {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
 describe("ReservationForm", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "test-site-key");
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private readonly callback: ResizeObserverCallback;
+
+        constructor(callback: ResizeObserverCallback) {
+          this.callback = callback;
+        }
+
+        observe(target: Element) {
+          this.callback(
+            [
+              {
+                target,
+                contentRect: { width: 280 } as DOMRectReadOnly,
+              } as ResizeObserverEntry,
+            ],
+            this as unknown as ResizeObserver,
+          );
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     turnstileMethods.reset.mockReset();
     turnstileMethods.getResponsePromise.mockReset();
   });
@@ -55,7 +129,7 @@ describe("ReservationForm", () => {
     sessionStorage.clear();
   });
 
-  it("mounts without an update loop and enables submission after Turnstile succeeds", async () => {
+  it("stays disabled until the form and verification are ready", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     expect(() =>
@@ -63,9 +137,19 @@ describe("ReservationForm", () => {
     ).not.toThrow();
 
     expect(await screen.findByTestId("turnstile")).toBeDefined();
+    const disabledSlider = screen.getByRole("slider", { name: "COMPLETA EL FORMULARIO" });
+    expect(disabledSlider.getAttribute("aria-disabled")).toBe("true");
+    expect(disabledSlider.getAttribute("aria-describedby")).toBe("reservation-slide-hint");
+    const slideCommit = disabledSlider.closest(".slide-commit");
+    expect(slideCommit).not.toBeNull();
+    await waitFor(() => expect(slideCommit?.hasAttribute("data-measured")).toBe(true));
+
+    fillValidFields();
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "SOLICITAR ACCESO" }).hasAttribute("disabled"),
+        screen
+          .getByRole("slider", { name: "DESLIZA PARA SOLICITAR ACCESO" })
+          .hasAttribute("aria-disabled"),
       ).toBe(false);
     });
 
@@ -73,55 +157,30 @@ describe("ReservationForm", () => {
     expect(errorOutput).not.toContain("Maximum update depth exceeded");
   });
 
-  it("submits valid fields with the Turnstile token and resets the widget", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: "CONFIRMED",
-          reservation: {
-            number: 7,
-            partySize: 2,
-            eventStartsAt: "2026-10-10T01:00:00.000Z",
-          },
+  it("sends one request per slide and shows confirmation after the done delay", async () => {
+    let resolveFetch: (response: Response) => void = () => {};
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
         }),
-        {
-          status: 201,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
 
     await screen.findByTestId("turnstile");
-    const submitButton = screen.getByRole("button", { name: "SOLICITAR ACCESO" });
+    fillValidFields();
+    const slider = await screen.findByRole("slider", {
+      name: "DESLIZA PARA SOLICITAR ACCESO",
+    });
     await waitFor(() => {
-      expect(submitButton.hasAttribute("disabled")).toBe(false);
+      expect(slider.hasAttribute("aria-disabled")).toBe(false);
     });
-    fireEvent.change(screen.getByLabelText("Nombre completo"), {
-      target: { value: "Ana Martinez" },
-    });
-    fireEvent.change(screen.getByLabelText("Usuario de Instagram"), {
-      target: { value: "ana.martinez" },
-    });
-    fireEvent.change(screen.getByLabelText(/Tel.fono/), {
-      target: { value: "+503 7000 0000" },
-    });
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "ana@example.com" },
-    });
-    fireEvent.change(screen.getByLabelText("Cantidad de personas"), {
-      target: { value: "2" },
-    });
-    fireEvent.click(screen.getByRole("radio", { name: "No" }));
-    fireEvent.click(screen.getByRole("checkbox"));
-    const form = submitButton.closest("form");
-    expect(form).not.toBeNull();
-    fireEvent.submit(form as HTMLFormElement);
 
-    expect(await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" })).toBeDefined();
-    expect(turnstileMethods.reset).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(slider, { key: "End" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fireEvent.keyDown(slider, { key: "End" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [, request] = fetchMock.mock.calls[0] ?? [];
@@ -136,6 +195,69 @@ describe("ReservationForm", () => {
       turnstileToken: "test-token",
     });
     expect(JSON.parse(String(request?.body))).not.toHaveProperty("allergies");
+
+    resolveFetch(successResponse());
+    await waitFor(() => expect(turnstileMethods.reset).toHaveBeenCalledTimes(1));
+    const slideCommit = slider.closest(".slide-commit");
+    expect(slideCommit).not.toBeNull();
+    await waitFor(() => expect(slideCommit?.getAttribute("data-phase")).toBe("done"));
+    expect(screen.queryByRole("heading", { name: "SOLICITUD CONFIRMADA" })).toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+    ).toBeDefined();
+  });
+
+  it("shows server field errors and returns the slider home after an error", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "VALIDATION_FAILED",
+            message: "Revisa los datos enviados.",
+            fields: { fullName: ["El nombre fue rechazado."] },
+          },
+        }),
+        {
+          status: 422,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    fillValidFields();
+    const slider = await screen.findByRole("slider", {
+      name: "DESLIZA PARA SOLICITAR ACCESO",
+    });
+    fireEvent.keyDown(slider, { key: "End" });
+
+    expect(await screen.findByText("Revisa los datos enviados.")).toBeDefined();
+    expect(await screen.findByText("El nombre fue rechazado.")).toBeDefined();
+    const slideCommit = slider.closest(".slide-commit");
+    expect(slideCommit).not.toBeNull();
+    await waitFor(() => expect(slideCommit?.getAttribute("data-phase")).toBe("error"));
+    await waitFor(() => expect(slideCommit?.getAttribute("data-phase")).toBe("idle"), {
+      timeout: 2500,
+    });
+  });
+
+  it("shows every field error and focuses the first invalid field when disabled", async () => {
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    const slider = screen.getByRole("slider", { name: "COMPLETA EL FORMULARIO" });
+    const wrapper = slider.closest(".reservation-slide");
+    expect(wrapper).not.toBeNull();
+    fireEvent.click(wrapper as HTMLElement);
+
+    expect(await screen.findByText("El nombre completo es obligatorio.")).toBeDefined();
+    expect(screen.getByText("El usuario de Instagram es obligatorio.")).toBeDefined();
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText("Nombre completo"));
+    });
   });
 
   it("shows, clears and removes the allergy description based on the radio selection", async () => {
