@@ -20,7 +20,7 @@ These are deliberate, reviewable product calls. Each one is cheap to change.
 3. **Upcoming events stay hidden.** A SCHEDULED event that has not opened yet shows the CERRADO screen. Its date is not revealed early.
 4. **Full events.** An event whose window is open but whose seats are gone (FULL) shows "EL CLAN ESTÁ CERRADO" plus the line "Los cupos para esta experiencia se agotaron." The copy is for the owner to review.
 5. **Hidden counts.** Remaining seat counts are not shown publicly. The page says "ACCESO LIMITADO" only.
-6. **Single admin role.** A handful of admins exist, created by CLI. There is no public signup, password reset email or OAuth.
+6. **Admin access.** A handful of admins exist, created by CLI. There is no public signup, password reset email, magic link or OAuth. Transactional emails exist as described in section 18.
 7. **Time zone.** Admins enter times in America/El_Salvador (UTC-6, no DST). Everything is stored in UTC.
 8. **Cancelled events.** Cancelling an event does not auto-cancel its reservations. The owner contacts guests directly.
 
@@ -441,7 +441,7 @@ Within one event, at most one CONFIRMED reservation per normalized email AND at 
 ## 10. Authentication strategy
 
 Admin auth uses **custom, minimal, server-side sessions**. Better Auth 1.7.7 was considered and rejected for this scope:
-- We need only email/password for a few CLI-created admins. There is no signup, OAuth, magic link or reset email.
+- We need only email/password for a few CLI-created admins. There is no signup, OAuth, magic link or password reset email. Transactional emails exist as described in section 18.
 - A large auth framework adds mounted endpoints and attack surface we would not use. Better Auth shipped several advisories in September 2026 alone.
 - Owning the schema keeps database correctness under our control.
 - The pattern is the standard opaque-token DB session, as in the OWASP Session Management guidance.
@@ -608,8 +608,19 @@ Parallel worktrees use distinct test database names on the same local server.
 | D9 | Sentry + JSON logs + health endpoint; Sentry inactive without DSN |
 | D10 | Migrations only as an explicit step, never during Vercel builds |
 
+## 18. Transactional email
+
+- **Provider:** Brevo HTTP API, not SMTP. Delivery is one HTTPS call from a serverless function, and the owner already has a Brevo account and verified sender.
+- **Never inside a DB transaction:** Email goes out only after the transaction that justifies it has committed.
+- **Reservation confirmation:** Best effort, scheduled after the response with Next `after()`. A failure is logged with no PII and is not retried. Known limitation: there is no outbox.
+- **Admin added:** Sent after the admin row is created. A failure is reported to the acting admin and does not roll back the creation.
+- **Deletion OTP:** Sent synchronously. If it fails, the code is invalidated and the admin sees the error.
+- **Templates:** Pure functions in `src/infrastructure/email/templates/`, with inline-styled HTML plus a plain-text part and no external resources.
+- **Environments:** `log` mode is local/test only.
+
 ## Changelog
 
+- 2026-10-07: section 18. Added Brevo HTTP transactional email delivery policy, delivery timing and failure behavior, template constraints, and environment restrictions.
 - 2026-10-04: initial version.
 - 2026-10-04: section 8. The client key is now per attempt series, created at form mount, instead of derived from the payload hash at submit. Turnstile `cData` must equal the key and is fixed at widget render, so the key has to exist before any payload does.
 - 2026-10-04: section 7 step e. Failure classification also treats a CLOSED event that is sold out (for example auto-closed on full) inside its window as `EVENT_FULL`, not `EVENT_NOT_OPEN`.

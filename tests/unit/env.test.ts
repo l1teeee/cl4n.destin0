@@ -9,6 +9,8 @@ const validEnvironment: Record<string, string | undefined> = {
   DATABASE_SSL_MODE: "disable",
   DATABASE_POOL_MAX: "10",
   APP_SECRET: "a-local-secret-that-is-at-least-32-characters",
+  EMAIL_MODE: "log",
+  APP_BASE_URL: "http://localhost:3000",
   BOT_PROTECTION_MODE: "turnstile",
   TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
@@ -23,6 +25,11 @@ const validProductionEnvironment: Record<string, string | undefined> = {
   DATABASE_SSL_MODE: "verify-ca",
   DATABASE_CA_CERT: "test-ca-certificate",
   APP_SECRET: "production-secret-with-at-least-32-characters",
+  EMAIL_MODE: "brevo",
+  BREVO_API_KEY: "production-brevo-api-key",
+  EMAIL_FROM_ADDRESS: "reservations@clandestino.example.com",
+  EMAIL_FROM_NAME: "Clandestino",
+  APP_BASE_URL: "https://clandestino.example.com",
   TURNSTILE_SECRET_KEY: "0x4AAAAAA-valid-production-secret",
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: "0x4AAAAAA-valid-production-site-key",
   TURNSTILE_ALLOWED_HOSTNAMES: "clandestino.example.com",
@@ -48,6 +55,7 @@ describe("parseServerEnv", () => {
 
     expect(parsed.APP_ENV).toBe("local");
     expect(parsed.DATABASE_POOL_MAX).toBe(10);
+    expect(parsed.EMAIL_FROM_NAME).toBe("Clandestino");
     expect(parsed.TURNSTILE_ALLOWED_HOSTNAMES).toEqual(["localhost", "127.0.0.1"]);
   });
 
@@ -67,8 +75,58 @@ describe("parseServerEnv", () => {
 
   it("lists missing required variables", () => {
     expect(() => parseServerEnv({ APP_ENV: "local" })).toThrow(
-      /DATABASE_URL[\s\S]*APP_SECRET[\s\S]*BOT_PROTECTION_MODE[\s\S]*TURNSTILE_ALLOWED_HOSTNAMES[\s\S]*RATE_LIMIT_MODE/,
+      /DATABASE_URL[\s\S]*APP_SECRET[\s\S]*EMAIL_MODE[\s\S]*APP_BASE_URL[\s\S]*BOT_PROTECTION_MODE[\s\S]*TURNSTILE_ALLOWED_HOSTNAMES[\s\S]*RATE_LIMIT_MODE/,
     );
+  });
+
+  it("rejects Brevo mode without an API key", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validEnvironment,
+        EMAIL_MODE: "brevo",
+        EMAIL_FROM_ADDRESS: "reservations@clandestino.example.com",
+      }),
+    ).toThrow(/BREVO_API_KEY[\s\S]*EMAIL_MODE/);
+  });
+
+  it("rejects Brevo mode without a sender address", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validEnvironment,
+        EMAIL_MODE: "brevo",
+        BREVO_API_KEY: "brevo-api-key",
+      }),
+    ).toThrow(/EMAIL_FROM_ADDRESS[\s\S]*EMAIL_MODE/);
+  });
+
+  it("rejects log email mode in production", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validProductionEnvironment,
+        EMAIL_MODE: "log",
+      }),
+    ).toThrow(/EMAIL_MODE[\s\S]*brevo/);
+  });
+
+  it.each(["http://clandestino.example.com", "https://localhost"])(
+    "rejects protected APP_BASE_URL %s",
+    (appBaseUrl) => {
+      expect(() =>
+        parseServerEnv({
+          ...validProductionEnvironment,
+          APP_BASE_URL: appBaseUrl,
+        }),
+      ).toThrow(/APP_BASE_URL/);
+    },
+  );
+
+  it("strips a trailing slash from APP_BASE_URL", () => {
+    expect(
+      parseServerEnv({
+        ...validEnvironment,
+        APP_BASE_URL: "http://localhost:3000/",
+      }).APP_BASE_URL,
+    ).toBe("http://localhost:3000");
   });
 
   it("accepts a protected environment with remote TLS and non-test credentials", () => {
