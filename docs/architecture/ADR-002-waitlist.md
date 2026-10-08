@@ -86,7 +86,7 @@ Promotion never skips the head of the queue for a smaller party. If the head nee
 
 A consequence is that a fresh public request with a party that fits the remaining seats is still allocated directly by the seat update. That only happens when seats remain but the head is larger than they are. Such a request is not queued behind the head.
 
-A related edge: the queue can fill while a seat is still free, for example 19 of 20 taken and parties of 2 queued. With `auto_close_on_full` the event then closes with one seat free, as it already could not auto-close at 19 of 20 before this change.
+A related edge: the queue can fill while a seat is still free, for example 19 of 20 taken and a party of 2 queued. The queue claim closes the event only when `reserved_seats = capacity` as well, so the event stays open and the free seat can still go to a smaller party. It then closes through the normal seat path once seats and queue are both full.
 
 ## 5. Lock ordering
 

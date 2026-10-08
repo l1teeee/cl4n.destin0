@@ -11,6 +11,7 @@ import {
 import { hashPassword } from "@/infrastructure/auth/password";
 import { hashPasswordResetToken } from "@/infrastructure/auth/password-reset-token";
 import { postgresPasswordResetRepository } from "@/infrastructure/auth/postgres-password-reset-repository";
+import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { getRateLimitSubject, getRawClientIp } from "@/infrastructure/http/client-ip";
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
@@ -49,5 +50,6 @@ export async function completePasswordResetAction(
     return { message: PASSWORD_RESET_INVALID_LINK_MESSAGE };
   }
 
+  scheduleEmailDelivery();
   redirect("/admin/login?restablecida=1");
 }

@@ -254,6 +254,26 @@ describe("waitlist admission", () => {
     expect(closedAudits.rows).toEqual([{ metadata: { reason: "CAPACITY_REACHED" } }]);
   });
 
+  it("keeps the event open when the queue fills while a seat is still free", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 3,
+      maxPartySize: 2,
+      waitlistCapacity: 1,
+      autoCloseOnFull: true,
+    });
+    const statusOf = async () =>
+      (await pool.query<{ status: string }>("SELECT status FROM events WHERE id = $1", [event.id]))
+        .rows[0]!.status;
+
+    expect((await submit(event.slug, 70)).status).toBe(201);
+    expect((await submit(event.slug, 71)).status).toBe(201);
+    expect((await submit(event.slug, 72, { partySize: 2 })).status).toBe(202);
+    expect(await statusOf()).toBe("SCHEDULED");
+
+    expect((await submit(event.slug, 73)).status).toBe(201);
+    expect(await statusOf()).toBe("CLOSED");
+  });
+
   it("auto-closes on the last seat when the queue is already exhausted by configuration", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 1,

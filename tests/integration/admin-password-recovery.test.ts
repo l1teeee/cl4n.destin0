@@ -143,7 +143,7 @@ async function attemptComplete(token: string, password: string = newPassword): P
 
 function realSignIn(email: string, password: string) {
   return signIn(
-    { email, password, clientIp: randomUUID() },
+    { email, password, clientIp: randomUUID(), rawClientIp: null },
     {
       repository: authRepository,
       consumeRateLimit: (input) => consumeWithPool(input, pool),

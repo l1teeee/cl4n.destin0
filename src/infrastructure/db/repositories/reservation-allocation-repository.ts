@@ -134,7 +134,9 @@ async function claimWaitlistPlace(
         SET waitlisted_count = waitlisted_count + 1,
             last_waitlist_number = last_waitlist_number + 1,
             status = CASE
-              WHEN auto_close_on_full AND waitlisted_count + 1 = waitlist_capacity
+              WHEN auto_close_on_full
+                   AND waitlisted_count + 1 = waitlist_capacity
+                   AND reserved_seats = capacity
               THEN 'CLOSED'::event_status
               ELSE status
             END,
