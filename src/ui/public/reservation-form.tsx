@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 
 import {
   getOrCreateAttemptKey,
@@ -36,8 +36,12 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function FieldError({ message }: { message?: string }) {
-  return message ? <p className="text-sm text-red-300">{message}</p> : null;
+function FieldError({ message, id }: { message?: string; id?: string }) {
+  return message ? (
+    <p id={id} className="text-sm text-red-300">
+      {message}
+    </p>
+  ) : null;
 }
 
 export function ReservationForm({
@@ -56,17 +60,26 @@ export function ReservationForm({
     handleSubmit,
     clearErrors,
     setError,
+    unregister,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<ReservationFormInput, unknown, ReservationFormValues>({
     resolver: zodResolver(reservationFormSchema),
     defaultValues: { partySize: 1 },
   });
+  const hasAllergies = useWatch({ control, name: "hasAllergies" });
 
   useEffect(() => {
     const key = getOrCreateAttemptKey(sessionStorage, eventSlug, () => crypto.randomUUID());
     const timeout = window.setTimeout(() => setIdempotencyKey(key), 0);
     return () => window.clearTimeout(timeout);
   }, [eventSlug]);
+
+  useEffect(() => {
+    if (hasAllergies === false) {
+      unregister("allergies");
+    }
+  }, [hasAllergies, unregister]);
 
   function rotateKey() {
     const nextKey = rotateAttemptKey(sessionStorage, eventSlug, () => crypto.randomUUID());
@@ -93,6 +106,7 @@ export function ReservationForm({
     token: string,
     alreadyRetried: boolean,
   ): Promise<void> {
+    const { allergies, ...requestFields } = fields;
     let response: Response;
     try {
       response = await fetch("/api/reservations", {
@@ -101,7 +115,12 @@ export function ReservationForm({
           "Content-Type": "application/json",
           "Idempotency-Key": key,
         },
-        body: JSON.stringify({ ...fields, eventSlug, turnstileToken: token }),
+        body: JSON.stringify({
+          ...requestFields,
+          ...(fields.hasAllergies ? { allergies } : {}),
+          eventSlug,
+          turnstileToken: token,
+        }),
       });
     } catch {
       turnstileRef.current?.reset();
@@ -264,6 +283,68 @@ export function ReservationForm({
         </select>
         <FieldError message={errors.partySize?.message} />
       </div>
+
+      <fieldset
+        className="reservation-allergies"
+        role="radiogroup"
+        aria-invalid={Boolean(errors.hasAllergies)}
+        aria-describedby={errors.hasAllergies ? "hasAllergies-error" : undefined}
+      >
+        <legend>¿Tienes alergias?</legend>
+        <Controller
+          control={control}
+          name="hasAllergies"
+          render={({ field }) => (
+            <div className="reservation-allergy-options">
+              <label className="reservation-terms">
+                <input
+                  ref={field.ref}
+                  name={field.name}
+                  type="radio"
+                  checked={field.value === false}
+                  required
+                  onBlur={field.onBlur}
+                  onChange={() => field.onChange(false)}
+                />
+                <span>No</span>
+              </label>
+              <label className="reservation-terms">
+                <input
+                  name={field.name}
+                  type="radio"
+                  checked={field.value === true}
+                  required
+                  onBlur={field.onBlur}
+                  onChange={() => field.onChange(true)}
+                />
+                <span>Sí</span>
+              </label>
+            </div>
+          )}
+        />
+        <FieldError id="hasAllergies-error" message={errors.hasAllergies?.message} />
+      </fieldset>
+
+      {hasAllergies ? (
+        <div>
+          <label htmlFor="allergies">¿A qué?</label>
+          <textarea
+            id="allergies"
+            rows={3}
+            maxLength={300}
+            className={inputClassName}
+            aria-invalid={Boolean(errors.allergies)}
+            aria-describedby={
+              errors.allergies ? "allergies-help allergies-error" : "allergies-help"
+            }
+            {...register("allergies")}
+          />
+          <p id="allergies-help" className="reservation-help">
+            Incluye las de tu grupo si vienes acompañado.
+          </p>
+          <FieldError id="allergies-error" message={errors.allergies?.message} />
+        </div>
+      ) : null}
 
       <div>
         <label htmlFor="notes">Observaciones (opcional)</label>

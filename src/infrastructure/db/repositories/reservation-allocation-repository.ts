@@ -175,13 +175,13 @@ async function insertWaitlistEntry(
   const result = await client.query<{ id: string }>(
     `INSERT INTO waitlist_entries (
        event_id, waitlist_number, status, full_name, instagram_handle,
-       phone_e164, email, email_normalized, party_size, notes,
+       phone_e164, email, email_normalized, party_size, notes, allergies,
        terms_accepted_at, idempotency_key, submitted_at
      )
      VALUES (
        $1, $2, 'WAITING', $3, $4,
-       $5, $6, $7, $8, $9,
-       transaction_timestamp(), $10, transaction_timestamp()
+       $5, $6, $7, $8, $9, $10,
+       transaction_timestamp(), $11, transaction_timestamp()
      )
      RETURNING id`,
     [
@@ -194,6 +194,7 @@ async function insertWaitlistEntry(
       command.emailNormalized,
       command.partySize,
       command.notes ?? null,
+      command.allergies,
       command.idempotencyKey,
     ],
   );
@@ -434,13 +435,13 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         const rejected = await client.query<{ id: string }>(
           `INSERT INTO reservations (
              event_id, status, full_name, instagram_handle, phone_e164,
-             email, email_normalized, party_size, notes, terms_accepted_at,
+             email, email_normalized, party_size, notes, allergies, terms_accepted_at,
              idempotency_key, submitted_at
            )
            VALUES (
              $1, 'FULL_REJECTED', $2, $3, $4,
-             $5, $6, $7, $8, transaction_timestamp(),
-             $9, transaction_timestamp()
+             $5, $6, $7, $8, $9, transaction_timestamp(),
+             $10, transaction_timestamp()
            )
            RETURNING id`,
           [
@@ -452,6 +453,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             command.emailNormalized,
             command.partySize,
             command.notes ?? null,
+            command.allergies,
             command.idempotencyKey,
           ],
         );
@@ -467,13 +469,13 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       const reservation = await client.query<{ id: string }>(
         `INSERT INTO reservations (
            event_id, reservation_number, status, full_name, instagram_handle,
-           phone_e164, email, email_normalized, party_size, notes,
+           phone_e164, email, email_normalized, party_size, notes, allergies,
            terms_accepted_at, idempotency_key, submitted_at, accepted_at
          )
          VALUES (
            $1, $2, 'CONFIRMED', $3, $4,
-           $5, $6, $7, $8, $9,
-           transaction_timestamp(), $10, transaction_timestamp(), $11
+           $5, $6, $7, $8, $9, $10,
+           transaction_timestamp(), $11, transaction_timestamp(), $12
          )
          RETURNING id`,
         [
@@ -486,6 +488,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           command.emailNormalized,
           command.partySize,
           command.notes ?? null,
+          command.allergies,
           command.idempotencyKey,
           allocation.accepted_at,
         ],

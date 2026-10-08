@@ -6,7 +6,7 @@ const controlCharacters = /[\u0000-\u001f\u007f]/;
 const noteControlCharacters = /[\u0000-\u0008\u000b-\u001f\u007f]/;
 const controlCharacterMessage = "No se permiten caracteres de control.";
 
-export const reservationRequestSchema = z
+export const reservationRequestBaseSchema = z
   .object({
     eventSlug: z
       .string({ error: "El evento es obligatorio." })
@@ -45,6 +45,13 @@ export const reservationRequestSchema = z
       .int("La cantidad de personas debe ser un número entero.")
       .min(1, "La cantidad de personas debe ser al menos 1.")
       .max(20, "La cantidad de personas no puede superar 20."),
+    hasAllergies: z.boolean({ error: "Indica si tienes alergias." }),
+    allergies: z
+      .string({ error: "La descripción de alergias debe ser texto." })
+      .refine((value) => !noteControlCharacters.test(value), controlCharacterMessage)
+      .trim()
+      .max(300, "La descripción de alergias no puede superar 300 caracteres.")
+      .optional(),
     notes: z
       .string({ error: "Las observaciones deben ser texto." })
       .refine((value) => !noteControlCharacters.test(value), controlCharacterMessage)
@@ -59,6 +66,21 @@ export const reservationRequestSchema = z
       .max(2048, "La verificación de seguridad no es válida."),
   })
   .strict();
+
+export function validateAllergies(
+  input: { hasAllergies: boolean; allergies?: string },
+  context: z.RefinementCtx,
+): void {
+  if (input.hasAllergies && !input.allergies) {
+    context.addIssue({
+      code: "custom",
+      message: "Cuéntanos a qué eres alérgico.",
+      path: ["allergies"],
+    });
+  }
+}
+
+export const reservationRequestSchema = reservationRequestBaseSchema.superRefine(validateAllergies);
 
 export type ReservationRequestInput = z.input<typeof reservationRequestSchema>;
 export type ReservationRequest = z.output<typeof reservationRequestSchema>;

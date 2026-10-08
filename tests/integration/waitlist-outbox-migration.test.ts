@@ -24,12 +24,16 @@ async function withMaintenanceClient(work: (client: Client) => Promise<void>): P
 function migrationsWithout(tag: string): string {
   const directory = mkdtempSync(path.join(os.tmpdir(), "cl4n-migrations-"));
   cpSync(path.resolve("drizzle"), directory, { recursive: true });
-  rmSync(path.join(directory, `${tag}.sql`));
   const journalPath = path.join(directory, "meta", "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
     entries: { tag: string }[];
   };
-  journal.entries = journal.entries.filter((entry) => entry.tag !== tag);
+  // Later migrations depend on the removed one, so they are dropped with it.
+  const removedFrom = journal.entries.findIndex((entry) => entry.tag === tag);
+  for (const entry of journal.entries.slice(removedFrom)) {
+    rmSync(path.join(directory, `${entry.tag}.sql`));
+  }
+  journal.entries = journal.entries.slice(0, removedFrom);
   writeFileSync(journalPath, JSON.stringify(journal));
   return directory;
 }

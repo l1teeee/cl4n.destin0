@@ -43,6 +43,7 @@ export interface AllocationCommand {
   emailNormalized: string;
   partySize: number;
   notes?: string;
+  allergies: string | null;
   mapOutcome(outcome: AllocationOutcome): ReservationResponse;
 }
 

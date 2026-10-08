@@ -10,6 +10,7 @@ interface WaitingEntryRow {
   email_normalized: string;
   party_size: number;
   notes: string | null;
+  allergies: string | null;
   terms_accepted_at: Date;
   idempotency_key: string;
   submitted_at: Date;
@@ -26,7 +27,7 @@ async function readWaitingHead(
 ): Promise<WaitingEntryRow | null> {
   const result = await client.query<WaitingEntryRow>(
     `SELECT id, waitlist_number, full_name, instagram_handle, phone_e164,
-            email, email_normalized, party_size, notes, terms_accepted_at,
+            email, email_normalized, party_size, notes, allergies, terms_accepted_at,
             idempotency_key, submitted_at
        FROM waitlist_entries
       WHERE event_id = $1
@@ -113,13 +114,13 @@ async function insertPromotedReservation(
   const result = await client.query<{ id: string }>(
     `INSERT INTO reservations (
        event_id, reservation_number, status, full_name, instagram_handle,
-       phone_e164, email, email_normalized, party_size, notes,
+       phone_e164, email, email_normalized, party_size, notes, allergies,
        terms_accepted_at, idempotency_key, submitted_at, accepted_at
      )
      VALUES (
        $1, $2, 'CONFIRMED', $3, $4,
-       $5, $6, $7, $8, $9,
-       $10, $11, $12, $13
+       $5, $6, $7, $8, $9, $10,
+       $11, $12, $13, $14
      )
      RETURNING id`,
     [
@@ -132,6 +133,7 @@ async function insertPromotedReservation(
       entry.email_normalized,
       entry.party_size,
       entry.notes,
+      entry.allergies,
       entry.terms_accepted_at,
       entry.idempotency_key,
       entry.submitted_at,

@@ -102,7 +102,7 @@ describe("waitlist admission", () => {
     const event = await fullEventWithQueue();
     const key = randomUUID();
 
-    const result = await submit(event.slug, 20, {}, key);
+    const result = await submit(event.slug, 20, { hasAllergies: true, allergies: "Lácteos" }, key);
 
     expect(result.status).toBe(202);
     expect(result.body).toEqual({
@@ -113,11 +113,20 @@ describe("waitlist admission", () => {
         eventStartsAt: expect.any(String),
       },
     });
-    const entry = await pool.query<{ id: string; status: string; waitlist_number: number }>(
-      "SELECT id, status, waitlist_number FROM waitlist_entries WHERE idempotency_key = $1",
+    const entry = await pool.query<{
+      id: string;
+      status: string;
+      waitlist_number: number;
+      allergies: string | null;
+    }>(
+      "SELECT id, status, waitlist_number, allergies FROM waitlist_entries WHERE idempotency_key = $1",
       [key],
     );
-    expect(entry.rows[0]).toMatchObject({ status: "WAITING", waitlist_number: 1 });
+    expect(entry.rows[0]).toMatchObject({
+      status: "WAITING",
+      waitlist_number: 1,
+      allergies: "Lácteos",
+    });
     const state = await pool.query(
       `SELECT reserved_seats, waitlisted_count, last_waitlist_number
          FROM events WHERE id = $1`,
@@ -140,6 +149,7 @@ describe("waitlist admission", () => {
         metadata: { eventId: event.id, waitlistNumber: 1, partySize: 1 },
       },
     ]);
+    expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/allerg|lácteos/i);
     const outbox = await pool.query<{ payload: unknown; reservation_id: string | null }>(
       `SELECT payload, reservation_id FROM email_outbox
         WHERE kind = 'RESERVATION_WAITLISTED' AND waitlist_entry_id = $1`,
@@ -292,7 +302,11 @@ describe("waitlist admission", () => {
 describe("waitlist promotion", () => {
   it("promotes the head when a confirmed reservation is cancelled", async () => {
     const event = await fullEventWithQueue();
-    const queued = await submit(event.slug, 100, { partySize: 1 });
+    const queued = await submit(event.slug, 100, {
+      partySize: 1,
+      hasAllergies: true,
+      allergies: "Nueces",
+    });
     expect(queued.status).toBe(202);
     const confirmed = await pool.query<{ id: string }>(
       "SELECT id FROM reservations WHERE event_id = $1 AND status = 'CONFIRMED'",
@@ -307,15 +321,21 @@ describe("waitlist promotion", () => {
       reservation_number: number;
       status: string;
       email_normalized: string;
+      allergies: string | null;
     }>(
-      `SELECT r.reservation_number, r.status, r.email_normalized
+      `SELECT r.reservation_number, r.status, r.email_normalized, r.allergies
          FROM waitlist_entries w
          JOIN reservations r ON r.id = w.promoted_reservation_id
         WHERE w.event_id = $1 AND w.status = 'PROMOTED'`,
       [event.id],
     );
     expect(promoted.rows).toEqual([
-      { reservation_number: 2, status: "CONFIRMED", email_normalized: "guest.100@example.com" },
+      {
+        reservation_number: 2,
+        status: "CONFIRMED",
+        email_normalized: "guest.100@example.com",
+        allergies: "Nueces",
+      },
     ]);
     const state = await pool.query(
       "SELECT reserved_seats, waitlisted_count FROM events WHERE id = $1",
@@ -329,6 +349,7 @@ describe("waitlist promotion", () => {
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]!.actor_type).toBe("SYSTEM");
     expect(audit.rows[0]!.metadata).toMatchObject({ reservationNumber: 2, partySize: 1 });
+    expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/allerg|nueces/i);
     expect(await outboxKinds(event.id)).toEqual([
       "RESERVATION_CANCELLED",
       "RESERVATION_CONFIRMED",

@@ -41,6 +41,8 @@ export interface SubmitReservationDependencies {
     email: string;
     partySize: number;
     notes?: string;
+    hasAllergies: boolean;
+    allergies: string | null;
     acceptTerms: true;
   }): string;
 }
@@ -99,6 +101,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
     const email = normalizeEmail(parsed.data.email);
     const phone = normalizePhone(parsed.data.phone);
     const instagram = normalizeInstagram(parsed.data.instagram);
+    const allergies = parsed.data.hasAllergies ? parsed.data.allergies! : null;
 
     if (!email.ok) {
       return normalizationFailure("email", "Ingresa un email válido.");
@@ -118,6 +121,8 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       email: email.value,
       partySize: parsed.data.partySize,
       notes: parsed.data.notes,
+      hasAllergies: parsed.data.hasAllergies,
+      allergies,
       acceptTerms: true,
     });
     const completed = await dependencies.repository.findCompletedIdempotencyRecord(
@@ -201,6 +206,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       emailNormalized: email.value,
       partySize: parsed.data.partySize,
       notes: parsed.data.notes,
+      allergies,
       mapOutcome: mapReservationOutcome,
     });
 

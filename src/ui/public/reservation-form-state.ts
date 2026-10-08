@@ -6,6 +6,8 @@ export const reservationFormFields = [
   "phone",
   "email",
   "partySize",
+  "hasAllergies",
+  "allergies",
   "notes",
   "acceptTerms",
 ] as const;

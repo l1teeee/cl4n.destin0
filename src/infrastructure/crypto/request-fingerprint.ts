@@ -8,6 +8,8 @@ export interface NormalizedReservationFingerprintInput {
   email: string;
   partySize: number;
   notes?: string;
+  hasAllergies: boolean;
+  allergies: string | null;
   acceptTerms: true;
   turnstileToken?: string;
 }
@@ -24,6 +26,8 @@ export function requestFingerprint(input: NormalizedReservationFingerprintInput)
     eventSlug: input.eventSlug,
     fullName: input.fullName,
     instagram: input.instagram,
+    hasAllergies: input.hasAllergies,
+    allergies: input.allergies,
     notes: input.notes ?? null,
     partySize: input.partySize,
     phone: input.phone,

@@ -237,6 +237,7 @@ export const reservations = pgTable(
     emailNormalized: text("email_normalized").notNull(),
     partySize: integer("party_size").notNull(),
     notes: text("notes"),
+    allergies: text("allergies"),
     termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }).notNull(),
     idempotencyKey: uuid("idempotency_key").notNull(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
@@ -262,6 +263,10 @@ export const reservations = pgTable(
     check(
       "reservations_notes_length_chk",
       sql`${table.notes} IS NULL OR char_length(${table.notes}) <= 500`,
+    ),
+    check(
+      "reservations_allergies_length_chk",
+      sql`${table.allergies} IS NULL OR char_length(${table.allergies}) BETWEEN 1 AND 300`,
     ),
     check(
       "reservations_confirmed_fields_chk",
@@ -300,6 +305,7 @@ export const waitlistEntries = pgTable(
     emailNormalized: text("email_normalized").notNull(),
     partySize: integer("party_size").notNull(),
     notes: text("notes"),
+    allergies: text("allergies"),
     termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }).notNull(),
     idempotencyKey: uuid("idempotency_key").notNull(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
@@ -336,6 +342,10 @@ export const waitlistEntries = pgTable(
     check(
       "waitlist_entries_notes_length_chk",
       sql`${table.notes} IS NULL OR char_length(${table.notes}) <= 500`,
+    ),
+    check(
+      "waitlist_entries_allergies_length_chk",
+      sql`${table.allergies} IS NULL OR char_length(${table.allergies}) BETWEEN 1 AND 300`,
     ),
     check(
       "waitlist_entries_promoted_fields_chk",

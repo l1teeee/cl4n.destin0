@@ -277,6 +277,30 @@ describe("POST /api/reservations", () => {
     expect(onReservationAccepted).not.toHaveBeenCalled();
   });
 
+  it("returns the 422 allergy field shape when the description is missing", async () => {
+    const event = await insertTestEvent(pool);
+    const setup = dependencies();
+
+    const response = await setup.handler(
+      request(
+        reservationBody(event.slug, 1081, {
+          hasAllergies: true,
+          allergies: undefined,
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "VALIDATION_FAILED",
+        fields: { allergies: ["Cuéntanos a qué eres alérgico."] },
+      },
+    });
+    expect(setup.rateLimiter.consume).not.toHaveBeenCalled();
+    expect(setup.botVerifier.verify).not.toHaveBeenCalled();
+  });
+
   it("does not schedule a confirmation for RATE_LIMITED", async () => {
     const event = await insertTestEvent(pool);
     const onReservationAccepted = vi.fn();
@@ -346,6 +370,24 @@ describe("POST /api/reservations", () => {
     expect(after.rows[0]).toEqual(before.rows[0]);
     expect(setup.botVerifier.verify).toHaveBeenCalledTimes(1);
     expect(setup.rateLimiter.consume).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects reuse of a completed key with different allergy data", async () => {
+    const event = await insertTestEvent(pool);
+    const key = randomUUID();
+    const setup = dependencies();
+    const body = reservationBody(event.slug, 1101, {
+      hasAllergies: true,
+      allergies: "Maní",
+    });
+    await setup.handler(request(body, key));
+
+    const response = await setup.handler(request({ ...body, allergies: "Mariscos" }, key));
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "IDEMPOTENCY_KEY_REUSED" },
+    });
   });
 
   it.each([null, "not-a-uuid"])(

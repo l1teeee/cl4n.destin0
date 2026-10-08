@@ -70,6 +70,7 @@ export function reservationBody(
     phone,
     email: `Guest.${sequence}@Example.com`,
     partySize: 1,
+    hasAllergies: false,
     notes: "Sin alergias",
     acceptTerms: true,
     turnstileToken: "test-token",

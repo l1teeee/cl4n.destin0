@@ -4,7 +4,9 @@ export default function PrivacyPage() {
       <h1 className="text-3xl font-semibold">Política de privacidad</h1>
       <p>
         El contenido definitivo de esta política será proporcionado por el propietario. Las
-        solicitudes, incluidas las rechazadas, almacenan datos de contacto.
+        solicitudes, incluidas las rechazadas, almacenan datos de contacto. Si indicas alergias, esa
+        información se usa únicamente para preparar tu experiencia y solo la ve el equipo
+        organizador.
       </p>
     </main>
   );
