@@ -134,13 +134,19 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
   const trackRef = useRef<HTMLDivElement>(null);
   const capsuleRef = useRef<HTMLDivElement>(null);
   const grip = useRef<Grip | null>(null);
+  const phaseRef = useRef<SlideCommitPhase>("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const homeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const run = useRef(0);
   const unwatch = useRef<(() => void) | null>(null);
-  const live = useRef<{ move: (e: MoveEvent) => void; up: (e: UpEvent) => void }>({
+  const live = useRef<{
+    move: (e: MoveEvent) => void;
+    up: (e: UpEvent) => void;
+    cancel: (e: UpEvent) => void;
+  }>({
     move: () => {},
     up: () => {},
+    cancel: () => {},
   });
   const lastPercent = useRef(0);
 
@@ -237,15 +243,20 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
     else animate(x, 0, { ...homeSpring, velocity: Math.min(0, velocity) });
   };
 
+  const updatePhase = (nextPhase: SlideCommitPhase) => {
+    phaseRef.current = nextPhase;
+    setPhase(nextPhase);
+  };
+
   const settle = () => {
-    setPhase("idle");
+    updatePhase("idle");
     animate(shown, 1, { duration: 0.2, delay: 0.12 });
     if (reduce) anchor.set(0);
     else animate(anchor, 0, { type: "spring", duration: 0.3, bounce: 0 });
   };
 
   const resolve = (viaKey: boolean) => {
-    setPhase("done");
+    updatePhase("done");
     anchor.set(x.get());
     animate(spin, 0, { duration: 0.12 });
     if (reduce) x.set(0);
@@ -265,7 +276,7 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
   };
 
   const reject = (reason: unknown) => {
-    setPhase("error");
+    updatePhase("error");
     onError?.(reason);
     animate(spin, 0, { duration: 0.12 });
     animate(shown, 1, { duration: 0.2, delay: 0.12 });
@@ -276,10 +287,12 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
         if (!grip.current) goHome(0);
       }, 300);
     }
-    timer.current = setTimeout(() => setPhase("idle"), Math.max(holdMs, 1500));
+    timer.current = setTimeout(() => updatePhase("idle"), Math.max(holdMs, 1500));
   };
 
   const commit = (viaKey: boolean) => {
+    if (disabled || phaseRef.current !== "idle") return;
+    updatePhase("pending");
     clearTimeout(timer.current);
     const id = ++run.current;
     x.set(TRAVEL);
@@ -296,7 +309,6 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
       resolve(viaKey);
       return;
     }
-    setPhase("pending");
     animate(shown, 0, { duration: 0.2 });
     animate(spin, 1, { duration: 0.2 });
     const t0 = performance.now();
@@ -315,8 +327,7 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
   };
 
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (disabled || grip.current || phase === "pending" || phase === "done" || e.button !== 0)
-      return;
+    if (disabled || grip.current || phaseRef.current !== "idle" || e.button !== 0) return;
     x.stop();
     grip.current = { id: e.pointerId, grab: null, moved: false, hist: [] };
     setHeld(true);
@@ -326,13 +337,14 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
     unwatch.current?.();
     const onMove = (ev: PointerEvent) => ev.isTrusted && live.current.move(ev);
     const onUp = (ev: PointerEvent) => ev.isTrusted && live.current.up(ev);
+    const onCancel = (ev: PointerEvent) => ev.isTrusted && live.current.cancel(ev);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointercancel", onCancel);
     unwatch.current = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       unwatch.current = null;
     };
   };
@@ -352,40 +364,56 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
     x.set(next);
   };
 
-  const up = (e: UpEvent) => {
+  const releaseGrip = (e: UpEvent) => {
     const g = grip.current;
-    if (!g || g.id !== e.pointerId) return;
+    if (!g || g.id !== e.pointerId) return null;
     grip.current = null;
     unwatch.current?.();
     try {
       trackRef.current?.releasePointerCapture(e.pointerId);
     } catch {}
     setHeld(false);
-    if (x.get() >= TRAVEL) commit(false);
+    return g;
+  };
+
+  const up = (e: UpEvent) => {
+    const g = releaseGrip(e);
+    if (!g) return;
+    if (x.get() >= TRAVEL && phaseRef.current === "idle" && !disabled) commit(false);
     else if (g.moved) goHome(velocityOf(g.hist));
   };
+
+  const cancel = (e: UpEvent) => {
+    const g = releaseGrip(e);
+    if (!g) return;
+    goHome(velocityOf(g.hist));
+  };
   useEffect(() => {
-    live.current = { move, up };
+    live.current = { move, up, cancel };
   });
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (disabled || phase === "pending" || phase === "done") return;
+    if (disabled || phaseRef.current !== "idle") return;
     const step = TRAVEL / 10;
     if (e.key === "End") {
       e.preventDefault();
+      if (grip.current) releaseGrip({ pointerId: grip.current.id });
       commit(true);
     } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
       e.preventDefault();
       const next = Math.min(TRAVEL, x.get() + step);
       x.set(next);
-      if (next >= TRAVEL) commit(true);
+      if (next >= TRAVEL) {
+        if (grip.current) releaseGrip({ pointerId: grip.current.id });
+        commit(true);
+      }
     } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
       e.preventDefault();
       x.set(Math.max(0, x.get() - step));
     } else if (e.key === "Home" || e.key === "Escape") {
       e.preventDefault();
-      if (grip.current) up({ pointerId: grip.current.id });
-      else x.set(0);
+      if (grip.current) releaseGrip({ pointerId: grip.current.id });
+      x.set(0);
     }
   };
 
