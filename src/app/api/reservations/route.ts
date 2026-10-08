@@ -1,9 +1,11 @@
 import * as Sentry from "@sentry/nextjs";
+import { after } from "next/server";
 
 import { createBotVerifier } from "@/infrastructure/bot-protection/turnstile-verifier";
 import { env } from "@/infrastructure/config/env";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { sendReservationConfirmation } from "@/infrastructure/email/reservation-notifications";
 import { log } from "@/infrastructure/observability/logger";
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
@@ -18,6 +20,21 @@ export const POST = createReservationHandler({
   rateLimiter: { consume },
   botVerifier: createBotVerifier(),
   computeFingerprint: requestFingerprint,
+  onReservationConfirmed(reservation) {
+    // Next after keeps the Vercel function alive without delaying the response.
+    after(async () => {
+      try {
+        await sendReservationConfirmation(reservation);
+      } catch (error) {
+        log("error", "reservation_confirmation_email_failed", {
+          reservationNumber: reservation.reservationNumber,
+        });
+        if (env.SENTRY_DSN) {
+          Sentry.captureException(error);
+        }
+      }
+    });
+  },
   observability: {
     log,
     ...(env.SENTRY_DSN

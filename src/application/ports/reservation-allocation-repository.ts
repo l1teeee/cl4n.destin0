@@ -47,6 +47,7 @@ export interface CompletedIdempotencyRecord {
 
 export interface AllocationResult extends ReservationResponse {
   replayed: boolean;
+  outcome?: AllocationOutcome;
 }
 
 export type CancelReservationOutcome = "CANCELLED" | "NOT_CANCELLABLE" | "NOT_FOUND";
