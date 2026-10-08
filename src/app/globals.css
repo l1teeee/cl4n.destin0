@@ -1,4 +1,40 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --font-sans: "Funnel Sans", Arial, Helvetica, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
 
 @font-face {
   font-family: "Funnel Sans";
@@ -28,6 +64,34 @@
   --clan-background: #11120d;
   --clan-foreground: #fffbf4;
   --clan-muted: #e4e2dd;
+  --background: #11120d;
+  --foreground: #fffbf4;
+  --card: #11120d;
+  --card-foreground: #fffbf4;
+  --popover: #11120d;
+  --popover-foreground: #fffbf4;
+  --primary: #fffbf4;
+  --primary-foreground: #11120d;
+  --secondary: #2b2c26;
+  --secondary-foreground: #fffbf4;
+  --muted: #2b2c26;
+  --muted-foreground: #8d8b85;
+  --accent: #fffbf40d;
+  --accent-foreground: #fffbf4;
+  --destructive: #c9736a;
+  --border: #2b2c26;
+  --input: #777972;
+  --ring: #fffbf4;
+  --success: #a9b59a;
+  --sidebar: #11120d;
+  --sidebar-foreground: #8d8b85;
+  --sidebar-primary: #fffbf4;
+  --sidebar-primary-foreground: #11120d;
+  --sidebar-accent: #fffbf40d;
+  --sidebar-accent-foreground: #fffbf4;
+  --sidebar-border: transparent;
+  --sidebar-ring: #fffbf4;
+  --radius: 0rem;
 }
 
 html {
