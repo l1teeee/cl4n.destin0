@@ -5,12 +5,17 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
 
+const scheduleEmailDeliveryMock = vi.hoisted(() => vi.fn());
+
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
     get: vi.fn(() => (authState.token ? { value: authState.token } : undefined)),
   })),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/infrastructure/email/outbox/schedule-email-delivery", () => ({
+  scheduleEmailDelivery: scheduleEmailDeliveryMock,
+}));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((destination: string) => {
     throw new Error(`REDIRECT:${destination}`);
@@ -39,6 +44,7 @@ let adminId: string;
 let sessionToken: string;
 
 beforeEach(async () => {
+  scheduleEmailDeliveryMock.mockClear();
   authState.token = undefined;
   if (pool) await pool.end();
   await resetTestDatabase();
@@ -49,7 +55,7 @@ beforeEach(async () => {
      RETURNING id`,
   );
   adminId = admin.rows[0]!.id;
-  sessionToken = (await postgresAdminAuthRepository.createSession(adminId, "hash"))!.token;
+  sessionToken = (await postgresAdminAuthRepository.createSession(adminId, "hash", null))!.token;
 });
 
 afterAll(async () => {
@@ -249,10 +255,12 @@ describe("admin event Server Actions", () => {
         ])
       ).rows[0]!.status,
     ).toBe("CONFIRMED");
+    expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
     await authorize();
     expect(
       await cancelReservationAction(eventId, reservationId, initialState, new FormData()),
     ).toMatchObject({ ok: true });
+    expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (
         await pool.query<{ status: string }>("SELECT status FROM reservations WHERE id = $1", [

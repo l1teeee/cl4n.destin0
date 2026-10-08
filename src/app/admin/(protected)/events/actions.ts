@@ -18,6 +18,7 @@ import { createCancelReservation } from "@/application/reservations/cancel-reser
 import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import {
   localDateTimeToUtc,
@@ -316,6 +317,7 @@ export async function cancelReservationAction(
   });
   if (result === "NOT_FOUND") return invalid("No se encontró la reservación.");
   if (result === "NOT_CANCELLABLE") return invalid("La reservación ya no se puede cancelar.");
+  scheduleEmailDelivery();
   revalidatePath("/admin");
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");

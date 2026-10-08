@@ -45,7 +45,7 @@ async function insertAdmin(options: { active?: boolean; password?: string } = {}
 
 function realSignIn(email: string, password: string, clientIp: string = randomUUID()) {
   return signIn(
-    { email, password, clientIp },
+    { email, password, clientIp, rawClientIp: null },
     {
       repository,
       consumeRateLimit: (input) => consumeWithPool(input, pool),
@@ -122,7 +122,7 @@ describe("session creation preconditions", () => {
       await hashPassword("replacement-password-123"),
     ]);
 
-    await expect(repository.createSession(admin.id, admin.passwordHash)).resolves.toBeNull();
+    await expect(repository.createSession(admin.id, admin.passwordHash, null)).resolves.toBeNull();
     await expect(
       pool.query("SELECT 1 FROM admin_sessions WHERE admin_user_id = $1", [admin.id]),
     ).resolves.toMatchObject({ rowCount: 0 });
@@ -138,7 +138,7 @@ describe("session creation preconditions", () => {
     const admin = await insertAdmin();
     await pool.query("UPDATE admin_users SET is_active = false WHERE id = $1", [admin.id]);
 
-    await expect(repository.createSession(admin.id, admin.passwordHash)).resolves.toBeNull();
+    await expect(repository.createSession(admin.id, admin.passwordHash, null)).resolves.toBeNull();
     await expect(
       pool.query("SELECT 1 FROM admin_sessions WHERE admin_user_id = $1", [admin.id]),
     ).resolves.toMatchObject({ rowCount: 0 });
@@ -153,7 +153,9 @@ describe("session creation preconditions", () => {
   it("creates and audits a session with the current password hash", async () => {
     const admin = await insertAdmin();
 
-    await expect(repository.createSession(admin.id, admin.passwordHash)).resolves.toMatchObject({
+    await expect(
+      repository.createSession(admin.id, admin.passwordHash, null),
+    ).resolves.toMatchObject({
       admin: { id: admin.id },
     });
     await expect(
@@ -182,7 +184,7 @@ describe("session validation", () => {
 
   it("rejects absolute expiry", async () => {
     const admin = await insertAdmin();
-    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
+    const session = (await repository.createSession(admin.id, admin.passwordHash, null))!;
     await pool.query(
       "UPDATE admin_sessions SET expires_at = clock_timestamp() - interval '1 second' WHERE admin_user_id = $1",
       [admin.id],
@@ -195,7 +197,7 @@ describe("session validation", () => {
 
   it("rejects idle expiry", async () => {
     const admin = await insertAdmin();
-    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
+    const session = (await repository.createSession(admin.id, admin.passwordHash, null))!;
     await pool.query(
       "UPDATE admin_sessions SET last_seen_at = clock_timestamp() - interval '2 hours 1 second' WHERE admin_user_id = $1",
       [admin.id],
@@ -205,7 +207,7 @@ describe("session validation", () => {
 
   it("rejects a session whose admin became inactive", async () => {
     const admin = await insertAdmin();
-    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
+    const session = (await repository.createSession(admin.id, admin.passwordHash, null))!;
     await pool.query("UPDATE admin_users SET is_active = false WHERE id = $1", [admin.id]);
     await expect(authorizeAdminSession(session.token, repository)).resolves.toEqual({
       authorized: false,
@@ -215,7 +217,7 @@ describe("session validation", () => {
 
   it("does not write before five minutes and refreshes only when due", async () => {
     const admin = await insertAdmin();
-    const created = (await repository.createSession(admin.id, admin.passwordHash))!;
+    const created = (await repository.createSession(admin.id, admin.passwordHash, null))!;
     const original = await pool.query<{ xmin: string; last_seen_at: Date }>(
       "SELECT xmin::text, last_seen_at FROM admin_sessions WHERE admin_user_id = $1",
       [admin.id],
@@ -251,7 +253,7 @@ describe("session validation", () => {
 
   it("deletes the session on sign-out", async () => {
     const admin = await insertAdmin();
-    const session = (await repository.createSession(admin.id, admin.passwordHash))!;
+    const session = (await repository.createSession(admin.id, admin.passwordHash, null))!;
     await signOut(repository, session.token);
     await expect(repository.validateSession(session.token)).resolves.toBeNull();
   });
@@ -260,7 +262,7 @@ describe("session validation", () => {
     const admin = await insertAdmin({ active: false });
     const verifier = vi.fn().mockResolvedValue(false);
     const result = await signIn(
-      { email: admin.email, password: "attempt", clientIp: randomUUID() },
+      { email: admin.email, password: "attempt", clientIp: randomUUID(), rawClientIp: null },
       {
         repository,
         consumeRateLimit: (input) => consumeWithPool(input, pool),

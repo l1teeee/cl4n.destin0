@@ -12,6 +12,7 @@ import {
 import { changeOwnPassword } from "@/application/admin-users/admin-user-use-cases";
 import { changeOwnPasswordSchema } from "@/contracts/admin-users";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 
 export async function changeOwnPasswordAction(
   _previousState: AdminActionState,
@@ -34,6 +35,7 @@ export async function changeOwnPasswordAction(
   );
   if (!result.ok) return errorState(result.error);
 
+  scheduleEmailDelivery();
   revalidatePath("/admin/account");
   revalidatePath("/admin/audit");
   return { ok: true, message: "Contraseña actualizada. Se cerraron tus otras sesiones." };

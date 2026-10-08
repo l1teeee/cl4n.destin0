@@ -57,7 +57,12 @@ describe("signIn", () => {
     vi.mocked(repo.createSession).mockResolvedValue(null);
 
     const result = await signIn(
-      { email: admin.emailNormalized, password: "valid-password", clientIp: "local" },
+      {
+        email: admin.emailNormalized,
+        password: "valid-password",
+        clientIp: "local",
+        rawClientIp: null,
+      },
       {
         repository: repo,
         consumeRateLimit: allowedRateLimit,
@@ -67,7 +72,7 @@ describe("signIn", () => {
     );
 
     expect(result).toEqual({ ok: false, error: "INVALID_CREDENTIALS" });
-    expect(repo.createSession).toHaveBeenCalledWith(admin.id, admin.passwordHash);
+    expect(repo.createSession).toHaveBeenCalledWith(admin.id, admin.passwordHash, null);
   });
 
   it.each([
@@ -88,7 +93,12 @@ describe("signIn", () => {
     async (_case, admin) => {
       const verifier = vi.fn().mockResolvedValue(false);
       const result = await signIn(
-        { email: "admin@example.com", password: "attempted-password", clientIp: "local" },
+        {
+          email: "admin@example.com",
+          password: "attempted-password",
+          clientIp: "local",
+          rawClientIp: null,
+        },
         {
           repository: repository(admin),
           consumeRateLimit: allowedRateLimit,

@@ -17,6 +17,7 @@ import { checkAccessChange, type AdminRole } from "@/domain/admin/admin-access";
 
 import { ADMIN_SESSION_IDLE_TIMEOUT_HOURS } from "../../auth/session-store";
 import { pool as applicationPool } from "../client";
+import { insertAdminEmailOutbox } from "../insert-email-outbox";
 import { inTransaction as runInTransaction } from "../transaction";
 
 interface AdminUserRow extends QueryResultRow {
@@ -210,6 +211,12 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
         );
         const id = inserted.rows[0]!.id;
         await insertAudit(client, actorId, "ADMIN_USER_CREATED", id, { role: command.role });
+        const actor = await lockAdmin(client, actorId);
+        await insertAdminEmailOutbox(client, {
+          kind: "ADMIN_ADDED",
+          adminUserId: id,
+          payload: { addedByDisplayName: actor!.display_name },
+        });
         return successful((await selectSummary(client, id))!);
       });
     } catch (error) {
@@ -261,6 +268,13 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
           [target.id, command.displayName, command.role],
         );
         await insertAudit(client, actorId, "ADMIN_USER_UPDATED", target.id, metadata);
+        if (target.role !== command.role) {
+          await insertAdminEmailOutbox(client, {
+            kind: "ADMIN_ROLE_CHANGED",
+            adminUserId: target.id,
+            payload: { role: command.role },
+          });
+        }
       }
       return successful((await selectSummary(client, target.id))!);
     });
@@ -298,6 +312,7 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
       await insertAudit(client, actorId, "ADMIN_USER_DEACTIVATED", target.id, {
         revokedSessions,
       });
+      await insertAdminEmailOutbox(client, { kind: "ADMIN_DEACTIVATED", adminUserId: target.id });
       return successful({ revokedSessions });
     });
   }
@@ -320,6 +335,7 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
         [target.id],
       );
       await insertAudit(client, actorId, "ADMIN_USER_REACTIVATED", target.id, {});
+      await insertAdminEmailOutbox(client, { kind: "ADMIN_REACTIVATED", adminUserId: target.id });
       return successful((await selectSummary(client, target.id))!);
     });
   }
@@ -347,6 +363,10 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
       );
       const revokedSessions = await deleteSessions(client, target.id);
       await insertAudit(client, actorId, "ADMIN_PASSWORD_RESET", target.id, { revokedSessions });
+      await insertAdminEmailOutbox(client, {
+        kind: "ADMIN_PASSWORD_RESET_BY_ADMIN",
+        adminUserId: target.id,
+      });
       return successful({ revokedSessions });
     });
   }
@@ -364,6 +384,10 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
       const revokedSessions = await deleteSessions(client, target.id);
       await insertAudit(client, actorId, "ADMIN_SESSIONS_REVOKED", target.id, {
         revokedSessions,
+      });
+      await insertAdminEmailOutbox(client, {
+        kind: "ADMIN_SESSIONS_REVOKED",
+        adminUserId: target.id,
       });
       return successful({ revokedSessions });
     });
@@ -408,6 +432,10 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
       );
       const revokedSessions = deleted.rowCount ?? 0;
       await insertAudit(client, adminId, "ADMIN_PASSWORD_CHANGED", adminId, { revokedSessions });
+      await insertAdminEmailOutbox(client, {
+        kind: "ADMIN_PASSWORD_CHANGED",
+        adminUserId: adminId,
+      });
       return successful({ revokedSessions });
     });
   }
@@ -554,6 +582,7 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
         [targetId],
       );
       await insertAudit(client, actorId, "ADMIN_USER_DELETED", targetId, { revokedSessions });
+      await insertAdminEmailOutbox(client, { kind: "ADMIN_DELETED", adminUserId: targetId });
       return successful({ revokedSessions });
     });
   }

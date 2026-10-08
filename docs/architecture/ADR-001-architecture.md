@@ -641,14 +641,14 @@ Parallel worktrees use distinct test database names on the same local server.
 
 - **Provider:** Brevo HTTP API, not SMTP. Delivery is one HTTPS call from a serverless function, and the owner already has a Brevo account and verified sender.
 - **Never inside a DB transaction:** Email goes out only after the transaction that justifies it has committed.
-- **Reservation confirmation:** Best effort, scheduled after the response with Next `after()`. A failure is logged with no PII and is not retried. Known limitation: there is no outbox.
-- **Admin added:** Sent after the admin row is created. A failure is reported to the acting admin and does not roll back the creation.
+- **Reservation and admin-account email:** Delivered through the transactional outbox described in ADR-003. Only deletion codes and password-reset links, which carry secrets, are sent directly.
 - **Deletion OTP:** Sent synchronously. If it fails, the code is invalidated and the admin sees the error.
 - **Templates:** Pure functions in `src/infrastructure/email/templates/`, with inline-styled HTML plus a plain-text part and no external resources.
 - **Environments:** `log` mode is local/test only.
 
 ## Changelog
 
+- 2026-10-07: section 18. Reservation confirmation and admin-added email moved from best effort to the transactional outbox (ADR-003).
 - 2026-10-07: sections 9, 10 and 12. Added terminal admin soft deletion, actor-email one-time confirmation codes, deletion rate limits, audit actions, and the last-super-admin transaction rules.
 - 2026-10-07: section 18. Added Brevo HTTP transactional email delivery policy, delivery timing and failure behavior, template constraints, and environment restrictions.
 - 2026-10-04: initial version.

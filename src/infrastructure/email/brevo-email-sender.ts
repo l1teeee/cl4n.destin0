@@ -1,6 +1,5 @@
+import { EmailDeliveryError } from "@/application/notifications/email-delivery-error";
 import type { EmailSender } from "@/application/ports/email-sender";
-
-import { EmailDeliveryError } from "./email-delivery-error";
 
 const BREVO_EMAIL_URL = "https://api.brevo.com/v3/smtp/email";
 
