@@ -42,7 +42,7 @@ import AdminUsersPage from "@/app/admin/(protected)/users/page";
 import type { AdminRole } from "@/application/auth/types";
 import { hashPassword } from "@/infrastructure/auth/password";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
-import { AdminHeader } from "@/ui/admin/admin-header";
+import { AdminSidebar } from "@/ui/admin/admin-sidebar";
 
 import { resetTestDatabase } from "../helpers/test-db";
 
@@ -91,18 +91,18 @@ function createForm(email: string, overrides: Record<string, string> = {}): Form
   return form;
 }
 
-function findAdminHeaderProps(node: unknown): ComponentProps<typeof AdminHeader> | undefined {
+function findAdminSidebarProps(node: unknown): ComponentProps<typeof AdminSidebar> | undefined {
   if (Array.isArray(node)) {
     for (const child of node) {
-      const props = findAdminHeaderProps(child);
+      const props = findAdminSidebarProps(child);
       if (props) return props;
     }
     return undefined;
   }
   if (node && typeof node === "object" && "props" in node) {
     const element = node as { type: unknown; props: { children?: unknown } };
-    if (element.type === AdminHeader) return element.props as ComponentProps<typeof AdminHeader>;
-    return findAdminHeaderProps(element.props.children);
+    if (element.type === AdminSidebar) return element.props as ComponentProps<typeof AdminSidebar>;
+    return findAdminSidebarProps(element.props.children);
   }
   return undefined;
 }
@@ -262,13 +262,13 @@ describe("user management pages", () => {
   it("shows the users link only to super admins and the account page to everyone", async () => {
     await signedInAdmin("ADMIN");
     expect(
-      findAdminHeaderProps(await ProtectedAdminLayout({ children: null }))?.showUsersLink,
+      findAdminSidebarProps(await ProtectedAdminLayout({ children: null }))?.showUsersLink,
     ).toBe(false);
     await expect(AccountPage()).resolves.toBeTruthy();
 
     await signedInAdmin("SUPER_ADMIN");
     expect(
-      findAdminHeaderProps(await ProtectedAdminLayout({ children: null }))?.showUsersLink,
+      findAdminSidebarProps(await ProtectedAdminLayout({ children: null }))?.showUsersLink,
     ).toBe(true);
   });
 });
