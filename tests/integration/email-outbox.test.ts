@@ -90,13 +90,12 @@ describe("email outbox repository", () => {
       await enqueueAdminRow(admin.id);
     }
 
-    const [first, second] = await Promise.all([outbox.claimDue(15), outbox.claimDue(15)]);
+    const claims = await Promise.all(Array.from({ length: 30 }, () => outbox.claimDue(1)));
+    const claimed = claims.flat();
 
-    const firstIds = first.map((row) => row.id);
-    const secondIds = second.map((row) => row.id);
-    expect(firstIds.filter((id) => secondIds.includes(id))).toEqual([]);
-    expect(new Set([...firstIds, ...secondIds]).size).toBe(20);
-    expect([...first, ...second].every((row) => row.attempts === 1)).toBe(true);
+    expect(claimed).toHaveLength(20);
+    expect(new Set(claimed.map((row) => row.id)).size).toBe(20);
+    expect(claimed.every((row) => row.attempts === 1)).toBe(true);
   });
 
   it("does not claim leased, future or finished rows", async () => {
@@ -145,11 +144,12 @@ describe("email outbox repository", () => {
     const sentId = await enqueueAdminRow(admin.id);
     const retryId = await enqueueAdminRow(admin.id);
     const failedId = await enqueueAdminRow(admin.id);
-    await outbox.claimDue(10);
+    const claimed = await outbox.claimDue(10);
+    const lease = (id: string) => claimed.find((row) => row.id === id)!.lockedUntil!;
 
-    await outbox.markSent(sentId);
-    await outbox.scheduleRetry(retryId, 120, "HTTP_503");
-    await outbox.markFailed(failedId, "HTTP_400");
+    await outbox.markSent(sentId, lease(sentId));
+    await outbox.scheduleRetry(retryId, lease(retryId), 120, "HTTP_503");
+    await outbox.markFailed(failedId, lease(failedId), "HTTP_400");
 
     expect(await rowById(sentId)).toMatchObject({ status: "SENT", locked_until: null });
     expect((await rowById(sentId)).sent_at).toBeInstanceOf(Date);
@@ -169,12 +169,32 @@ describe("email outbox repository", () => {
     expect(await outbox.claimDue(10)).toHaveLength(0);
   });
 
+  it("prevents a stale lease from overwriting a newer outcome", async () => {
+    const admin = await insertAdmin();
+    const id = await enqueueAdminRow(admin.id);
+    const [firstClaim] = await outbox.claimDue(1);
+    await pool.query(
+      "UPDATE email_outbox SET locked_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+      [id],
+    );
+    const [secondClaim] = await outbox.claimDue(1);
+
+    await expect(outbox.markSent(id, secondClaim!.lockedUntil!)).resolves.toBe(true);
+    await expect(outbox.markFailed(id, firstClaim!.lockedUntil!, "NETWORK")).resolves.toBe(false);
+    expect(await rowById(id)).toMatchObject({
+      status: "SENT",
+      last_error: null,
+      locked_until: null,
+    });
+  });
+
   it("resets a failed row on retry and ignores other statuses", async () => {
     const admin = await insertAdmin();
     const failedId = await enqueueAdminRow(admin.id);
     const pendingId = await enqueueAdminRow(admin.id);
-    await outbox.claimDue(10);
-    await outbox.markFailed(failedId, "HTTP_400");
+    const claimed = await outbox.claimDue(10);
+    const failedLease = claimed.find((row) => row.id === failedId)!.lockedUntil!;
+    await outbox.markFailed(failedId, failedLease, "HTTP_400");
 
     await expect(outbox.retry(failedId)).resolves.toBe(true);
     await expect(outbox.retry(pendingId)).resolves.toBe(false);
@@ -213,7 +233,9 @@ describe("email outbox repository", () => {
     const admin = await insertAdmin();
     const failedId = await enqueueAdminRow(admin.id, "ADMIN_DEACTIVATED");
     await enqueueAdminRow(admin.id, "ADMIN_SIGNED_IN");
-    await outbox.markFailed(failedId, "HTTP_400");
+    const [claimed] = await outbox.claimDue(1);
+    expect(claimed!.id).toBe(failedId);
+    await outbox.markFailed(failedId, claimed!.lockedUntil!, "HTTP_400");
 
     const all = await outbox.listRecent({ limit: 10 });
     const failed = await outbox.listRecent({ limit: 10, status: "FAILED" });
@@ -227,7 +249,7 @@ describe("email outbox repository", () => {
         kind: "ADMIN_DEACTIVATED",
         status: "FAILED",
         lastError: "HTTP_400",
-        attempts: 0,
+        attempts: 1,
       }),
     ]);
     expect(byKind.map((item) => item.kind)).toEqual(["ADMIN_SIGNED_IN"]);
@@ -520,9 +542,11 @@ describe("outbox email composer", () => {
             sent.push(email.to.email);
           },
         },
+        now: Date.now,
         logFailure: () => undefined,
+        logStaleLease: () => undefined,
       },
-      { limit: 10 },
+      { limit: 10, timeBudgetMs: 20_000 },
     );
 
     expect(summary).toEqual({ delivered: 1, retried: 0, failed: 0 });

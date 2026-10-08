@@ -4,7 +4,10 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 
-import { requestPasswordReset } from "@/application/auth/password-recovery";
+import {
+  checkPasswordResetRateLimits,
+  issuePasswordReset,
+} from "@/application/auth/password-recovery";
 import { adminPasswordResetRequestSchema } from "@/contracts/admin-auth";
 import { postgresPasswordResetRepository } from "@/infrastructure/auth/postgres-password-reset-repository";
 import {
@@ -23,24 +26,29 @@ export async function requestPasswordResetAction(formData: FormData): Promise<vo
   }
 
   const clientIp = getRawClientIp(await headers());
-  const delivery = await requestPasswordReset(
+  const allowed = await checkPasswordResetRateLimits(
     { email: parsed.data.email, clientIp: getRateLimitSubject(clientIp) },
-    {
-      repository: postgresPasswordResetRepository,
-      consumeRateLimit: consume,
-      generateToken: generatePasswordResetToken,
-      hashToken: hashPasswordResetToken,
-    },
+    { consumeRateLimit: consume },
   );
 
-  if (delivery) {
-    // WHY: sending after the response keeps the response time identical whether or not the
-    // account exists, so timing cannot be used to enumerate admins.
+  if (allowed) {
+    // WHY: account lookup, token issuance and delivery all run after the response, so the
+    // synchronous path cannot reveal whether the email belongs to an admin.
     after(async () => {
       try {
-        await sendAdminPasswordResetEmail(delivery);
+        const delivery = await issuePasswordReset(
+          { email: parsed.data.email },
+          {
+            repository: postgresPasswordResetRepository,
+            generateToken: generatePasswordResetToken,
+            hashToken: hashPasswordResetToken,
+          },
+        );
+        if (delivery) {
+          await sendAdminPasswordResetEmail(delivery);
+        }
       } catch {
-        // The error is dropped on purpose: provider errors can echo the recipient address.
+        // Provider and repository errors may contain the recipient or token.
         log("error", "admin_password_reset_email_failed");
       }
     });

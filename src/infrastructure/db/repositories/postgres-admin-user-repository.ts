@@ -147,6 +147,20 @@ async function deleteSessions(client: PoolClient, adminId: string): Promise<numb
   return result.rowCount ?? 0;
 }
 
+async function invalidateLivePasswordResetTokens(
+  client: PoolClient,
+  adminId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE admin_password_reset_tokens
+        SET invalidated_at = clock_timestamp()
+      WHERE admin_user_id = $1
+        AND consumed_at IS NULL
+        AND invalidated_at IS NULL`,
+    [adminId],
+  );
+}
+
 async function insertAudit(
   client: PoolClient,
   actorAdminId: string,
@@ -308,6 +322,7 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
           WHERE id = $1`,
         [target.id],
       );
+      await invalidateLivePasswordResetTokens(client, target.id);
       const revokedSessions = await deleteSessions(client, target.id);
       await insertAudit(client, actorId, "ADMIN_USER_DEACTIVATED", target.id, {
         revokedSessions,
@@ -361,6 +376,7 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
           WHERE id = $1`,
         [target.id, passwordHash],
       );
+      await invalidateLivePasswordResetTokens(client, target.id);
       const revokedSessions = await deleteSessions(client, target.id);
       await insertAudit(client, actorId, "ADMIN_PASSWORD_RESET", target.id, { revokedSessions });
       await insertAdminEmailOutbox(client, {
@@ -426,6 +442,7 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
         return failed<SessionRevocation>("INVALID_CURRENT_PASSWORD");
       }
 
+      await invalidateLivePasswordResetTokens(client, adminId);
       const deleted = await client.query(
         "DELETE FROM admin_sessions WHERE admin_user_id = $1 AND id <> $2",
         [adminId, keepSessionId],
@@ -572,6 +589,7 @@ export class PostgresAdminUserRepository implements AdminUserRepository {
           WHERE id = $1`,
         [targetId],
       );
+      await invalidateLivePasswordResetTokens(client, targetId);
       const revokedSessions = await deleteSessions(client, targetId);
       await client.query(
         `UPDATE admin_action_codes

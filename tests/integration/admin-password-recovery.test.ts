@@ -32,9 +32,13 @@ import AdminResetPage from "@/app/admin/reset/page";
 import { signIn } from "@/application/auth/sign-in";
 import { PASSWORD_RESET_INVALID_LINK_MESSAGE } from "@/contracts/admin-auth";
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "@/infrastructure/auth/password";
-import { hashPasswordResetToken } from "@/infrastructure/auth/password-reset-token";
+import {
+  generatePasswordResetToken,
+  hashPasswordResetToken,
+} from "@/infrastructure/auth/password-reset-token";
 import { PostgresPasswordResetRepository } from "@/infrastructure/auth/postgres-password-reset-repository";
 import { PostgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { PostgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 import { consumeWithPool } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
 import { resetTestDatabase } from "../helpers/test-db";
@@ -46,12 +50,16 @@ const requestMessage =
 const SUCCESS_REDIRECT = "/admin/login?restablecida=1";
 let pool: Pool;
 let authRepository: PostgresAdminAuthRepository;
+let passwordResetRepository: PostgresPasswordResetRepository;
+let userRepository: PostgresAdminUserRepository;
 let oldPasswordHash: string;
 
 beforeAll(async () => {
   await resetTestDatabase();
   pool = (await import("@/infrastructure/db/client")).pool;
   authRepository = new PostgresAdminAuthRepository(pool);
+  passwordResetRepository = new PostgresPasswordResetRepository(pool);
+  userRepository = new PostgresAdminUserRepository(pool);
   oldPasswordHash = await hashPassword(oldPassword);
 });
 
@@ -66,19 +74,22 @@ afterAll(async () => {
   await pool.end();
 });
 
-async function insertAdmin(options: { active?: boolean; deleted?: boolean } = {}) {
+async function insertAdmin(
+  options: { active?: boolean; deleted?: boolean; role?: "ADMIN" | "SUPER_ADMIN" } = {},
+) {
   const email = `${randomUUID()}@example.com`;
   const result = await pool.query<{ id: string }>(
     `INSERT INTO admin_users (
-       email, email_normalized, password_hash, display_name, is_active, deleted_at
+       email, email_normalized, password_hash, display_name, is_active, deleted_at, role
      )
-     VALUES ($1, $1, $2, 'Admin de prueba', $3, $4)
+     VALUES ($1, $1, $2, 'Admin de prueba', $3, $4, $5)
      RETURNING id`,
     [
       email,
       oldPasswordHash,
       options.active ?? true,
       options.deleted ? new Date().toISOString() : null,
+      options.role ?? "ADMIN",
     ],
   );
   return { id: result.rows[0]!.id, email };
@@ -161,6 +172,19 @@ async function insertSession(adminId: string): Promise<void> {
   );
 }
 
+async function issueRepositoryToken(email: string): Promise<string> {
+  const raw = generatePasswordResetToken();
+  const hash = hashPasswordResetToken(raw);
+  await expect(
+    passwordResetRepository.issueToken({
+      emailNormalized: email,
+      tokenHash: hash,
+      ttlMinutes: 30,
+    }),
+  ).resolves.not.toBeNull();
+  return hash;
+}
+
 describe("password recovery request", () => {
   it("stores only the keyed hash of the emailed token, with a 30 minute expiry", async () => {
     const admin = await insertAdmin();
@@ -183,6 +207,7 @@ describe("password recovery request", () => {
     await redirectOf(() => requestPasswordResetAction(formWith({ email: admin.email })));
 
     expect(sentEmailText()).toBe("");
+    expect((await pool.query("SELECT 1 FROM admin_password_reset_tokens")).rowCount).toBe(0);
     await flushAfterCallbacks();
     expect(sentEmailText()).toContain(admin.email);
     expect(sentEmailText()).toMatch(/http:\/\/localhost:3000\/admin\/reset#token=/);
@@ -200,13 +225,15 @@ describe("password recovery request", () => {
     const targetDestination = await redirectOf(() =>
       requestPasswordResetAction(formWith({ email: target.email })),
     );
-    expect(afterCallbacks).toHaveLength(0);
+    expect(afterCallbacks).toHaveLength(1);
     const knownDestination = await redirectOf(() =>
       requestPasswordResetAction(formWith({ email: admin.email })),
     );
 
     expect(targetDestination).toBe(knownDestination);
-    expect(afterCallbacks).toHaveLength(1);
+    expect(afterCallbacks).toHaveLength(2);
+    expect((await pool.query("SELECT 1 FROM admin_password_reset_tokens")).rowCount).toBe(0);
+    await flushAfterCallbacks();
     const tokens = await pool.query("SELECT 1 FROM admin_password_reset_tokens");
     expect(tokens.rowCount).toBe(1);
     const requestAudits = await pool.query(
@@ -431,6 +458,66 @@ describe("password recovery completion", () => {
 
     expect(state.message).toBe("Las contraseñas no coinciden.");
     expect(await attemptComplete(token)).toBe(SUCCESS_REDIRECT);
+  });
+});
+
+describe("password reset token invalidation", () => {
+  it("invalidates a live token when the admin changes their own password", async () => {
+    const admin = await insertAdmin();
+    const tokenHash = await issueRepositoryToken(admin.email);
+
+    const result = await userRepository.changeOwnPassword(
+      admin.id,
+      randomUUID(),
+      oldPasswordHash,
+      "changed-own-password-hash",
+    );
+
+    expect(result.ok).toBe(true);
+    await expect(passwordResetRepository.complete(tokenHash, "late-reset-hash")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("invalidates a live token when another admin resets the password", async () => {
+    const actor = await insertAdmin({ role: "SUPER_ADMIN" });
+    const target = await insertAdmin();
+    const tokenHash = await issueRepositoryToken(target.email);
+
+    const result = await userRepository.resetPassword(actor.id, target.id, "admin-reset-hash");
+
+    expect(result.ok).toBe(true);
+    await expect(passwordResetRepository.complete(tokenHash, "late-reset-hash")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("invalidates a live token when the admin is deactivated", async () => {
+    const actor = await insertAdmin({ role: "SUPER_ADMIN" });
+    const target = await insertAdmin();
+    const tokenHash = await issueRepositoryToken(target.email);
+
+    const result = await userRepository.deactivate(actor.id, target.id);
+
+    expect(result.ok).toBe(true);
+    await expect(passwordResetRepository.complete(tokenHash, "late-reset-hash")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("invalidates a live token when the admin is deleted", async () => {
+    const actor = await insertAdmin({ role: "SUPER_ADMIN" });
+    const target = await insertAdmin();
+    const tokenHash = await issueRepositoryToken(target.email);
+    const codeHash = "ab".repeat(32);
+    await userRepository.createDeletionCode(actor.id, target.id, codeHash);
+
+    const result = await userRepository.deleteWithCode(actor.id, target.id, codeHash);
+
+    expect(result.ok).toBe(true);
+    await expect(passwordResetRepository.complete(tokenHash, "late-reset-hash")).resolves.toBe(
+      false,
+    );
   });
 });
 

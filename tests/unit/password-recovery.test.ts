@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
+  checkPasswordResetRateLimits,
   completePasswordReset,
+  issuePasswordReset,
   PASSWORD_RESET_TTL_MINUTES,
-  requestPasswordReset,
   type PasswordResetRepository,
 } from "@/application/auth/password-recovery";
 import {
@@ -24,17 +25,16 @@ function fakeRepository(overrides: Partial<Record<keyof PasswordResetRepository,
 
 const allowAll = async () => ({ allowed: true });
 
-describe("requestPasswordReset", () => {
+describe("issuePasswordReset", () => {
   it("hashes the token before it reaches the repository and returns the raw token", async () => {
     const repository = fakeRepository({
       issueToken: vi.fn().mockResolvedValue({ displayName: "Ana", email: "Ana@Example.com" }),
     });
 
-    const delivery = await requestPasswordReset(
-      { email: "  Ana@Example.com ", clientIp: "1.2.3.4" },
+    const delivery = await issuePasswordReset(
+      { email: "  Ana@Example.com " },
       {
         repository,
-        consumeRateLimit: allowAll,
         generateToken: () => "raw-token",
         hashToken: (token) => `hash:${token}`,
       },
@@ -53,11 +53,10 @@ describe("requestPasswordReset", () => {
   });
 
   it("returns null when the repository finds no active admin", async () => {
-    const delivery = await requestPasswordReset(
-      { email: "nobody@example.com", clientIp: "1.2.3.4" },
+    const delivery = await issuePasswordReset(
+      { email: "nobody@example.com" },
       {
         repository: fakeRepository(),
-        consumeRateLimit: allowAll,
         generateToken: () => "raw-token",
         hashToken: (token) => `hash:${token}`,
       },
@@ -65,38 +64,29 @@ describe("requestPasswordReset", () => {
 
     expect(delivery).toBeNull();
   });
+});
 
+describe("checkPasswordResetRateLimits", () => {
   it.each([
     ["admin-password-reset:ip", "ip"],
     ["admin-password-reset:email", "email"],
-  ])("never touches the repository when %s is exhausted", async (blockedScope) => {
-    const repository = fakeRepository();
-
-    const delivery = await requestPasswordReset(
+  ])("returns false when %s is exhausted", async (blockedScope) => {
+    const allowed = await checkPasswordResetRateLimits(
       { email: "ana@example.com", clientIp: "1.2.3.4" },
       {
-        repository,
         consumeRateLimit: async (input) => ({ allowed: input.scope !== blockedScope }),
-        generateToken: () => "raw-token",
-        hashToken: (token) => `hash:${token}`,
       },
     );
 
-    expect(delivery).toBeNull();
-    expect(repository.issueToken).not.toHaveBeenCalled();
+    expect(allowed).toBe(false);
   });
 
   it("rate limits by ip and by normalized email with the approved quotas", async () => {
     const consumeRateLimit = vi.fn(allowAll);
 
-    await requestPasswordReset(
+    await checkPasswordResetRateLimits(
       { email: "Ana@Example.com", clientIp: "1.2.3.4" },
-      {
-        repository: fakeRepository(),
-        consumeRateLimit,
-        generateToken: () => "raw-token",
-        hashToken: (token) => token,
-      },
+      { consumeRateLimit },
     );
 
     expect(consumeRateLimit).toHaveBeenCalledWith({

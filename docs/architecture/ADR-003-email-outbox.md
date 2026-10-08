@@ -17,9 +17,10 @@ Secrets never go through the outbox. Admin deletion codes and password-reset lin
 
 ### O2. Delivery
 
-`deliverPendingEmails(deps, { limit })` in `src/application/notifications/` claims due rows, composes and sends them one at a time, and records the result. It depends only on ports: `EmailOutboxRepository`, `OutboxEmailComposer` and `EmailSender`.
+`deliverPendingEmails(deps, { limit, timeBudgetMs })` in `src/application/notifications/` claims, composes, sends and completes one due row at a time until the limit or time budget is reached. It depends only on ports: `EmailOutboxRepository`, `OutboxEmailComposer` and `EmailSender`.
 
-- **Claim:** one `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)` takes a 2 minute lease and increments `attempts`. Concurrent drains never receive the same row, and a crashed drain's rows are reclaimed when the lease expires. Time comes from `clock_timestamp()`.
+- **Claim:** each `UPDATE ... WHERE id IN (SELECT ... LIMIT 1 FOR UPDATE SKIP LOCKED)` takes a 2 minute lease and increments `attempts`. Concurrent drains never receive the same live lease, and a crashed drain's row is reclaimed when the lease expires. Time comes from `clock_timestamp()`.
+- **Fenced completion:** `markSent`, `scheduleRetry` and `markFailed` update only a PENDING row whose `locked_until` still equals the claim's lease. A stale worker changes nothing and logs `email_outbox_stale_lease` with only the outbox id. This prevents an older drain from regressing a newer SENT or FAILED outcome.
 - **Compose at send time:** the composer loads the guest or admin data by join when the email is sent, so the outbox stores no personal data beyond a subject id and a small payload. A subject that no longer exists fails the row with `SUBJECT_MISSING`. Soft-deleted admins are still found so the deletion notice can be sent.
 - **Policy** (pure functions, unit tested):
   - success marks the row `SENT`.
@@ -29,10 +30,10 @@ Secrets never go through the outbox. Admin deletion codes and password-reset lin
 
 ### O3. Triggers
 
-- After a request that enqueued a row, `scheduleEmailDelivery()` runs `drainEmailOutbox({ limit: 10 })` through Next `after()`. It is the only place that knows about `after`, and it logs `email_outbox_drain_failed` instead of throwing.
+- After a request that enqueued a row, `scheduleEmailDelivery()` runs `drainEmailOutbox({ limit: 10, timeBudgetMs: 20000 })` through Next `after()`. It is the only place that knows about `after`, and it logs `email_outbox_drain_failed` instead of throwing.
 - Reservation submission schedules delivery when the result is a fresh `CONFIRMED` or `WAITLISTED` outcome, never for an idempotent replay.
 - Every successful admin mutation that enqueues a row, and the admin reservation cancellation, schedule delivery.
-- `GET /api/cron/email-outbox` requires `Authorization: Bearer <CRON_SECRET>` (compared with `timingSafeEqual`), drains up to 50 rows, deletes `SENT` rows older than 90 days and returns `{ delivered, retried, failed }`. `CRON_SECRET` needs 32 or more characters in preview and production.
+- `GET /api/cron/email-outbox` requires `Authorization: Bearer <CRON_SECRET>` (compared with `timingSafeEqual`), drains up to 50 rows with a 60 second budget, deletes `SENT` rows older than 90 days and returns `{ delivered, retried, failed }`. `CRON_SECRET` needs 32 or more characters in preview and production.
 - **Hobby limitation:** Vercel Hobby only allows daily crons, so `vercel.json` runs `0 13 * * *`. The cron is a safety net for retries and stranded rows. Normal delivery comes from `after()`. On Vercel Pro use `*/5 * * * *`.
 
 ### O4. Admin account rows
@@ -61,7 +62,7 @@ The raw IP lives only in the outbox payload. Rate limiting keeps using the hashe
 
 ## Delivery guarantees
 
-At least once. A crash between the provider accepting a message and `markSent` can send a duplicate email. This is accepted, because a duplicate confirmation is far cheaper than a lost one.
+At least once. A crash or lease expiry between the provider accepting a message and `markSent` can send a duplicate email. Fenced completion writes prevent stale workers from regressing a newer outcome, but cannot make the provider call exactly once. This is accepted, because a duplicate confirmation is far cheaper than a lost one.
 
 ## Consequences
 

@@ -29,11 +29,12 @@ function outboxRow(overrides: Partial<EmailOutboxRow> = {}): EmailOutboxRow {
 }
 
 function setup(rows: EmailOutboxRow[]) {
+  const pending = [...rows];
   const repository = {
-    claimDue: vi.fn().mockResolvedValue(rows),
-    markSent: vi.fn().mockResolvedValue(undefined),
-    scheduleRetry: vi.fn().mockResolvedValue(undefined),
-    markFailed: vi.fn().mockResolvedValue(undefined),
+    claimDue: vi.fn(async () => pending.splice(0, 1)),
+    markSent: vi.fn().mockResolvedValue(true),
+    scheduleRetry: vi.fn().mockResolvedValue(true),
+    markFailed: vi.fn().mockResolvedValue(true),
   };
   const composer = {
     compose: vi.fn().mockResolvedValue({
@@ -42,40 +43,46 @@ function setup(rows: EmailOutboxRow[]) {
     }),
   };
   const sender = { send: vi.fn<EmailSender["send"]>().mockResolvedValue(undefined) };
+  const now = vi.fn(() => 0);
   const logFailure = vi.fn();
+  const logStaleLease = vi.fn();
 
   return {
     repository,
     composer,
     sender,
+    now,
     logFailure,
-    run: (limit = 10) =>
+    logStaleLease,
+    run: (limit = 10, timeBudgetMs = 20_000) =>
       deliverPendingEmails(
         {
           repository: repository as unknown as EmailOutboxRepository,
           composer: composer as OutboxEmailComposer,
           sender,
+          now,
           logFailure,
+          logStaleLease,
         },
-        { limit },
+        { limit, timeBudgetMs },
       ),
   };
 }
 
 describe("deliverPendingEmails", () => {
-  it("claims the requested limit and marks delivered rows as sent", async () => {
+  it("claims one row at a time and marks delivered rows as sent", async () => {
     const test = setup([outboxRow()]);
 
     await expect(test.run(7)).resolves.toEqual({ delivered: 1, retried: 0, failed: 0 });
 
-    expect(test.repository.claimDue).toHaveBeenCalledWith(7);
+    expect(test.repository.claimDue).toHaveBeenCalledWith(1);
     expect(test.sender.send).toHaveBeenCalledWith({
       to: { email: "ana@example.com", name: "Ana" },
       subject: "Asunto",
       html: "<p>Hola</p>",
       text: "Hola",
     });
-    expect(test.repository.markSent).toHaveBeenCalledWith("row-1");
+    expect(test.repository.markSent).toHaveBeenCalledWith("row-1", expect.any(Date));
     expect(test.logFailure).not.toHaveBeenCalled();
   });
 
@@ -85,7 +92,12 @@ describe("deliverPendingEmails", () => {
 
     await expect(test.run()).resolves.toEqual({ delivered: 0, retried: 1, failed: 0 });
 
-    expect(test.repository.scheduleRetry).toHaveBeenCalledWith("row-1", 240, "HTTP_503");
+    expect(test.repository.scheduleRetry).toHaveBeenCalledWith(
+      "row-1",
+      expect.any(Date),
+      240,
+      "HTTP_503",
+    );
     expect(test.repository.markSent).not.toHaveBeenCalled();
     expect(test.logFailure).toHaveBeenCalledWith({
       outboxId: "row-1",
@@ -100,7 +112,7 @@ describe("deliverPendingEmails", () => {
 
     await expect(test.run()).resolves.toEqual({ delivered: 0, retried: 0, failed: 1 });
 
-    expect(test.repository.markFailed).toHaveBeenCalledWith("row-1", "HTTP_400");
+    expect(test.repository.markFailed).toHaveBeenCalledWith("row-1", expect.any(Date), "HTTP_400");
     expect(test.repository.scheduleRetry).not.toHaveBeenCalled();
   });
 
@@ -110,7 +122,7 @@ describe("deliverPendingEmails", () => {
 
     await expect(test.run()).resolves.toEqual({ delivered: 0, retried: 0, failed: 1 });
 
-    expect(test.repository.markFailed).toHaveBeenCalledWith("row-1", "NETWORK");
+    expect(test.repository.markFailed).toHaveBeenCalledWith("row-1", expect.any(Date), "NETWORK");
   });
 
   it("fails rows whose subject no longer exists without sending", async () => {
@@ -120,7 +132,11 @@ describe("deliverPendingEmails", () => {
     await expect(test.run()).resolves.toEqual({ delivered: 0, retried: 0, failed: 1 });
 
     expect(test.sender.send).not.toHaveBeenCalled();
-    expect(test.repository.markFailed).toHaveBeenCalledWith("row-1", "SUBJECT_MISSING");
+    expect(test.repository.markFailed).toHaveBeenCalledWith(
+      "row-1",
+      expect.any(Date),
+      "SUBJECT_MISSING",
+    );
     expect(test.logFailure).toHaveBeenCalledWith({
       outboxId: "row-1",
       kind: "RESERVATION_CONFIRMED",
@@ -136,8 +152,38 @@ describe("deliverPendingEmails", () => {
 
     await expect(test.run()).resolves.toEqual({ delivered: 1, retried: 1, failed: 0 });
 
-    expect(test.repository.scheduleRetry).toHaveBeenCalledWith("a", 60, "HTTP_500");
-    expect(test.repository.markSent).toHaveBeenCalledWith("b");
+    expect(test.repository.scheduleRetry).toHaveBeenCalledWith(
+      "a",
+      expect.any(Date),
+      60,
+      "HTTP_500",
+    );
+    expect(test.repository.markSent).toHaveBeenCalledWith("b", expect.any(Date));
+  });
+
+  it("stops before claiming another row when the time budget is exhausted", async () => {
+    const test = setup([outboxRow({ id: "a" }), outboxRow({ id: "b" })]);
+    test.now.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(20_000);
+
+    await expect(test.run(10, 20_000)).resolves.toEqual({
+      delivered: 1,
+      retried: 0,
+      failed: 0,
+    });
+
+    expect(test.repository.claimDue).toHaveBeenCalledTimes(1);
+    expect(test.repository.markSent).toHaveBeenCalledOnce();
+    expect(test.repository.markSent).not.toHaveBeenCalledWith("b", expect.any(Date));
+  });
+
+  it("logs only the outbox id when a stale lease rejects completion", async () => {
+    const test = setup([outboxRow()]);
+    test.repository.markSent.mockResolvedValue(false);
+
+    await expect(test.run()).resolves.toEqual({ delivered: 0, retried: 0, failed: 0 });
+
+    expect(test.logStaleLease).toHaveBeenCalledWith({ outboxId: "row-1" });
+    expect(test.logFailure).not.toHaveBeenCalled();
   });
 
   it("never logs recipient, subject or body", async () => {

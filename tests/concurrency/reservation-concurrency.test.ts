@@ -451,6 +451,44 @@ describe("reservation allocation concurrency", () => {
     printSummary("F", requests.length, results, summary, durationMs);
   });
 
+  it("never leaves one guest both confirmed and waiting in the cross-table duplicate race", async () => {
+    for (let iteration = 0; iteration < 30; iteration += 1) {
+      const event = await insertTestEvent(pool, {
+        capacity: 20,
+        maxPartySize: 1,
+        waitlistCapacity: 5,
+      });
+      await seedReservations(event.slug, 19, 650_000 + iteration * 100);
+      const sharedIdentity = {
+        email: `cross-table-${iteration}@example.com`,
+        phone: "+50379999999",
+      };
+      const results = await fireTogether(event.slug, [
+        { sequence: 653_000 + iteration * 2, overrides: sharedIdentity },
+        { sequence: 653_001 + iteration * 2, overrides: sharedIdentity },
+      ]);
+      const summary = await assertInvariants(event.id, results);
+      const identities = await pool.query<{ source: string }>(
+        `SELECT 'CONFIRMED' AS source
+           FROM reservations
+          WHERE event_id = $1
+            AND status = 'CONFIRMED'
+            AND (email_normalized = $2 OR phone_e164 = $3)
+          UNION ALL
+         SELECT 'WAITING' AS source
+           FROM waitlist_entries
+          WHERE event_id = $1
+            AND status = 'WAITING'
+            AND (email_normalized = $2 OR phone_e164 = $3)`,
+        [event.id, sharedIdentity.email, sharedIdentity.phone],
+      );
+
+      expect(results.map(resultCode).sort()).toEqual(["CONFIRMED", "DUPLICATE_RESERVATION"]);
+      expect(identities.rows).toEqual([{ source: "CONFIRMED" }]);
+      expect(summary.waiting).toBe(0);
+    }
+  });
+
   it("G: preserves invariants while cancelling five and submitting 50 on a full event", async () => {
     const event = await insertTestEvent(pool, { capacity: 20, maxPartySize: 1 });
     await seedReservations(event.slug, 20, 700_000);

@@ -51,9 +51,9 @@ export interface RecentEmailOutboxItem {
 
 export interface EmailOutboxRepository {
   claimDue(limit: number): Promise<EmailOutboxRow[]>;
-  markSent(id: string): Promise<void>;
-  scheduleRetry(id: string, delaySeconds: number, errorCode: string): Promise<void>;
-  markFailed(id: string, errorCode: string): Promise<void>;
+  markSent(id: string, lease: Date): Promise<boolean>;
+  scheduleRetry(id: string, lease: Date, delaySeconds: number, errorCode: string): Promise<boolean>;
+  markFailed(id: string, lease: Date, errorCode: string): Promise<boolean>;
   listRecent(input: {
     limit: number;
     status?: EmailOutboxStatus;

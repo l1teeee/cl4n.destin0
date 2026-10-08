@@ -54,9 +54,12 @@ export interface RequestPasswordResetInput {
   clientIp: string;
 }
 
-export interface RequestPasswordResetDependencies {
-  repository: PasswordResetRepository;
+export interface CheckPasswordResetRateLimitsDependencies {
   consumeRateLimit: ConsumeRateLimit;
+}
+
+export interface IssuePasswordResetDependencies {
+  repository: PasswordResetRepository;
   generateToken: () => string;
   hashToken: (token: string) => string;
 }
@@ -66,20 +69,24 @@ export interface PasswordResetDelivery {
   recipient: PasswordResetRecipient;
 }
 
-/** The caller must not let the outcome (delivery or null) change what the visitor sees. */
-export async function requestPasswordReset(
+export async function checkPasswordResetRateLimits(
   input: RequestPasswordResetInput,
-  dependencies: RequestPasswordResetDependencies,
-): Promise<PasswordResetDelivery | null> {
+  dependencies: CheckPasswordResetRateLimitsDependencies,
+): Promise<boolean> {
   const emailNormalized = input.email.trim().toLowerCase();
   const [ipLimit, emailLimit] = await Promise.all([
     dependencies.consumeRateLimit({ ...requestIpRateLimit, subject: input.clientIp }),
     dependencies.consumeRateLimit({ ...requestEmailRateLimit, subject: emailNormalized }),
   ]);
-  if (!ipLimit.allowed || !emailLimit.allowed) {
-    return null;
-  }
+  return ipLimit.allowed && emailLimit.allowed;
+}
 
+/** The caller must not let the outcome (delivery or null) change what the visitor sees. */
+export async function issuePasswordReset(
+  input: Pick<RequestPasswordResetInput, "email">,
+  dependencies: IssuePasswordResetDependencies,
+): Promise<PasswordResetDelivery | null> {
+  const emailNormalized = input.email.trim().toLowerCase();
   const token = dependencies.generateToken();
   const recipient = await dependencies.repository.issueToken({
     emailNormalized,

@@ -304,6 +304,7 @@ export async function changeCapacityAction(
     authorization.session.admin.id,
   );
   if (!result.ok) return operationError(result.error);
+  scheduleEmailDelivery();
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Capacidad actualizada." };
 }

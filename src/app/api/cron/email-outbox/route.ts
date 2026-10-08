@@ -7,6 +7,7 @@ import { drainEmailOutbox } from "@/infrastructure/email/outbox/drain-email-outb
 export const dynamic = "force-dynamic";
 
 const CRON_DRAIN_LIMIT = 50;
+const CRON_DRAIN_TIME_BUDGET_MS = 60_000;
 const SENT_RETENTION_DAYS = 90;
 
 function hasValidBearerToken(request: Request): boolean {
@@ -25,7 +26,10 @@ export async function GET(request: Request): Promise<Response> {
     return new Response(null, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
 
-  const summary = await drainEmailOutbox({ limit: CRON_DRAIN_LIMIT });
+  const summary = await drainEmailOutbox({
+    limit: CRON_DRAIN_LIMIT,
+    timeBudgetMs: CRON_DRAIN_TIME_BUDGET_MS,
+  });
   await postgresEmailOutboxRepository.deleteSentOlderThan(SENT_RETENTION_DAYS);
 
   return Response.json(summary, { headers: { "Cache-Control": "no-store" } });

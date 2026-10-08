@@ -3,7 +3,7 @@ import type { EventRosterRow, RosterView } from "@/application/events/types";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
-import { createCsv } from "@/lib/csv";
+import { createCsv } from "@/infrastructure/http/csv";
 import { formatReservationNumber, parseRosterView, rosterStatusLabel } from "@/ui/admin/view-model";
 
 function emailDelivery(row: EventRosterRow): string {

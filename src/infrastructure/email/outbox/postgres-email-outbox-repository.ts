@@ -65,7 +65,7 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
     // clock_timestamp keeps the lease and the due check on the database clock, never the app clock.
     const result = await this.pool.query<OutboxRecord>(
       `UPDATE email_outbox
-          SET locked_until = clock_timestamp() + interval '${LEASE_INTERVAL}',
+          SET locked_until = date_trunc('milliseconds', clock_timestamp()) + interval '${LEASE_INTERVAL}',
               attempts = attempts + 1
         WHERE id IN (
           SELECT id
@@ -84,38 +84,52 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
     return result.rows.map(toRow).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
-  async markSent(id: string): Promise<void> {
-    await this.pool.query(
+  async markSent(id: string, lease: Date): Promise<boolean> {
+    const result = await this.pool.query(
       `UPDATE email_outbox
           SET status = 'SENT',
               sent_at = clock_timestamp(),
               locked_until = NULL,
               last_error = NULL
-        WHERE id = $1`,
-      [id],
+        WHERE id = $1
+          AND status = 'PENDING'
+          AND locked_until = $2`,
+      [id, lease],
     );
+    return result.rowCount === 1;
   }
 
-  async scheduleRetry(id: string, delaySeconds: number, errorCode: string): Promise<void> {
-    await this.pool.query(
+  async scheduleRetry(
+    id: string,
+    lease: Date,
+    delaySeconds: number,
+    errorCode: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
       `UPDATE email_outbox
-          SET next_attempt_at = clock_timestamp() + make_interval(secs => $2),
+          SET next_attempt_at = clock_timestamp() + make_interval(secs => $3),
               locked_until = NULL,
-              last_error = $3
-        WHERE id = $1`,
-      [id, delaySeconds, errorCode],
+              last_error = $4
+        WHERE id = $1
+          AND status = 'PENDING'
+          AND locked_until = $2`,
+      [id, lease, delaySeconds, errorCode],
     );
+    return result.rowCount === 1;
   }
 
-  async markFailed(id: string, errorCode: string): Promise<void> {
-    await this.pool.query(
+  async markFailed(id: string, lease: Date, errorCode: string): Promise<boolean> {
+    const result = await this.pool.query(
       `UPDATE email_outbox
           SET status = 'FAILED',
               locked_until = NULL,
-              last_error = $2
-        WHERE id = $1`,
-      [id, errorCode],
+              last_error = $3
+        WHERE id = $1
+          AND status = 'PENDING'
+          AND locked_until = $2`,
+      [id, lease, errorCode],
     );
+    return result.rowCount === 1;
   }
 
   async listRecent(input: {

@@ -21,8 +21,10 @@ The table `admin_password_reset_tokens` and the audit actions `ADMIN_PASSWORD_RE
 - The page always answers with the same message, whether the email belongs to an admin, belongs to
   an inactive or deleted admin, is unknown, or the request was rate limited. Only a malformed email
   gets a different answer, and that depends on the input alone, never on account state.
-- The email is sent inside Next `after()`, so response timing does not depend on the account.
-- `requestPasswordReset` finds an active, non-deleted admin by `email_normalized`. In one
+- Validation and both rate-limit consumes finish before the response. Account lookup, token
+  issuance and email delivery all run inside Next `after()`, so synchronous response timing does
+  not depend on the account.
+- `issuePasswordReset` finds an active, non-deleted admin by `email_normalized`. In one
   transaction it invalidates the admin's live token, inserts a new one with a 30 minute expiry
   computed by the database clock, and writes the audit row (actor SYSTEM, entity ADMIN_USER,
   empty metadata).
@@ -50,14 +52,15 @@ token and no address, because provider errors can echo the recipient. Only the p
 - Fields: new password and confirmation, with the same rules as `resetAdminPasswordSchema`.
 - Rate limit `admin-password-reset-complete:ip`, 10 per 900 s.
 - The password is hashed before the transaction starts, so locks are not held during scrypt.
-- One transaction, locking the token before the admin:
-  1. `SELECT ... FOR UPDATE` on a token that is not consumed, not invalidated and not expired.
+- One transaction, locking the admin before the token:
+  1. Find the live token's admin id without locking.
   2. Lock the admin row `FOR NO KEY UPDATE`; it must be active and not deleted.
-  3. Update `password_hash` and `updated_at`.
-  4. Mark the token consumed.
-  5. Delete all of the admin's sessions.
-  6. Write the audit row (actor SYSTEM).
-  7. Enqueue the `ADMIN_PASSWORD_RESET_COMPLETED` notice in `email_outbox`.
+  3. Lock the token `FOR UPDATE` and re-verify that it is live and belongs to that admin.
+  4. Update `password_hash` and `updated_at`.
+  5. Mark the token consumed.
+  6. Delete all of the admin's sessions.
+  7. Write the audit row (actor SYSTEM).
+  8. Enqueue the `ADMIN_PASSWORD_RESET_COMPLETED` notice in `email_outbox`.
 - Single use: a concurrent second completion blocks on the token lock, then finds the token consumed
   and fails. Exactly one succeeds.
 - Every invalid, expired, consumed, rate limited or inactive-admin case returns the same message:
@@ -66,11 +69,12 @@ token and no address, because provider errors can echo the recipient. Only the p
 
 ### Lock order and concurrent requests
 
-`issueToken` takes no row lock on `admin_users`. Completion locks token then admin, so locking the
-admin first in the request path would allow a deadlock between the two. The request path relies on
-the partial unique index `admin_password_reset_tokens_live_uq` (one live token per admin). When two
-requests race and one hits the unique violation, it returns "nothing to send": the winner already
-issued a token and emails it.
+Every password or status mutation locks the admin row before touching reset tokens. `issueToken`
+locks the active admin `FOR NO KEY UPDATE`, invalidates the old live token and inserts the new one.
+Completion performs an unlocked lookup only to identify the admin, then locks the admin before
+locking and re-verifying the token. Own-password changes, admin password resets, deactivation and
+deletion invalidate every live reset token after locking the affected admin. This order prevents
+deadlocks and ensures an older token cannot survive a password or status change.
 
 ### Routing
 

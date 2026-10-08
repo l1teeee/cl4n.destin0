@@ -19,7 +19,9 @@ export interface DeliverPendingEmailsDependencies {
   repository: EmailOutboxRepository;
   composer: OutboxEmailComposer;
   sender: EmailSender;
+  now(): number;
   logFailure(fields: { outboxId: string; kind: EmailOutboxKind; errorCode: string }): void;
+  logStaleLease(fields: { outboxId: string }): void;
 }
 
 type SendAttempt =
@@ -43,33 +45,74 @@ async function composeAndSend(
 
 export async function deliverPendingEmails(
   dependencies: DeliverPendingEmailsDependencies,
-  input: { limit: number },
+  input: { limit: number; timeBudgetMs: number },
 ): Promise<EmailDeliverySummary> {
-  const rows = await dependencies.repository.claimDue(input.limit);
   const summary: EmailDeliverySummary = { delivered: 0, retried: 0, failed: 0 };
+  const startedAt = dependencies.now();
 
-  for (const row of rows) {
+  for (let index = 0; index < input.limit; index += 1) {
+    if (dependencies.now() - startedAt >= input.timeBudgetMs) {
+      break;
+    }
+
+    const [row] = await dependencies.repository.claimDue(1);
+    if (!row) {
+      break;
+    }
+    if (!row.lockedUntil) {
+      throw new Error("Claimed email outbox row has no lease");
+    }
+
     const attempt = await composeAndSend(dependencies, row);
 
     if (attempt.sent) {
-      await dependencies.repository.markSent(row.id);
+      const updated = await dependencies.repository.markSent(row.id, row.lockedUntil);
+      if (!updated) {
+        dependencies.logStaleLease({ outboxId: row.id });
+        continue;
+      }
       summary.delivered += 1;
       continue;
     }
 
     if ("missingSubject" in attempt) {
-      await dependencies.repository.markFailed(row.id, "SUBJECT_MISSING");
+      const updated = await dependencies.repository.markFailed(
+        row.id,
+        row.lockedUntil,
+        "SUBJECT_MISSING",
+      );
+      if (!updated) {
+        dependencies.logStaleLease({ outboxId: row.id });
+        continue;
+      }
       dependencies.logFailure({ outboxId: row.id, kind: row.kind, errorCode: "SUBJECT_MISSING" });
       summary.failed += 1;
       continue;
     }
 
     const failure = classifyEmailDeliveryFailure(attempt.error, row.attempts);
+    let updated: boolean;
     if (failure.action === "FAIL") {
-      await dependencies.repository.markFailed(row.id, failure.errorCode);
+      updated = await dependencies.repository.markFailed(
+        row.id,
+        row.lockedUntil,
+        failure.errorCode,
+      );
+    } else {
+      updated = await dependencies.repository.scheduleRetry(
+        row.id,
+        row.lockedUntil,
+        failure.delaySeconds,
+        failure.errorCode,
+      );
+    }
+    if (!updated) {
+      dependencies.logStaleLease({ outboxId: row.id });
+      continue;
+    }
+    if (failure.action === "FAIL") {
       summary.failed += 1;
     } else {
-      await dependencies.repository.scheduleRetry(row.id, failure.delaySeconds, failure.errorCode);
       summary.retried += 1;
     }
     dependencies.logFailure({ outboxId: row.id, kind: row.kind, errorCode: failure.errorCode });

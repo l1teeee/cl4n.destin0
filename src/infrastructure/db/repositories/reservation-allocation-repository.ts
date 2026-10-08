@@ -23,6 +23,8 @@ interface DatabaseError {
   constraint?: string;
 }
 
+class DuplicateReservationAfterWaitlistClaimError extends Error {}
+
 interface EventRow {
   id: string;
   status: "DRAFT" | "SCHEDULED" | "CLOSED" | "COMPLETED" | "CANCELLED";
@@ -395,6 +397,19 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         const placement = await claimWaitlistPlace(client, event.id, command.partySize);
 
         if (placement) {
+          const lockedDuplicate = await client.query(
+            `SELECT 1
+               FROM reservations
+              WHERE event_id = $1
+                AND status = 'CONFIRMED'
+                AND (email_normalized = $2 OR phone_e164 = $3)
+              LIMIT 1`,
+            [event.id, command.emailNormalized, command.phoneE164],
+          );
+          if ((lockedDuplicate.rowCount ?? 0) > 0) {
+            throw new DuplicateReservationAfterWaitlistClaimError();
+          }
+
           const entryId = await insertWaitlistEntry(
             client,
             event.id,
@@ -526,7 +541,10 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       }
       const details = databaseError(error);
 
-      if (details.code === "23505" && duplicateConstraints.has(details.constraint ?? "")) {
+      if (
+        error instanceof DuplicateReservationAfterWaitlistClaimError ||
+        (details.code === "23505" && duplicateConstraints.has(details.constraint ?? ""))
+      ) {
         return {
           ...command.mapOutcome({ code: "DUPLICATE_RESERVATION" }),
           replayed: false,

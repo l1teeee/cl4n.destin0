@@ -9,6 +9,7 @@ import {
   hashPasswordResetToken,
 } from "@/infrastructure/auth/password-reset-token";
 import { PostgresPasswordResetRepository } from "@/infrastructure/auth/postgres-password-reset-repository";
+import { PostgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 
@@ -16,12 +17,14 @@ const ITERATIONS = 10;
 const CONCURRENT_COMPLETIONS = 8;
 let pool: Pool;
 let repository: PostgresPasswordResetRepository;
+let userRepository: PostgresAdminUserRepository;
 let passwordHash: string;
 
 beforeAll(async () => {
   await resetTestDatabase();
   pool = new Pool({ connectionString: testDatabaseUrl().toString(), max: 30 });
   repository = new PostgresPasswordResetRepository(pool);
+  userRepository = new PostgresAdminUserRepository(pool);
   passwordHash = await hashPassword("clave-inicial-123");
 });
 
@@ -29,13 +32,16 @@ afterAll(async () => {
   await pool.end();
 });
 
-async function insertAdmin(): Promise<{ id: string; email: string }> {
+async function insertAdmin(role: "ADMIN" | "SUPER_ADMIN" = "ADMIN"): Promise<{
+  id: string;
+  email: string;
+}> {
   const email = `${randomUUID()}@example.com`;
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
-     VALUES ($1, $1, $2, 'Admin')
+    `INSERT INTO admin_users (email, email_normalized, password_hash, display_name, role)
+     VALUES ($1, $1, $2, 'Admin', $3)
      RETURNING id`,
-    [email, passwordHash],
+    [email, passwordHash, role],
   );
   return { id: result.rows[0]!.id, email };
 }
@@ -104,6 +110,24 @@ describe("password recovery concurrency", () => {
       ]);
 
       expect(typeof completed).toBe("boolean");
+    }
+  });
+
+  it("does not deadlock or leave a usable token when completion races an admin reset", async () => {
+    for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
+      const actor = await insertAdmin("SUPER_ADMIN");
+      const target = await insertAdmin();
+      const token = await issueToken(target.email);
+      const tokenHash = hashPasswordResetToken(token);
+
+      const [completed, reset] = await Promise.all([
+        repository.complete(tokenHash, "self-service-reset-hash"),
+        userRepository.resetPassword(actor.id, target.id, "admin-reset-hash"),
+      ]);
+
+      expect(typeof completed).toBe("boolean");
+      expect(reset.ok).toBe(true);
+      await expect(repository.complete(tokenHash, "late-reset-hash")).resolves.toBe(false);
     }
   });
 });

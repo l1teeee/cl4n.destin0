@@ -216,12 +216,14 @@ describe("admin event Server Actions", () => {
     const form = new FormData();
     form.set("newCapacity", "25");
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: false });
+    expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
     ).toBe(20);
     await authorize();
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: true });
+    expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,

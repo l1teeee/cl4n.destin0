@@ -9,8 +9,6 @@ import type {
 import { pool as applicationPool } from "../db/client";
 import { inTransaction } from "../db/transaction";
 
-const UNIQUE_VIOLATION = "23505";
-
 interface AdminRecipientRow {
   id: string;
   display_name: string;
@@ -37,31 +35,21 @@ async function insertSystemAudit(
 export class PostgresPasswordResetRepository implements PasswordResetRepository {
   constructor(private readonly pool: Pool = applicationPool) {}
 
-  async issueToken(input: IssuePasswordResetTokenInput): Promise<PasswordResetRecipient | null> {
-    try {
-      return await inTransaction(this.pool, [], (client) => this.issueTokenIn(client, input));
-    } catch (error) {
-      // WHY: two simultaneous requests for one admin race on the single-live-token index. The winner
-      // already issued a token and emails it, so the loser has nothing left to do.
-      if (error instanceof Error && "code" in error && error.code === UNIQUE_VIOLATION) {
-        return null;
-      }
-      throw error;
-    }
+  issueToken(input: IssuePasswordResetTokenInput): Promise<PasswordResetRecipient | null> {
+    return inTransaction(this.pool, [], (client) => this.issueTokenIn(client, input));
   }
 
   private async issueTokenIn(
     client: PoolClient,
     input: IssuePasswordResetTokenInput,
   ): Promise<PasswordResetRecipient | null> {
-    // WHY: no row lock here. complete() locks the token and then the admin, so locking the admin
-    // first would let the two paths deadlock.
     const admin = await client.query<AdminRecipientRow>(
       `SELECT id, display_name, email
          FROM admin_users
         WHERE email_normalized = $1
           AND is_active = true
-          AND deleted_at IS NULL`,
+          AND deleted_at IS NULL
+        FOR NO KEY UPDATE`,
       [input.emailNormalized],
     );
     const row = admin.rows[0];
@@ -88,18 +76,17 @@ export class PostgresPasswordResetRepository implements PasswordResetRepository 
 
   complete(tokenHash: string, passwordHash: string): Promise<boolean> {
     return inTransaction(this.pool, [], async (client) => {
-      const token = await client.query<TokenRow>(
-        `SELECT id, admin_user_id
+      const tokenOwner = await client.query<{ admin_user_id: string }>(
+        `SELECT admin_user_id
            FROM admin_password_reset_tokens
           WHERE token_hash = $1
             AND consumed_at IS NULL
             AND invalidated_at IS NULL
-            AND expires_at > clock_timestamp()
-            FOR UPDATE`,
+            AND expires_at > clock_timestamp()`,
         [tokenHash],
       );
-      const tokenRow = token.rows[0];
-      if (!tokenRow) {
+      const adminId = tokenOwner.rows[0]?.admin_user_id;
+      if (!adminId) {
         return false;
       }
 
@@ -110,9 +97,25 @@ export class PostgresPasswordResetRepository implements PasswordResetRepository 
             AND is_active = true
             AND deleted_at IS NULL
             FOR NO KEY UPDATE`,
-        [tokenRow.admin_user_id],
+        [adminId],
       );
       if (!admin.rows[0]) {
+        return false;
+      }
+
+      const token = await client.query<TokenRow>(
+        `SELECT id, admin_user_id
+           FROM admin_password_reset_tokens
+          WHERE token_hash = $1
+            AND admin_user_id = $2
+            AND consumed_at IS NULL
+            AND invalidated_at IS NULL
+            AND expires_at > clock_timestamp()
+          FOR UPDATE`,
+        [tokenHash, adminId],
+      );
+      const tokenRow = token.rows[0];
+      if (!tokenRow) {
         return false;
       }
 
