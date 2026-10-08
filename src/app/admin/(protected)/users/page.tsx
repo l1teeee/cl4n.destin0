@@ -10,8 +10,13 @@ import {
   formatCount,
 } from "@/ui/admin/view-model";
 
-export default async function AdminUsersPage() {
+export default async function AdminUsersPage({
+  searchParams = Promise.resolve({}),
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
   const authorization = await requireSuperAdmin("page");
+  const deleted = (await searchParams).eliminado === "1";
   const users = await listAdminUsers(postgresAdminUserRepository);
 
   return (
@@ -28,6 +33,7 @@ export default async function AdminUsersPage() {
           Nuevo administrador
         </Link>
       </div>
+      {deleted ? <p className="text-sm text-zinc-400">Administrador eliminado.</p> : null}
       <div className="overflow-x-auto rounded border border-zinc-800">
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="bg-zinc-900 text-xs uppercase tracking-wide text-zinc-400">

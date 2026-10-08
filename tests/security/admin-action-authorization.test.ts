@@ -134,6 +134,8 @@ describe("admin Server Action authorization", () => {
 
     expect(guards).toEqual([
       ["createAdminUserAction", "requireSuperAdmin"],
+      ["requestAdminUserDeletionCodeAction", "requireSuperAdmin"],
+      ["confirmAdminUserDeletionAction", "requireSuperAdmin"],
       ["updateAdminUserAction", "requireSuperAdmin"],
       ["deactivateAdminUserAction", "requireSuperAdmin"],
       ["reactivateAdminUserAction", "requireSuperAdmin"],

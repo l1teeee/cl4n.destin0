@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AdminUserResult } from "@/application/admin-users/types";
 import type { AdminRole } from "@/application/auth/types";
 import { hashPassword } from "@/infrastructure/auth/password";
+import { hashAdminUserDeletionCode } from "@/infrastructure/crypto/admin-user-deletion-code";
 import { PostgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
@@ -148,6 +149,40 @@ describe("admin user concurrency", () => {
     ]);
 
     expect(summarize(results)).toEqual({ succeeded: 1, errors: ["INVALID_CURRENT_PASSWORD"] });
+  });
+
+  it("allows exactly one of two concurrent confirms with the same code", async () => {
+    const [actor] = await freshSuperAdminPair();
+    const target = await insertAdmin("ADMIN");
+    const codeHash = hashAdminUserDeletionCode(actor, target, "123456");
+    await expect(users.createDeletionCode(actor, target, codeHash)).resolves.toMatchObject({
+      ok: true,
+    });
+
+    const results = await Promise.all([
+      users.deleteWithCode(actor, target, codeHash),
+      users.deleteWithCode(actor, target, codeHash),
+    ]);
+
+    expect(summarize(results)).toEqual({ succeeded: 1, errors: ["CODE_INVALID"] });
+  });
+
+  it(`never leaves zero super admins when two delete each other (${ITERATIONS} rounds)`, async () => {
+    for (let round = 0; round < ITERATIONS; round += 1) {
+      const [first, second] = await freshSuperAdminPair();
+      const firstCode = hashAdminUserDeletionCode(first, second, "123456");
+      const secondCode = hashAdminUserDeletionCode(second, first, "654321");
+      await users.createDeletionCode(first, second, firstCode);
+      await users.createDeletionCode(second, first, secondCode);
+
+      const results = await Promise.all([
+        users.deleteWithCode(first, second, firstCode),
+        users.deleteWithCode(second, first, secondCode),
+      ]);
+
+      expect(summarize(results)).toEqual({ succeeded: 1, errors: ["FORBIDDEN"] });
+      expect(await activeSuperAdminCount()).toBe(1);
+    }
   });
 
   it("allows an audit foreign key check while the repository holds super-admin locks", async () => {

@@ -5,11 +5,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   changeOwnPassword,
+  confirmAdminUserDeletion,
   createAdminUser,
   deactivateAdminUser,
   listAdminUsers,
   reactivateAdminUser,
   resetAdminPassword,
+  requestAdminUserDeletionCode,
   revokeAdminSessions,
   updateAdminUser,
   type AdminUserDependencies,
@@ -19,6 +21,7 @@ import type { AdminRole } from "@/application/auth/types";
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "@/infrastructure/auth/password";
 import { authorizeSuperAdminSession } from "@/infrastructure/auth/require-admin";
 import { PostgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { hashAdminUserDeletionCode } from "@/infrastructure/crypto/admin-user-deletion-code";
 import { PostgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 import { consumeWithPool } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
@@ -30,6 +33,8 @@ let pool: Pool;
 let users: PostgresAdminUserRepository;
 let auth: PostgresAdminAuthRepository;
 let dependencies: AdminUserDependencies;
+let nextDeletionCode = "123456";
+let sentDeletionCodes: string[] = [];
 
 beforeAll(async () => {
   await resetTestDatabase();
@@ -42,11 +47,22 @@ beforeAll(async () => {
     consumeRateLimit: (input) => consumeWithPool(input, pool),
     hashPassword,
     verifyPassword,
+    notifications: {
+      sendAdminAdded: async () => undefined,
+      sendDeletionCode: async (input) => {
+        sentDeletionCodes.push(input.code);
+      },
+    },
+    generateDeletionCode: () => nextDeletionCode,
+    hashDeletionCode: hashAdminUserDeletionCode,
+    logError: () => undefined,
   };
 });
 
 beforeEach(async () => {
   await pool.query("TRUNCATE rate_limit_counters");
+  nextDeletionCode = "123456";
+  sentDeletionCodes = [];
 });
 
 afterAll(async () => {
@@ -61,7 +77,7 @@ async function insertAdmin(role: AdminRole, active = true) {
      RETURNING id`,
     [email, initialHash, role, active],
   );
-  return { id: result.rows[0]!.id, email };
+  return { id: result.rows[0]!.id, email, displayName: "Admin de prueba", role };
 }
 
 function realSignIn(email: string, password: string) {
@@ -453,5 +469,179 @@ describe("own password change", () => {
       Array.from({ length: 5 }, () => ({ ok: false, error: "INVALID_CURRENT_PASSWORD" })),
     );
     expect(outcomes[5]).toEqual({ ok: false, error: "RATE_LIMITED" });
+  });
+});
+
+describe("admin deletion", () => {
+  it("soft-deletes the target, revokes access and audits without the code or email", async () => {
+    const actor = await insertAdmin("SUPER_ADMIN");
+    const target = await insertAdmin("ADMIN");
+    await auth.createSession(target.id, initialHash);
+    await auth.createSession(target.id, initialHash);
+
+    await expect(
+      requestAdminUserDeletionCode(dependencies, actor, target.id),
+    ).resolves.toMatchObject({ ok: true, value: { expiresInMinutes: 10 } });
+    expect(sentDeletionCodes).toEqual(["123456"]);
+    await expect(
+      confirmAdminUserDeletion(dependencies, actor, { targetId: target.id, code: "123456" }),
+    ).resolves.toEqual({ ok: true, value: { revokedSessions: 2 } });
+
+    const stored = await pool.query<{ deleted_at: Date; is_active: boolean }>(
+      "SELECT deleted_at, is_active FROM admin_users WHERE id = $1",
+      [target.id],
+    );
+    expect(stored.rows[0]!.deleted_at).toBeInstanceOf(Date);
+    expect(stored.rows[0]!.is_active).toBe(false);
+    await expect(users.findById(target.id)).resolves.toBeNull();
+    expect((await listAdminUsers(users)).some((user) => user.id === target.id)).toBe(false);
+    await expect(realSignIn(target.email, initialPassword)).resolves.toEqual({
+      ok: false,
+      error: "INVALID_CREDENTIALS",
+    });
+    const sessions = await pool.query("SELECT 1 FROM admin_sessions WHERE admin_user_id = $1", [
+      target.id,
+    ]);
+    expect(sessions.rowCount).toBe(0);
+
+    const audit = await auditRows(target.id);
+    expect(audit.map((row) => [row.action, row.metadata])).toEqual([
+      ["ADMIN_USER_DELETION_REQUESTED", {}],
+      ["ADMIN_USER_DELETED", { revokedSessions: 2 }],
+    ]);
+    expect(JSON.stringify(audit)).not.toContain("123456");
+    expect(JSON.stringify(audit)).not.toContain(target.email);
+  });
+
+  it("invalidates a code on the fifth wrong attempt", async () => {
+    const actor = await insertAdmin("SUPER_ADMIN");
+    const target = await insertAdmin("ADMIN");
+    await requestAdminUserDeletionCode(dependencies, actor, target.id);
+
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      await expect(
+        confirmAdminUserDeletion(dependencies, actor, { targetId: target.id, code: "000000" }),
+      ).resolves.toEqual({ ok: false, error: "CODE_INVALID" });
+    }
+    await expect(
+      confirmAdminUserDeletion(dependencies, actor, { targetId: target.id, code: "000000" }),
+    ).resolves.toEqual({ ok: false, error: "TOO_MANY_ATTEMPTS" });
+    await expect(
+      confirmAdminUserDeletion(dependencies, actor, { targetId: target.id, code: "123456" }),
+    ).resolves.toEqual({ ok: false, error: "CODE_INVALID" });
+
+    const code = await pool.query<{ attempts: number; invalidated_at: Date }>(
+      "SELECT attempts, invalidated_at FROM admin_action_codes WHERE target_admin_id = $1",
+      [target.id],
+    );
+    expect(code.rows[0]!.attempts).toBe(5);
+    expect(code.rows[0]!.invalidated_at).toBeInstanceOf(Date);
+  });
+
+  it("expires codes by the database clock", async () => {
+    const actor = await insertAdmin("SUPER_ADMIN");
+    const target = await insertAdmin("ADMIN");
+    await requestAdminUserDeletionCode(dependencies, actor, target.id);
+    await pool.query(
+      "UPDATE admin_action_codes SET expires_at = clock_timestamp() - interval '1 second' WHERE target_admin_id = $1",
+      [target.id],
+    );
+
+    await expect(
+      confirmAdminUserDeletion(dependencies, actor, { targetId: target.id, code: "123456" }),
+    ).resolves.toEqual({ ok: false, error: "CODE_EXPIRED" });
+  });
+
+  it("prevents replay and invalidates a previous code on a new request", async () => {
+    const actor = await insertAdmin("SUPER_ADMIN");
+    const firstTarget = await insertAdmin("ADMIN");
+    await requestAdminUserDeletionCode(dependencies, actor, firstTarget.id);
+    await confirmAdminUserDeletion(dependencies, actor, {
+      targetId: firstTarget.id,
+      code: "123456",
+    });
+    await expect(
+      confirmAdminUserDeletion(dependencies, actor, {
+        targetId: firstTarget.id,
+        code: "123456",
+      }),
+    ).resolves.toEqual({ ok: false, error: "CODE_INVALID" });
+
+    const secondTarget = await insertAdmin("ADMIN");
+    await requestAdminUserDeletionCode(dependencies, actor, secondTarget.id);
+    nextDeletionCode = "654321";
+    await requestAdminUserDeletionCode(dependencies, actor, secondTarget.id);
+    await expect(
+      confirmAdminUserDeletion(dependencies, actor, {
+        targetId: secondTarget.id,
+        code: "123456",
+      }),
+    ).resolves.toEqual({ ok: false, error: "CODE_INVALID" });
+    await expect(
+      confirmAdminUserDeletion(dependencies, actor, {
+        targetId: secondTarget.id,
+        code: "654321",
+      }),
+    ).resolves.toMatchObject({ ok: true });
+  });
+
+  it("forbids regular-admin actors at the repository boundary", async () => {
+    const actor = await insertAdmin("ADMIN");
+    const target = await insertAdmin("ADMIN");
+    const hash = hashAdminUserDeletionCode(actor.id, target.id, "123456");
+
+    await expect(users.createDeletionCode(actor.id, target.id, hash)).resolves.toEqual({
+      ok: false,
+      error: "FORBIDDEN",
+    });
+    await expect(users.deleteWithCode(actor.id, target.id, hash)).resolves.toEqual({
+      ok: false,
+      error: "FORBIDDEN",
+    });
+  });
+
+  it("forbids deletion by a non-super-admin actor", async () => {
+    await pool.query("UPDATE admin_users SET is_active = false WHERE role = 'SUPER_ADMIN'");
+    const actor = await insertAdmin("ADMIN");
+    const target = await insertAdmin("SUPER_ADMIN");
+    const hash = hashAdminUserDeletionCode(actor.id, target.id, "123456");
+    await pool.query(
+      `INSERT INTO admin_action_codes (
+         purpose, actor_admin_id, target_admin_id, code_hash, expires_at
+       ) VALUES ('ADMIN_USER_DELETE', $1, $2, $3, clock_timestamp() + interval '10 minutes')`,
+      [actor.id, target.id, hash],
+    );
+
+    await expect(users.deleteWithCode(actor.id, target.id, hash)).resolves.toEqual({
+      ok: false,
+      error: "FORBIDDEN",
+    });
+    await expect(users.findById(target.id)).resolves.toMatchObject({
+      role: "SUPER_ADMIN",
+      isActive: true,
+    });
+  });
+
+  it("allows a deleted email to be recreated and keeps deletion terminal", async () => {
+    const actor = await insertAdmin("SUPER_ADMIN");
+    const target = await insertAdmin("ADMIN");
+    await requestAdminUserDeletionCode(dependencies, actor, target.id);
+    await confirmAdminUserDeletion(dependencies, actor, { targetId: target.id, code: "123456" });
+
+    await expect(reactivateAdminUser(dependencies, actor, target.id)).resolves.toEqual({
+      ok: false,
+      error: "NOT_FOUND",
+    });
+    const recreated = await createAdminUser(dependencies, actor, {
+      email: target.email,
+      displayName: "Recreado",
+      role: "ADMIN",
+      password: "clave-recreada-123",
+    });
+    expect(recreated).toMatchObject({ ok: true });
+    await expect(realSignIn(target.email, "clave-recreada-123")).resolves.toMatchObject({
+      ok: true,
+      admin: { role: "ADMIN" },
+    });
   });
 });

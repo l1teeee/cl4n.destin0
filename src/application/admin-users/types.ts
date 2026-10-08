@@ -11,7 +11,11 @@ export type AdminUserErrorCode =
   | "ALREADY_INACTIVE"
   | "INVALID_CURRENT_PASSWORD"
   | "SAME_PASSWORD"
-  | "RATE_LIMITED";
+  | "RATE_LIMITED"
+  | "CODE_INVALID"
+  | "CODE_EXPIRED"
+  | "TOO_MANY_ATTEMPTS"
+  | "EMAIL_DELIVERY_FAILED";
 
 export type AdminUserResult<T> = { ok: true; value: T } | { ok: false; error: AdminUserErrorCode };
 
@@ -29,6 +33,19 @@ export interface AdminUserSummary {
 
 export interface SessionRevocation {
   revokedSessions: number;
+}
+
+export interface CreatedAdminUser extends AdminUserSummary {
+  notification: "SENT" | "FAILED";
+}
+
+export interface AdminDeletionCodeRecord {
+  codeId: string;
+  target: {
+    displayName: string;
+    email: string;
+  };
+  expiresInMinutes: number;
 }
 
 export interface CreateAdminUserCommand {

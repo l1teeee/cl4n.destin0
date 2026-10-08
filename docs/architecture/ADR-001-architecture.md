@@ -262,7 +262,7 @@ All of these run in one transaction with their audit row.
 Enums:
 - `event_status`: DRAFT, SCHEDULED, CLOSED, COMPLETED, CANCELLED
 - `reservation_status`: SUBMITTED, CONFIRMED, FULL_REJECTED, CANCELLED, EXPIRED
-- `audit_action`: EVENT_CREATED, EVENT_UPDATED, EVENT_OPENED, EVENT_CLOSED, CAPACITY_CHANGED, RESERVATION_CREATED, RESERVATION_CANCELLED, ADMIN_SIGNED_IN
+- `audit_action`: EVENT_CREATED, EVENT_UPDATED, EVENT_OPENED, EVENT_CLOSED, CAPACITY_CHANGED, RESERVATION_CREATED, RESERVATION_CANCELLED, ADMIN_SIGNED_IN, ADMIN_USER_DELETION_REQUESTED, ADMIN_USER_DELETED
 - `actor_type`: ADMIN, PUBLIC, SYSTEM
 
 ### Event state model
@@ -307,12 +307,33 @@ All have `timestamptz` columns stored in UTC, `uuid` primary keys from `gen_rand
 |---|---|
 | id | primary key |
 | email | text |
-| email_normalized | UNIQUE |
+| email_normalized | unique while `deleted_at IS NULL` |
 | password_hash | `scrypt$N$r$p$salt$hash` |
 | display_name | |
 | is_active | default true |
 | created_at, updated_at | |
 | last_sign_in_at | null |
+| deleted_at | null; terminal soft deletion timestamp |
+
+CHECK: `deleted_at IS NULL OR is_active = false`.
+
+Partial unique index: `(email_normalized) WHERE deleted_at IS NULL`.
+
+**admin_action_codes**
+
+| Column | Notes |
+|---|---|
+| id | primary key |
+| purpose | `ADMIN_USER_DELETE` |
+| actor_admin_id | FK to admin_users |
+| target_admin_id | FK to admin_users |
+| code_hash | keyed HMAC, never the raw code |
+| attempts | default 0, CHECK >= 0 |
+| expires_at | DB clock plus 10 minutes |
+| consumed_at, invalidated_at | null |
+| created_at | default now() |
+
+Partial unique index: `(actor_admin_id, target_admin_id, purpose) WHERE consumed_at IS NULL AND invalidated_at IS NULL`. Index: `(target_admin_id)`.
 
 **admin_sessions**
 
@@ -468,11 +489,17 @@ Mechanics:
   - `ADMIN` manages experiences, reservations and the audit log.
   - `SUPER_ADMIN` also manages admins at `/admin/users`: create, rename, change role, deactivate, reactivate, reset password and revoke sessions. Every admin changes their own password at `/admin/account`, which requires the current password and closes their other sessions.
   - Role and `is_active` are read from the DB on every request, so a demotion or deactivation takes effect on the next request. `requireSuperAdmin()` guards every user-management page and Server Action.
-  - Admins are never deleted (audit rows reference them); deactivation is the removal. Deactivation and password reset delete the target's sessions in the same transaction.
+  - Admin deletion is a terminal soft delete because audit rows retain their foreign key to the admin. Deleted rows are excluded from authentication and all admin management reads, and their email may be used by a new live admin. Deactivation and password reset delete the target's sessions in the same transaction.
   - Nobody can change their own role, deactivate themselves, or reset or revoke their own access through user management.
-  - **Invariant: at least one active `SUPER_ADMIN` always exists.** Every user-management mutation first locks the active `SUPER_ADMIN` rows (`ORDER BY id FOR UPDATE`) and requires the actor to be one of them, then locks the target. Mutations therefore serialize, and an actor demoted by a concurrent transaction gets `FORBIDDEN`.
+  - **Invariant: at least one active `SUPER_ADMIN` always exists.** Every user-management mutation first locks the active `SUPER_ADMIN` rows (`ORDER BY id FOR NO KEY UPDATE`, which does not block the foreign-key checks from audit log, event and reservation inserts) and requires the actor to be one of them, then locks the target. Mutations therefore serialize, and an actor demoted by a concurrent transaction gets `FORBIDDEN`.
   - Rate limits: 30 user-management mutations and 5 own-password attempts per admin per 15 minutes.
 - **Audit.** `ADMIN_SIGNED_IN` (actor ADMIN) records successful logins. User management records `ADMIN_USER_CREATED`, `ADMIN_USER_UPDATED`, `ADMIN_USER_DEACTIVATED`, `ADMIN_USER_REACTIVATED`, `ADMIN_PASSWORD_RESET`, `ADMIN_PASSWORD_CHANGED` and `ADMIN_SESSIONS_REVOKED`, never with passwords or hashes.
+
+### Admin deletion
+
+Only an active `SUPER_ADMIN` can delete another admin. The actor first requests a six-digit, single-use code sent to the actor's own email. The database stores only a keyed hash, gives the code a 10-minute lifetime using the DB clock, invalidates the previous live code for the same actor and target, and rate-limits requests to 5 per 15 minutes.
+
+Confirmation is limited to 10 attempts per 15 minutes. The repository locks the active super admins, then the live code and target in one transaction. Wrong attempts are committed; the fifth invalidates the code. A correct code is consumed, the target is marked deleted and inactive, sessions are removed, other codes targeting that admin are invalidated, and `ADMIN_USER_DELETED` is audited. The existing last-active-super-admin invariant remains mandatory. Raw codes and emails never enter audit metadata or operational logs.
 
 ## 11. Bot protection strategy
 
@@ -520,6 +547,8 @@ Limits are generous on IP, because carrier CGNAT puts many real users behind one
 | Reservation submit | E.164 phone | 5 / 10 minutes |
 | Admin sign-in | IP | 20 / 15 minutes |
 | Admin sign-in | normalized email | 5 / 15 minutes |
+| Admin deletion code request | actor admin ID | 5 / 15 minutes |
+| Admin deletion confirmation | actor admin ID | 10 / 15 minutes |
 
 - **Client IP.** On Vercel, the first entry of `x-forwarded-for` (Vercel overwrites the header, so it is not spoofable) or `ipAddress()` from `@vercel/functions`. Locally the IP is the constant `local`.
 - **Off switch.** `RATE_LIMIT_MODE=disabled` is allowed only for `APP_ENV` local or test, for example for the HTTP load test.
@@ -620,6 +649,7 @@ Parallel worktrees use distinct test database names on the same local server.
 
 ## Changelog
 
+- 2026-10-07: sections 9, 10 and 12. Added terminal admin soft deletion, actor-email one-time confirmation codes, deletion rate limits, audit actions, and the last-super-admin transaction rules.
 - 2026-10-07: section 18. Added Brevo HTTP transactional email delivery policy, delivery timing and failure behavior, template constraints, and environment restrictions.
 - 2026-10-04: initial version.
 - 2026-10-04: section 8. The client key is now per attempt series, created at form mount, instead of derived from the payload hash at submit. Turnstile `cData` must equal the key and is fixed at widget render, so the key has to exist before any payload does.

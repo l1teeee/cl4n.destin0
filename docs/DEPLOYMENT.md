@@ -57,7 +57,7 @@ Set the variable only for this single command.
 8. **Recommended hardening:** an application role with least privilege, so the app does not run as the `postgres` superuser.
    - Grant SELECT/INSERT/UPDATE/DELETE on the app tables, and only SELECT/INSERT on `audit_logs`, so the append-only rule cannot be bypassed. Migrations keep using the owner role.
    - This needs PgBouncer to authenticate the new role. Confirm Railway's pooler supports it before switching. Until then it is a known limitation.
-   - **Test deployment (2026-10-05):** running without PgBouncer, so the role exists as `clandestino_app` (LOGIN, not superuser). It has SELECT/INSERT/UPDATE/DELETE on the app tables and only SELECT/INSERT on `audit_logs`. Vercel's `DATABASE_URL` uses it over the TCP proxy with `verify-ca`. Any migration that adds a table must also grant it to `clandestino_app`.
+   - **Test deployment (2026-10-05):** running without PgBouncer, so the role exists as `clandestino_app` (LOGIN, not superuser). It has SELECT/INSERT/UPDATE/DELETE on the app tables and only SELECT/INSERT on `audit_logs`. Vercel's `DATABASE_URL` uses it over the TCP proxy with `verify-ca`. Any migration that adds a table must also grant it to `clandestino_app`; migration 0003 grants its new table itself.
 
 ## 4. Migrations and first admin (from this machine, against the UNPOOLED URL)
 
@@ -69,6 +69,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 - Migrations never run during Vercel builds, because preview builds would otherwise migrate production.
 - `db:seed` refuses non-local databases by design. Production has no demo data.
 - **Test deployment (2026-10-05):** the operator environment could not reach the TCP proxy, so migrations ran in a temporary Railway service `db-migrate` (`node:24-bookworm`). It clones the exact commit, runs `npm ci --omit=dev` and `node scripts/db-migrate.ts` over the private network with `${{Postgres.DATABASE_URL}}`, then exits. Point its start command at the new commit and redeploy it to apply later migrations, then remove it.
+- After applying migration 0003, verify the least-privilege role can use the new table with `SELECT has_table_privilege('clandestino_app', 'admin_action_codes', 'SELECT,INSERT,UPDATE');`. It must return true.
 
 ## 5. Vercel
 
@@ -114,5 +115,6 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 
 - **App:** Vercel instant rollback to the previous deployment.
 - **Database:** Railway PITR restore to a timestamp, which creates a sibling service and needs a manual cutover. Migrations are forward-only, so prefer expand/contract changes.
+- **Admin deletion:** once any admin has been deleted, do not roll the app back to a deployment older than the admin-deletion change. Older code does not filter `deleted_at`, so sign-in can pick a deleted row that shares an email, and reactivating a deleted row violates `admin_users_deleted_inactive_chk`. Rolling forward is safe.
 
 Never modify production silently after deployment. Every change goes through the same local gate and owner approval.

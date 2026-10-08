@@ -25,8 +25,10 @@ import AccountPage from "@/app/admin/(protected)/account/page";
 import ProtectedAdminLayout from "@/app/admin/(protected)/layout";
 import AdminUserDetailPage from "@/app/admin/(protected)/users/[id]/page";
 import {
+  confirmAdminUserDeletionAction,
   createAdminUserAction,
   deactivateAdminUserAction,
+  requestAdminUserDeletionCodeAction,
   updateAdminUserAction,
 } from "@/app/admin/(protected)/users/actions";
 import NewAdminUserPage from "@/app/admin/(protected)/users/new/page";
@@ -122,6 +124,21 @@ describe("user management actions", () => {
     expect(await adminExists(email)).toBe(false);
   });
 
+  it("forbids regular admins from requesting or confirming deletion", async () => {
+    await signedInAdmin("ADMIN");
+    const targetId = randomUUID();
+    const form = new FormData();
+    form.set("code", "123456");
+
+    await expect(
+      requestAdminUserDeletionCodeAction(targetId, initialState, new FormData()),
+    ).resolves.toEqual({ ok: false, message: "No tienes permisos para administrar usuarios." });
+    await expect(confirmAdminUserDeletionAction(targetId, initialState, form)).resolves.toEqual({
+      ok: false,
+      message: "No tienes permisos para administrar usuarios.",
+    });
+  });
+
   it("lets super admins create admins and reports validation errors", async () => {
     await signedInAdmin("SUPER_ADMIN");
     const email = `${randomUUID()}@example.com`;
@@ -134,7 +151,7 @@ describe("user management actions", () => {
     ).resolves.toEqual({ ok: false, message: "Las contraseñas no coinciden." });
     await expect(createAdminUserAction(initialState, createForm(email))).resolves.toEqual({
       ok: true,
-      message: `Administrador ${email} creado correctamente.`,
+      message: `Administrador ${email} creado. Le enviamos un correo de aviso.`,
     });
     await expect(createAdminUserAction(initialState, createForm(email))).resolves.toEqual({
       ok: false,

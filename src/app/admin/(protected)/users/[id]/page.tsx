@@ -7,16 +7,22 @@ import { adminUserIdSchema } from "@/contracts/admin-users";
 import { requireSuperAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
-import { AdminUserProfileForm, PasswordForm } from "@/ui/admin/admin-user-forms";
+import {
+  AdminUserDeletionForm,
+  AdminUserProfileForm,
+  PasswordForm,
+} from "@/ui/admin/admin-user-forms";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import { adminRoleLabel, adminStatusLabel, formatAdminDate } from "@/ui/admin/view-model";
 
 import {
+  confirmAdminUserDeletionAction,
   deactivateAdminUserAction,
   reactivateAdminUserAction,
   resetAdminPasswordAction,
+  requestAdminUserDeletionCodeAction,
   revokeAdminSessionsAction,
   updateAdminUserAction,
 } from "../actions";
@@ -120,6 +126,16 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         <h2 className="text-xl font-semibold">Actividad</h2>
         <AuditLogTable items={audit.value.items} />
       </section>
+
+      {!isSelf ? (
+        <section className="space-y-4">
+          <h2 className="text-xl font-semibold">Eliminar administrador</h2>
+          <AdminUserDeletionForm
+            requestAction={requestAdminUserDeletionCodeAction.bind(null, user.id)}
+            confirmAction={confirmAdminUserDeletionAction.bind(null, user.id)}
+          />
+        </section>
+      ) : null}
     </main>
   );
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  adminDeletionCodeSchema,
   adminUserIdSchema,
   changeOwnPasswordSchema,
   createAdminUserSchema,
@@ -125,5 +126,16 @@ describe("admin user contracts", () => {
         ...(expectedRole === undefined ? {} : { expectedRole }),
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts exactly six digits for an admin deletion code", () => {
+    expect(adminDeletionCodeSchema.safeParse({ id, code: " 012345 " }).data).toEqual({
+      id,
+      code: "012345",
+    });
+    expect(firstMessage(adminDeletionCodeSchema.safeParse({ id, code: "12345" }))).toBe(
+      "Ingresa el código de 6 dígitos.",
+    );
+    expect(adminDeletionCodeSchema.safeParse({ id, code: "12345a" }).success).toBe(false);
   });
 });
