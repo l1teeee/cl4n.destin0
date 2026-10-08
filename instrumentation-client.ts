@@ -8,7 +8,7 @@ import {
 if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
   const options = {
     dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-    sendDefaultPii: false,
+    dataCollection: { httpBodies: [], userInfo: false, cookies: false },
     beforeBreadcrumb: scrubSentryBreadcrumb,
     beforeSend: scrubSentryEvent,
   };

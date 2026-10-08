@@ -50,4 +50,33 @@ describe("Sentry token scrubbing", () => {
     expect(serialized).not.toContain("breadcrumb-secret");
     expect(event.request?.url).toBe("https://example.com/admin/reset?token=[Filtered]");
   });
+
+  it("drops request bodies, cookies, user IP and credential headers", () => {
+    const event = scrubSentryEvent({
+      type: undefined,
+      event_id: "event-id",
+      platform: "javascript",
+      request: {
+        url: "https://example.com/api/reservations",
+        data: { fullName: "Ana", allergies: "Maní" },
+        cookies: { session: "session-secret" },
+        headers: {
+          Cookie: "session=session-secret",
+          Authorization: "Bearer bearer-secret",
+          "Set-Cookie": "session=set-secret",
+          "User-Agent": "vitest",
+        },
+      },
+      user: { id: "user-id", ip_address: "203.0.113.7" },
+    });
+    const serialized = JSON.stringify(event);
+
+    expect(event.request?.data).toBeUndefined();
+    expect(event.request?.cookies).toBeUndefined();
+    expect(event.request?.headers).toEqual({ "User-Agent": "vitest" });
+    expect(event.user).toEqual({ id: "user-id" });
+    expect(serialized).not.toContain("Maní");
+    expect(serialized).not.toContain("secret");
+    expect(serialized).not.toContain("203.0.113.7");
+  });
 });

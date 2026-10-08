@@ -5,6 +5,8 @@ import { postgresEmailOutboxRepository } from "@/infrastructure/email/outbox/pos
 import { drainEmailOutbox } from "@/infrastructure/email/outbox/drain-email-outbox";
 
 export const dynamic = "force-dynamic";
+// The drain budget is 60 s, so the function must be allowed to run that long.
+export const maxDuration = 60;
 
 const CRON_DRAIN_LIMIT = 50;
 const CRON_DRAIN_TIME_BUDGET_MS = 60_000;

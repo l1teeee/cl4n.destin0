@@ -22,18 +22,43 @@ export function scrubSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {
   return { ...breadcrumb, data };
 }
 
+const SENSITIVE_HEADERS = new Set(["cookie", "set-cookie", "authorization"]);
+
+function withoutSensitiveHeaders(
+  headers: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!headers) {
+    return headers;
+  }
+
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) => !SENSITIVE_HEADERS.has(name.toLowerCase())),
+  );
+}
+
 export function scrubSentryEvent(event: ErrorEvent): ErrorEvent {
-  return {
+  const scrubbed: ErrorEvent = {
     ...event,
     breadcrumbs: event.breadcrumbs?.map(scrubSentryBreadcrumb),
-    request: event.request
-      ? {
-          ...event.request,
-          url:
-            typeof event.request.url === "string"
-              ? scrubTokenFromUrl(event.request.url)
-              : event.request.url,
-        }
-      : event.request,
   };
+
+  if (event.request) {
+    const request = { ...event.request };
+    // Reservation bodies carry names, phones, emails and allergy data.
+    delete request.data;
+    delete request.cookies;
+    scrubbed.request = {
+      ...request,
+      url: typeof request.url === "string" ? scrubTokenFromUrl(request.url) : request.url,
+      headers: withoutSensitiveHeaders(request.headers),
+    };
+  }
+
+  if (event.user) {
+    const user = { ...event.user };
+    delete user.ip_address;
+    scrubbed.user = user;
+  }
+
+  return scrubbed;
 }
