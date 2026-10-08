@@ -82,7 +82,7 @@ async function commitResult(
   const response = command.mapOutcome(outcome);
   await completeIdempotencyRecord(client, command.idempotencyKey, response, reservationId);
   await client.query("COMMIT");
-  return { ...response, replayed: false };
+  return { ...response, replayed: false, outcome };
 }
 
 async function readCompletedRecord(

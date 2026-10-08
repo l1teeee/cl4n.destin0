@@ -52,8 +52,17 @@ export interface SubmitReservationInput {
   rateLimitSubject: string;
 }
 
+export type ConfirmedReservation = {
+  email: string;
+  fullName: string;
+  reservationNumber: number;
+  partySize: number;
+  eventStartsAt: Date;
+};
+
 export interface SubmitReservationResult extends ReservationResponse {
   replayed: boolean;
+  confirmedReservation?: ConfirmedReservation;
 }
 
 const idempotencyKeySchema = z.uuid();
@@ -179,6 +188,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       };
     }
 
+    const emailAsEntered = parsed.data.email.trim();
     const allocation: AllocationResult = await dependencies.repository.allocate({
       idempotencyKey: input.idempotencyKey,
       fingerprint,
@@ -186,12 +196,25 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       fullName: parsed.data.fullName,
       instagramHandle: instagram.value,
       phoneE164: phone.value,
-      email: parsed.data.email.trim(),
+      email: emailAsEntered,
       emailNormalized: email.value,
       partySize: parsed.data.partySize,
       notes: parsed.data.notes,
       mapOutcome: mapReservationOutcome,
     });
+
+    if (allocation.replayed === false && allocation.outcome?.code === "CONFIRMED") {
+      return {
+        ...allocation,
+        confirmedReservation: {
+          email: emailAsEntered,
+          fullName: parsed.data.fullName,
+          reservationNumber: allocation.outcome.number,
+          partySize: allocation.outcome.partySize,
+          eventStartsAt: allocation.outcome.eventStartsAt,
+        },
+      };
+    }
 
     return allocation;
   };

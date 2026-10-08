@@ -170,6 +170,140 @@ describe("POST /api/reservations", () => {
     expect(state.rows[0]).toEqual({ reservations: 1, reserved_seats: 1, records: 1 });
   });
 
+  it("schedules one confirmation for a fresh reservation and none for its replay", async () => {
+    const event = await insertTestEvent(pool);
+    const eventResult = await pool.query<{ starts_at: Date }>(
+      "SELECT starts_at FROM events WHERE id = $1",
+      [event.id],
+    );
+    const key = randomUUID();
+    const onReservationConfirmed = vi.fn();
+    const setup = dependencies({ onReservationConfirmed });
+    const body = reservationBody(event.slug, 105, {
+      fullName: "  Ana Confirmada  ",
+      email: "  Ana.Confirmada@Example.com  ",
+      partySize: 2,
+    });
+
+    const first = await setup.handler(request(body, key));
+    const firstText = await first.text();
+    const replay = await setup.handler(request(body, key));
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(onReservationConfirmed).toHaveBeenCalledOnce();
+    expect(onReservationConfirmed).toHaveBeenCalledWith({
+      email: "Ana.Confirmada@Example.com",
+      fullName: "Ana Confirmada",
+      reservationNumber: 1,
+      partySize: 2,
+      eventStartsAt: eventResult.rows[0]!.starts_at,
+    });
+    expect(firstText).not.toContain("Ana.Confirmada@Example.com");
+    expect(firstText).not.toContain("Ana Confirmada");
+  });
+
+  it("does not schedule a confirmation for EVENT_FULL", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 1,
+      reservedSeats: 1,
+      maxPartySize: 1,
+    });
+    const onReservationConfirmed = vi.fn();
+    const setup = dependencies({ onReservationConfirmed });
+
+    const response = await setup.handler(request(reservationBody(event.slug, 106)));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "EVENT_FULL" } });
+    expect(onReservationConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("does not schedule a confirmation for DUPLICATE_RESERVATION", async () => {
+    const event = await insertTestEvent(pool);
+    const body = reservationBody(event.slug, 107);
+    await dependencies().handler(request(body));
+    const onReservationConfirmed = vi.fn();
+    const setup = dependencies({ onReservationConfirmed });
+
+    const response = await setup.handler(request(body));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "DUPLICATE_RESERVATION" },
+    });
+    expect(onReservationConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("does not schedule a confirmation for VALIDATION_FAILED", async () => {
+    const event = await insertTestEvent(pool);
+    const onReservationConfirmed = vi.fn();
+    const setup = dependencies({ onReservationConfirmed });
+
+    const response = await setup.handler(
+      request(reservationBody(event.slug, 108, { email: "invalid" })),
+    );
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED" },
+    });
+    expect(onReservationConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("does not schedule a confirmation for RATE_LIMITED", async () => {
+    const event = await insertTestEvent(pool);
+    const onReservationConfirmed = vi.fn();
+    const rateLimiter = {
+      consume: vi.fn(async () => ({ allowed: false, retryAfterSeconds: 10 })),
+    };
+    const setup = dependencies({ onReservationConfirmed, rateLimiter });
+
+    const response = await setup.handler(request(reservationBody(event.slug, 109)));
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "RATE_LIMITED" } });
+    expect(onReservationConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("keeps the confirmed response when confirmation scheduling throws", async () => {
+    const event = await insertTestEvent(pool);
+    const eventResult = await pool.query<{ starts_at: Date }>(
+      "SELECT starts_at FROM events WHERE id = $1",
+      [event.id],
+    );
+    const scheduleError = new Error("scheduler unavailable");
+    const captureException = vi.fn();
+    const onReservationConfirmed = vi.fn(() => {
+      throw scheduleError;
+    });
+    const setup = dependencies({
+      onReservationConfirmed,
+      observability: { log, captureException },
+    });
+
+    const response = await setup.handler(request(reservationBody(event.slug, 112)));
+    const text = await response.text();
+
+    expect(response.status).toBe(201);
+    expect(text).toBe(
+      JSON.stringify({
+        status: "CONFIRMED",
+        reservation: {
+          number: 1,
+          partySize: 1,
+          eventStartsAt: eventResult.rows[0]!.starts_at.toISOString(),
+        },
+      }),
+    );
+    expect(onReservationConfirmed).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("error", "reservation_confirmation_schedule_failed", {
+      requestId: expect.any(String),
+      reservationNumber: 1,
+    });
+    expect(captureException).toHaveBeenCalledWith(scheduleError);
+  });
+
   it("rejects reuse of a completed key with a different payload", async () => {
     const event = await insertTestEvent(pool);
     const key = randomUUID();
