@@ -51,6 +51,9 @@ Local URLs:
 - Public site: http://localhost:3000
 - Admin: http://localhost:3000/admin
 
+Local `EMAIL_MODE=log` prints transactional emails to the development server console. Use
+`EMAIL_MODE=brevo` to send real email; it requires a Brevo API key and verified sender address.
+
 ## Local development data
 
 These credentials and records are for local development only. Never reuse them in preview or
@@ -199,6 +202,11 @@ npm run check
 | `DATABASE_CA_CERT`               | PEM-encoded database CA certificate.                    | Empty                                                    | Required when `DATABASE_SSL_MODE=verify-ca`.                                                            |
 | `DATABASE_POOL_MAX`              | Maximum connections in each application process pool.   | `10`                                                     | Use `5` for the planned Vercel and PgBouncer topology.                                                  |
 | `APP_SECRET`                     | HMAC secret for protected application data.             | `local-only-secret-change-before-deploy-1234567890`      | Replace with a random secret of at least 32 characters. Values starting with `local-only` are rejected. |
+| `EMAIL_MODE`                     | Chooses console logging or Brevo delivery.              | `log`                                                    | Must be `brevo`; `log` is rejected.                                                                     |
+| `BREVO_API_KEY`                  | Brevo transactional API key.                            | Empty                                                    | Required with `EMAIL_MODE=brevo`.                                                                       |
+| `EMAIL_FROM_ADDRESS`             | Sender address verified by Brevo.                       | Empty                                                    | Required with `EMAIL_MODE=brevo`.                                                                       |
+| `EMAIL_FROM_NAME`                | Transactional email sender name.                        | `Clandestino`                                            | Defaults to `Clandestino`.                                                                              |
+| `APP_BASE_URL`                   | Public base URL used in email links.                    | `http://localhost:3000`                                  | Must use HTTPS and cannot point to localhost.                                                           |
 | `BOT_PROTECTION_MODE`            | Enables Turnstile or disables bot protection.           | `turnstile`                                              | Must be `turnstile`; `disabled` is rejected.                                                            |
 | `TURNSTILE_SECRET_KEY`           | Server-side Cloudflare Turnstile key.                   | `1x0000000000000000000000000000000AA`                    | Use a real key. Cloudflare test keys are rejected.                                                      |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Browser-side Cloudflare Turnstile key.                  | `1x00000000000000000000AA`                               | Use a real key. Cloudflare test keys are rejected.                                                      |

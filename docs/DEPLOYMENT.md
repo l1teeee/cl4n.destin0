@@ -20,6 +20,7 @@ Topology and rationale: `docs/architecture/ADR-001-architecture.md` sections 4 a
 |---|---|---|
 | Production hostname | Turnstile hostname check and Vercel domain | **Decided 2026-10-05: the default Vercel domain (`<project>.vercel.app`), no custom domain for now.** The exact hostname is known once the Vercel project exists, and the owner creates the Turnstile widget for it. |
 | Cloudflare Turnstile site key + secret key | Real bot protection. Test keys are rejected in production by env validation. | Owner creates a **Managed** widget for the production hostname at dash.cloudflare.com, then Turnstile |
+| Brevo transactional API key + verified sender | Transactional email delivery through the owner's Brevo account | Owner provides the API key and an address verified in that Brevo account. |
 | First production admin (email, display name) | Admin access | Owner. The password is typed by the owner into `npm run admin:create` and never sent in chat. |
 | Plans | Vercel Hobby is for non-commercial use only. Railway Pro is needed for scheduled backups / PITR if gated by plan. | Owner decision |
 
@@ -83,6 +84,11 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 | `DATABASE_CA_CERT` | Railway root CA (PEM), when `verify-ca` |
 | `DATABASE_POOL_MAX` | `5` |
 | `APP_SECRET` | new random value, e.g. `openssl rand -base64 48` (never the local one) |
+| `EMAIL_MODE` | `brevo` |
+| `BREVO_API_KEY` | Brevo transactional API key from the owner's Brevo account |
+| `EMAIL_FROM_ADDRESS` | sender verified in the owner's Brevo account |
+| `EMAIL_FROM_NAME` | `Clandestino` |
+| `APP_BASE_URL` | `https://clandestino-nine.vercel.app` |
 | `BOT_PROTECTION_MODE` | `turnstile` |
 | `TURNSTILE_SECRET_KEY` / `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | real keys from Cloudflare |
 | `TURNSTILE_ALLOWED_HOSTNAMES` | production hostname(s) |

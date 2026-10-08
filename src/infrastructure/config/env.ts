@@ -7,6 +7,11 @@ const optionalString = z.preprocess(
   z.string().optional(),
 );
 
+const optionalEmail = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.email().optional(),
+);
+
 const turnstileTestKeyPrefixes = ["1x0000", "2x0000", "3x0000"];
 
 function isTurnstileTestKey(value: string | undefined): boolean {
@@ -21,6 +26,11 @@ const serverEnvSchema = z
     VERCEL_ENV: z.enum(["production", "preview", "development"]).optional(),
     DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
     APP_SECRET: z.string().min(32),
+    EMAIL_MODE: z.enum(["brevo", "log"]),
+    BREVO_API_KEY: optionalString,
+    EMAIL_FROM_ADDRESS: optionalEmail,
+    EMAIL_FROM_NAME: z.string().trim().min(1).default("Clandestino"),
+    APP_BASE_URL: z.url().transform((value) => value.replace(/\/$/, "")),
     BOT_PROTECTION_MODE: z.enum(["turnstile", "disabled"]),
     TURNSTILE_SECRET_KEY: optionalString,
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
@@ -137,6 +147,50 @@ const serverEnvSchema = z
         code: "custom",
         path: ["RATE_LIMIT_MODE"],
         message: "cannot be disabled in preview or production",
+      });
+    }
+
+    if (value.EMAIL_MODE === "brevo") {
+      if (!value.BREVO_API_KEY) {
+        context.addIssue({
+          code: "custom",
+          path: ["BREVO_API_KEY"],
+          message: "is required when EMAIL_MODE is brevo",
+        });
+      }
+
+      if (!value.EMAIL_FROM_ADDRESS) {
+        context.addIssue({
+          code: "custom",
+          path: ["EMAIL_FROM_ADDRESS"],
+          message: "is required when EMAIL_MODE is brevo",
+        });
+      }
+    }
+
+    if (protectedEnvironment && value.EMAIL_MODE !== "brevo") {
+      context.addIssue({
+        code: "custom",
+        path: ["EMAIL_MODE"],
+        message: "must be brevo in preview or production",
+      });
+    }
+
+    const appBaseUrl = new URL(value.APP_BASE_URL);
+
+    if (protectedEnvironment && appBaseUrl.protocol !== "https:") {
+      context.addIssue({
+        code: "custom",
+        path: ["APP_BASE_URL"],
+        message: "must use https in preview or production",
+      });
+    }
+
+    if (protectedEnvironment && ["localhost", "127.0.0.1"].includes(appBaseUrl.hostname)) {
+      context.addIssue({
+        code: "custom",
+        path: ["APP_BASE_URL"],
+        message: "cannot use a local host in preview or production",
       });
     }
 

@@ -39,6 +39,8 @@ const child = spawn(process.execPath, [nextBin, "start", "-p", "3100"], {
     ...process.env,
     APP_ENV: "test",
     DATABASE_URL: databaseUrl,
+    EMAIL_MODE: "log",
+    APP_BASE_URL: "http://localhost:3100",
     BOT_PROTECTION_MODE: "disabled",
     RATE_LIMIT_MODE: "disabled",
     DATABASE_POOL_MAX: "20",
