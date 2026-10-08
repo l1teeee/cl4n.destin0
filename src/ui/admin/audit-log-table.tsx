@@ -11,6 +11,7 @@ const entityLabels: Record<AuditLogItem["entityType"], string> = {
   EVENT: "Experiencia",
   RESERVATION: "Reservación",
   ADMIN_USER: "Administrador",
+  WAITLIST_ENTRY: "Lista de espera",
 };
 const actionLabels: Record<AuditLogItem["action"], string> = {
   EVENT_CREATED: "Experiencia creada",
@@ -30,6 +31,11 @@ const actionLabels: Record<AuditLogItem["action"], string> = {
   ADMIN_SESSIONS_REVOKED: "Sesiones cerradas",
   ADMIN_USER_DELETION_REQUESTED: "Eliminación solicitada",
   ADMIN_USER_DELETED: "Administrador eliminado",
+  RESERVATION_WAITLISTED: "En cola",
+  WAITLIST_PROMOTED: "Promovido de la cola",
+  WAITLIST_CANCELLED: "Retirado de la cola",
+  ADMIN_PASSWORD_RESET_REQUESTED: "Recuperación solicitada",
+  ADMIN_PASSWORD_RESET_COMPLETED: "Contraseña recuperada",
 };
 
 export function AuditLogTable({ items }: { items: AuditLogItem[] }) {

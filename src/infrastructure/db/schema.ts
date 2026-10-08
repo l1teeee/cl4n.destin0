@@ -51,6 +51,11 @@ export const auditAction = pgEnum("audit_action", [
   "ADMIN_SESSIONS_REVOKED",
   "ADMIN_USER_DELETION_REQUESTED",
   "ADMIN_USER_DELETED",
+  "RESERVATION_WAITLISTED",
+  "WAITLIST_PROMOTED",
+  "WAITLIST_CANCELLED",
+  "ADMIN_PASSWORD_RESET_REQUESTED",
+  "ADMIN_PASSWORD_RESET_COMPLETED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -142,6 +147,31 @@ export const adminSessions = pgTable(
   ],
 );
 
+export const adminPasswordResetTokens = pgTable(
+  "admin_password_reset_tokens",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    adminUserId: uuid("admin_user_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "admin_password_reset_tokens_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "admin_password_reset_tokens_admin_user_fk",
+      columns: [table.adminUserId],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    unique("admin_password_reset_tokens_token_hash_uq").on(table.tokenHash),
+    uniqueIndex("admin_password_reset_tokens_live_uq")
+      .on(table.adminUserId)
+      .where(sql`${table.consumedAt} IS NULL AND ${table.invalidatedAt} IS NULL`),
+  ],
+);
+
 export const events = pgTable(
   "events",
   {
@@ -157,6 +187,9 @@ export const events = pgTable(
     autoCloseOnFull: boolean("auto_close_on_full").notNull().default(false),
     status: eventStatus("status").notNull().default("DRAFT"),
     lastReservationNumber: integer("last_reservation_number").notNull().default(0),
+    waitlistCapacity: integer("waitlist_capacity").notNull().default(5),
+    waitlistedCount: integer("waitlisted_count").notNull().default(0),
+    lastWaitlistNumber: integer("last_waitlist_number").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -180,6 +213,12 @@ export const events = pgTable(
     ),
     check("events_window_order_chk", sql`${table.closesAt} > ${table.opensAt}`),
     check("events_reservation_number_nonnegative_chk", sql`${table.lastReservationNumber} >= 0`),
+    check("events_waitlist_capacity_chk", sql`${table.waitlistCapacity} BETWEEN 0 AND 50`),
+    check(
+      "events_waitlisted_within_capacity_chk",
+      sql`${table.waitlistedCount} >= 0 AND ${table.waitlistedCount} <= ${table.waitlistCapacity}`,
+    ),
+    check("events_waitlist_number_nonnegative_chk", sql`${table.lastWaitlistNumber} >= 0`),
     index("events_status_opens_at_idx").on(table.status, table.opensAt),
   ],
 );
@@ -247,6 +286,79 @@ export const reservations = pgTable(
   ],
 );
 
+export const waitlistEntries = pgTable(
+  "waitlist_entries",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    eventId: uuid("event_id").notNull(),
+    waitlistNumber: integer("waitlist_number").notNull(),
+    status: text("status").notNull(),
+    fullName: text("full_name").notNull(),
+    instagramHandle: text("instagram_handle").notNull(),
+    phoneE164: text("phone_e164").notNull(),
+    email: text("email").notNull(),
+    emailNormalized: text("email_normalized").notNull(),
+    partySize: integer("party_size").notNull(),
+    notes: text("notes"),
+    termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }).notNull(),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
+    promotedReservationId: uuid("promoted_reservation_id"),
+    promotedAt: timestamp("promoted_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "waitlist_entries_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "waitlist_entries_event_fk",
+      columns: [table.eventId],
+      foreignColumns: [events.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "waitlist_entries_promoted_reservation_fk",
+      columns: [table.promotedReservationId],
+      foreignColumns: [reservations.id],
+    }).onDelete("no action"),
+    unique("waitlist_entries_event_number_uq").on(table.eventId, table.waitlistNumber),
+    unique("waitlist_entries_idempotency_key_uq").on(table.idempotencyKey),
+    unique("waitlist_entries_promoted_reservation_id_uq").on(table.promotedReservationId),
+    check(
+      "waitlist_entries_status_chk",
+      sql`${table.status} IN ('WAITING', 'PROMOTED', 'CANCELLED')`,
+    ),
+    check(
+      "waitlist_entries_full_name_length_chk",
+      sql`char_length(${table.fullName}) BETWEEN 1 AND 120`,
+    ),
+    check("waitlist_entries_party_size_positive_chk", sql`${table.partySize} >= 1`),
+    check(
+      "waitlist_entries_notes_length_chk",
+      sql`${table.notes} IS NULL OR char_length(${table.notes}) <= 500`,
+    ),
+    check(
+      "waitlist_entries_promoted_fields_chk",
+      sql`${table.status} <> 'PROMOTED' OR (${table.promotedReservationId} IS NOT NULL AND ${table.promotedAt} IS NOT NULL)`,
+    ),
+    check(
+      "waitlist_entries_cancelled_timestamp_chk",
+      sql`${table.status} <> 'CANCELLED' OR ${table.cancelledAt} IS NOT NULL`,
+    ),
+    uniqueIndex("waitlist_entries_one_waiting_per_email_uq")
+      .on(table.eventId, table.emailNormalized)
+      .where(sql`${table.status} = 'WAITING'`),
+    uniqueIndex("waitlist_entries_one_waiting_per_phone_uq")
+      .on(table.eventId, table.phoneE164)
+      .where(sql`${table.status} = 'WAITING'`),
+    index("waitlist_entries_event_status_number_idx").on(
+      table.eventId,
+      table.status,
+      table.waitlistNumber,
+    ),
+  ],
+);
+
 export const idempotencyRecords = pgTable(
   "idempotency_records",
   {
@@ -256,6 +368,7 @@ export const idempotencyRecords = pgTable(
     responseStatus: integer("response_status"),
     responseBody: jsonb("response_body").$type<Record<string, unknown>>(),
     reservationId: uuid("reservation_id"),
+    waitlistEntryId: uuid("waitlist_entry_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
@@ -266,10 +379,87 @@ export const idempotencyRecords = pgTable(
       columns: [table.reservationId],
       foreignColumns: [reservations.id],
     }).onDelete("no action"),
+    foreignKey({
+      name: "idempotency_records_waitlist_entry_fk",
+      columns: [table.waitlistEntryId],
+      foreignColumns: [waitlistEntries.id],
+    }).onDelete("no action"),
     check(
       "idempotency_records_completion_chk",
       sql`(${table.completedAt} IS NULL) = (${table.responseStatus} IS NULL)`,
     ),
+    check(
+      "idempotency_records_single_subject_chk",
+      sql`${table.reservationId} IS NULL OR ${table.waitlistEntryId} IS NULL`,
+    ),
+  ],
+);
+
+export const emailOutbox = pgTable(
+  "email_outbox",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    kind: text("kind").notNull(),
+    reservationId: uuid("reservation_id"),
+    waitlistEntryId: uuid("waitlist_entry_id"),
+    adminUserId: uuid("admin_user_id"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    status: text("status").notNull().default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "email_outbox_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "email_outbox_reservation_fk",
+      columns: [table.reservationId],
+      foreignColumns: [reservations.id],
+    }).onDelete("no action"),
+    foreignKey({
+      name: "email_outbox_waitlist_entry_fk",
+      columns: [table.waitlistEntryId],
+      foreignColumns: [waitlistEntries.id],
+    }).onDelete("no action"),
+    foreignKey({
+      name: "email_outbox_admin_user_fk",
+      columns: [table.adminUserId],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    check(
+      "email_outbox_kind_chk",
+      sql`${table.kind} IN ('RESERVATION_CONFIRMED', 'RESERVATION_WAITLISTED', 'WAITLIST_PROMOTED', 'RESERVATION_CANCELLED', 'WAITLIST_CANCELLED', 'ADMIN_ADDED', 'ADMIN_SIGNED_IN', 'ADMIN_PASSWORD_RESET_BY_ADMIN', 'ADMIN_PASSWORD_CHANGED', 'ADMIN_PASSWORD_RESET_COMPLETED', 'ADMIN_DEACTIVATED', 'ADMIN_REACTIVATED', 'ADMIN_ROLE_CHANGED', 'ADMIN_DELETED', 'ADMIN_SESSIONS_REVOKED')`,
+    ),
+    check("email_outbox_status_chk", sql`${table.status} IN ('PENDING', 'SENT', 'FAILED')`),
+    check("email_outbox_attempts_chk", sql`${table.attempts} >= 0`),
+    check(
+      "email_outbox_last_error_length_chk",
+      sql`${table.lastError} IS NULL OR char_length(${table.lastError}) <= 200`,
+    ),
+    check(
+      "email_outbox_single_subject_chk",
+      sql`num_nonnulls(${table.reservationId}, ${table.waitlistEntryId}, ${table.adminUserId}) = 1`,
+    ),
+    check(
+      "email_outbox_sent_timestamp_chk",
+      sql`${table.status} <> 'SENT' OR ${table.sentAt} IS NOT NULL`,
+    ),
+    uniqueIndex("email_outbox_reservation_kind_uq")
+      .on(table.kind, table.reservationId)
+      .where(sql`${table.reservationId} IS NOT NULL`),
+    uniqueIndex("email_outbox_waitlist_kind_uq")
+      .on(table.kind, table.waitlistEntryId)
+      .where(sql`${table.waitlistEntryId} IS NOT NULL`),
+    index("email_outbox_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} = 'PENDING'`),
+    index("email_outbox_reservation_id_idx").on(table.reservationId),
+    index("email_outbox_waitlist_entry_id_idx").on(table.waitlistEntryId),
+    index("email_outbox_admin_user_id_idx").on(table.adminUserId),
+    index("email_outbox_created_at_idx").on(table.createdAt.desc()),
   ],
 );
 
@@ -298,7 +488,7 @@ export const auditLogs = pgTable(
     ),
     check(
       "audit_logs_entity_type_chk",
-      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER')`,
+      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY')`,
     ),
     index("audit_logs_entity_occurred_at_idx").on(
       table.entityType,
