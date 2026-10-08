@@ -40,6 +40,11 @@ describe("admin proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
+  it.each(["/admin/forgot", "/admin/reset"])("allows %s without a session cookie", (pathname) => {
+    const response = proxy(new NextRequest(`http://localhost${pathname}`));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("sets a fresh nonce CSP on public responses and forwarded requests", () => {
     const first = proxy(new NextRequest("http://localhost/solicitar/cena"));
     const second = proxy(new NextRequest("http://localhost/solicitar/cena"));

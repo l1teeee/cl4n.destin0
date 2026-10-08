@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import type { ServerEnv } from "@/infrastructure/config/env";
 import { env } from "@/infrastructure/config/env";
 
+const publicAdminPaths = new Set(["/admin/login", "/admin/forgot", "/admin/reset"]);
 const protectedCookieNames = ["cl4n_session", "__Host-cl4n_session"];
 
 interface ContentSecurityPolicyOptions {
@@ -34,9 +35,9 @@ export function buildContentSecurityPolicy(options: ContentSecurityPolicyOptions
 
 function nextResponse(request: NextRequest, requestHeaders: Headers): NextResponse {
   if (request.nextUrl.pathname.startsWith("/admin")) {
-    const isLoginPage = request.nextUrl.pathname === "/admin/login";
+    const isPublicAdminPage = publicAdminPaths.has(request.nextUrl.pathname);
     const hasSessionCookie = protectedCookieNames.some((name) => request.cookies.has(name));
-    if (!isLoginPage && !hasSessionCookie) {
+    if (!isPublicAdminPage && !hasSessionCookie) {
       return NextResponse.redirect(new URL("/admin/login", request.url));
     }
   }

@@ -29,7 +29,11 @@ const nextConfig: NextConfig = {
     },
   },
   headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // WHY: the reset link carries a secret, so no referrer may be sent from that page.
+      { source: "/admin/reset", headers: [{ key: "Referrer-Policy", value: "no-referrer" }] },
+    ];
   },
 };
 
