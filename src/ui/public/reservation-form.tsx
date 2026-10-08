@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
+import SlideCommit from "@/ui/primitives/slide-commit";
+
 import {
   getOrCreateAttemptKey,
   rotateAttemptKey,
@@ -51,21 +53,27 @@ export function ReservationForm({
   nonce,
 }: ReservationFormProps) {
   const turnstileRef = useRef<TurnstileInstance>(null);
+  const confirmationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [formState, setFormState] = useState<ReservationFormState | null>(null);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const {
     register,
     handleSubmit,
     clearErrors,
+    getFieldState,
     setError,
+    setFocus,
+    trigger,
     unregister,
     control,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isValid },
   } = useForm<ReservationFormInput, unknown, ReservationFormValues>({
     resolver: zodResolver(reservationFormSchema),
     defaultValues: { partySize: 1 },
+    mode: "onTouched",
   });
   const hasAllergies = useWatch({ control, name: "hasAllergies" });
 
@@ -80,6 +88,13 @@ export function ReservationForm({
       unregister("allergies");
     }
   }, [hasAllergies, unregister]);
+
+  useEffect(
+    () => () => {
+      clearTimeout(confirmationTimer.current);
+    },
+    [],
+  );
 
   function rotateKey() {
     const nextKey = rotateAttemptKey(sessionStorage, eventSlug, () => crypto.randomUUID());
@@ -105,7 +120,7 @@ export function ReservationForm({
     key: string,
     token: string,
     alreadyRetried: boolean,
-  ): Promise<void> {
+  ): Promise<ReservationFormState> {
     const { allergies, ...requestFields } = fields;
     let response: Response;
     try {
@@ -125,13 +140,14 @@ export function ReservationForm({
     } catch {
       turnstileRef.current?.reset();
       setTurnstileToken(null);
-      applyFormState({
+      const nextState: ReservationFormState = {
         kind: "error",
         message: "No pudimos conectar con el servidor. Inténtalo de nuevo.",
         fieldErrors: {},
         automaticRetry: false,
-      });
-      return;
+      };
+      applyFormState(nextState);
+      return nextState;
     }
 
     turnstileRef.current?.reset();
@@ -160,12 +176,11 @@ export function ReservationForm({
       try {
         const freshToken = await turnstileRef.current?.getResponsePromise(30_000);
         if (freshToken) {
-          await sendReservation(fields, key, freshToken, true);
-          return;
+          return await sendReservation(fields, key, freshToken, true);
         }
       } catch {
         applyFormState(nextState);
-        return;
+        return nextState;
       }
     }
 
@@ -174,19 +189,52 @@ export function ReservationForm({
     if (shouldRotateAttemptKey({ status: response.status, ...(code ? { code } : {}) })) {
       rotateKey();
     }
+    return nextState;
   }
 
-  async function onSubmit(fields: ReservationFormValues) {
+  async function onSubmit(fields: ReservationFormValues): Promise<ReservationFormState> {
     if (!idempotencyKey || !turnstileToken) {
-      return;
+      throw new Error("Reservation verification is not ready.");
     }
 
     clearErrors();
     setFormState(null);
-    await sendReservation(fields, idempotencyKey, turnstileToken, false);
+    return await sendReservation(fields, idempotencyKey, turnstileToken, false);
   }
 
-  if (formState?.kind === "success") {
+  async function confirmReservation(): Promise<ReservationFormState> {
+    let result: ReservationFormState | undefined;
+    await handleSubmit(
+      async (fields) => {
+        result = await onSubmit(fields);
+      },
+      () => {
+        throw new Error("Reservation form validation failed.");
+      },
+    )();
+
+    if (!result || result.kind === "error") {
+      throw result ?? new Error("Reservation submission did not return a result.");
+    }
+    return result;
+  }
+
+  async function showAllFieldErrors() {
+    if (isValid || isSubmitting) return;
+
+    const valid = await trigger();
+    if (valid) return;
+
+    const firstInvalidField = reservationFormFields.find((field) => getFieldState(field).invalid);
+    if (firstInvalidField) setFocus(firstInvalidField);
+  }
+
+  function showConfirmationAfterDone() {
+    clearTimeout(confirmationTimer.current);
+    confirmationTimer.current = setTimeout(() => setShowConfirmation(true), 700);
+  }
+
+  if (showConfirmation && formState?.kind === "success") {
     return (
       <section className="reservation-success" aria-live="polite">
         <h2>SOLICITUD CONFIRMADA</h2>
@@ -199,7 +247,7 @@ export function ReservationForm({
     );
   }
 
-  if (formState?.kind === "waitlisted") {
+  if (showConfirmation && formState?.kind === "waitlisted") {
     return (
       <section className="reservation-success" aria-live="polite">
         <h2>HAS QUEDADO EN COLA</h2>
@@ -212,11 +260,7 @@ export function ReservationForm({
   }
 
   return (
-    <form
-      onSubmit={(event) => void handleSubmit(onSubmit)(event)}
-      className="reservation-form"
-      noValidate
-    >
+    <form onSubmit={(event) => event.preventDefault()} className="reservation-form" noValidate>
       <div>
         <label htmlFor="fullName">Nombre completo</label>
         <input
@@ -401,13 +445,34 @@ export function ReservationForm({
         {formState?.kind === "error" ? <p>{formState.message}</p> : null}
       </div>
 
-      <button
-        type="submit"
-        disabled={isSubmitting || !turnstileToken || !idempotencyKey}
-        className="reservation-submit"
-      >
-        {isSubmitting ? "ENVIANDO..." : "SOLICITAR ACCESO"}
-      </button>
+      <div className="reservation-slide" onClick={() => void showAllFieldErrors()}>
+        <SlideCommit
+          label={
+            !isValid
+              ? "COMPLETA EL FORMULARIO"
+              : !turnstileToken || !idempotencyKey
+                ? "VERIFICANDO..."
+                : "DESLIZA PARA SOLICITAR ACCESO"
+          }
+          doneLabel="ENVIADO"
+          errorLabel="NO SE PUDO ENVIAR"
+          onConfirm={confirmReservation}
+          onDone={showConfirmationAfterDone}
+          trackColor="transparent"
+          handleColor="#fffbf4"
+          successColor="#fffbf4"
+          dangerColor="#fca5a5"
+          height={56}
+          radius={28}
+          holdMs={700}
+          disabled={!isValid || !turnstileToken || !idempotencyKey || isSubmitting}
+          fluid
+          aria-describedby="reservation-slide-hint"
+        />
+        <p id="reservation-slide-hint" className="reservation-slide-hint">
+          Desliza el control hasta el final o pulsa Fin para enviar.
+        </p>
+      </div>
     </form>
   );
 }

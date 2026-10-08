@@ -433,29 +433,62 @@ textarea.reservation-input {
   min-height: 1.5rem;
 }
 
-.reservation-submit {
+.reservation-slide {
+  width: 100%;
   min-height: 3.5rem;
-  border: 1px solid var(--clan-foreground);
-  border-radius: 999px;
-  background: var(--clan-foreground);
-  color: var(--clan-background);
+}
+
+.reservation-slide .slide-commit {
+  display: block;
+}
+
+.reservation-slide .slide-commit__track {
+  box-sizing: border-box;
+  border: 1px solid #777972;
+  box-shadow: none;
+  transition: border-color 200ms ease;
+}
+
+.reservation-slide .slide-commit:not([data-measured]) .slide-commit__capsule {
+  visibility: hidden;
+}
+
+.reservation-slide .slide-commit__label {
+  inset: 0 0 0 3.5rem;
+  font-size: clamp(0.625rem, 3.3vw, 0.8125rem);
   font-weight: 700;
   letter-spacing: 0.08em;
-  cursor: pointer;
-  transition:
-    background-color 250ms ease,
-    color 250ms ease;
 }
 
-.reservation-submit:focus-visible:not(:disabled),
-.reservation-submit:active:not(:disabled) {
-  background: transparent;
-  color: var(--clan-foreground);
+.reservation-slide .slide-commit__done {
+  font-size: clamp(0.625rem, 3.3vw, 0.8125rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
-.reservation-submit:disabled {
-  cursor: not-allowed;
+.reservation-slide .slide-commit:has(.slide-commit__capsule:focus-visible) .slide-commit__track {
+  outline: 2px solid var(--clan-foreground);
+  outline-offset: 4px;
+}
+
+.reservation-slide .slide-commit[data-disabled][data-phase="idle"] {
   opacity: 0.5;
+}
+
+.reservation-slide .slide-commit[data-disabled]:not([data-phase="idle"]) {
+  opacity: 1;
+}
+
+.reservation-slide-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .reservation-success {
@@ -591,9 +624,8 @@ textarea.reservation-input {
     border-color: #b9b7b0;
   }
 
-  .reservation-submit:hover:not(:disabled) {
-    background: transparent;
-    color: var(--clan-foreground);
+  .reservation-slide .slide-commit:not([data-disabled]) .slide-commit__track:hover {
+    border-color: #b9b7b0;
   }
 }
 

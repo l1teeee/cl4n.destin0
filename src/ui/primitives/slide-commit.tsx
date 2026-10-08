@@ -27,6 +27,7 @@ export interface SlideCommitProps {
   successColor?: string;
   dangerColor?: string;
   width?: number;
+  fluid?: boolean;
   height?: number;
   radius?: number;
   speed?: number;
@@ -36,6 +37,7 @@ export interface SlideCommitProps {
   disabled?: boolean;
   icon?: ReactNode;
   className?: string;
+  "aria-describedby"?: string;
 }
 
 type Sample = [number, number];
@@ -109,6 +111,7 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
   successColor = "#22c55e",
   dangerColor = "#e5484d",
   width = 280,
+  fluid = false,
   height = 56,
   radius = 28,
   speed = 50,
@@ -118,12 +121,16 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
   disabled = false,
   icon,
   className = "",
+  "aria-describedby": ariaDescribedBy,
 }) => {
   const reduce = useReducedMotion();
   const [phase, setPhase] = useState<SlideCommitPhase>("idle");
   const [held, setHeld] = useState(false);
   const [hot, setHot] = useState(false);
+  const [fluidWidth, setFluidWidth] = useState(width);
+  const [measured, setMeasured] = useState(false);
 
+  const rootRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const capsuleRef = useRef<HTMLDivElement>(null);
   const grip = useRef<Grip | null>(null);
@@ -137,8 +144,9 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
   });
   const lastPercent = useRef(0);
 
+  const resolvedWidth = fluid ? fluidWidth : width;
   const GRIP = height - PAD * 2;
-  const INNER = width - PAD * 2;
+  const INNER = resolvedWidth - PAD * 2;
   const TRAVEL = Math.max(1, INNER - GRIP);
   const r = clamp(radius, 0, height / 2);
   const gripR = Math.max(0, r - PAD);
@@ -199,10 +207,29 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
     [],
   );
 
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!fluid || !root) return;
+
+    const updateWidth = (nextWidth: number) => {
+      if (nextWidth > 0) {
+        setFluidWidth(nextWidth);
+        setMeasured(true);
+      }
+    };
+    updateWidth(root.getBoundingClientRect().width);
+
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateWidth(entry.contentRect.width);
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [fluid]);
+
   const local = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect) return 0;
-    return (clientX - rect.left) / (rect.width / width || 1);
+    return (clientX - rect.left) / (rect.width / resolvedWidth || 1);
   };
 
   const goHome = (velocity: number) => {
@@ -368,13 +395,15 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
 
   return (
     <div
+      ref={rootRef}
       className={`slide-commit${className ? ` ${className}` : ""}`}
       data-phase={phase}
       data-held={held ? "" : undefined}
       data-disabled={disabled ? "" : undefined}
+      data-measured={fluid && measured ? "" : undefined}
       style={
         {
-          width,
+          width: fluid ? "100%" : width,
           height,
           "--sc-track": trackColor,
           "--sc-ink": handleColor,
@@ -410,6 +439,7 @@ const SlideCommit: React.FC<SlideCommitProps> = ({
           aria-valuenow={0}
           aria-busy={phase === "pending" || undefined}
           aria-disabled={disabled || undefined}
+          aria-describedby={ariaDescribedBy}
           className="slide-commit__capsule"
           style={{ clipPath: clip, transform: shape, transformOrigin: origin }}
           onPointerEnter={(e) => {
