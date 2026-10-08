@@ -85,6 +85,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 | `DATABASE_CA_CERT` | Railway root CA (PEM), when `verify-ca` |
 | `DATABASE_POOL_MAX` | `5` |
 | `APP_SECRET` | new random value, e.g. `openssl rand -base64 48` (never the local one) |
+| `CRON_SECRET` | new random value of at least 32 characters (`openssl rand -base64 48`). Vercel Cron sends it as `Authorization: Bearer <CRON_SECRET>` to `/api/cron/email-outbox`. |
 | `EMAIL_MODE` | `brevo` |
 | `BREVO_API_KEY` | Brevo transactional API key from the owner's Brevo account |
 | `EMAIL_FROM_ADDRESS` | sender verified in the owner's Brevo account |
@@ -97,7 +98,8 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | optional |
 
 4. **Preview deployments.** Do not give Preview the production database. Until a Railway `staging` environment exists, leave Preview without database variables (preview builds then fail env validation and touch nothing), or disable preview deployments.
-5. **Firewall.** Add a WAF rate-limit rule on `POST /api/reservations` (fixed window, per IP, generous because of carrier CGNAT, e.g. 300 per 60s) as a volumetric backstop. Capacity is enforced by PostgreSQL, never by the WAF.
+5. **Email outbox cron.** `vercel.json` schedules `/api/cron/email-outbox` once a day (`0 13 * * *`), which is the only frequency Vercel Hobby allows. It is a safety net that retries failed and stranded emails and prunes sent rows older than 90 days. Normal delivery happens right after each request, so the daily cron is not what delivers confirmations. On Vercel Pro change the schedule to `*/5 * * * *` for a faster retry cadence. See ADR-003.
+6. **Firewall.** Add a WAF rate-limit rule on `POST /api/reservations` (fixed window, per IP, generous because of carrier CGNAT, e.g. 300 per 60s) as a volumetric backstop. Capacity is enforced by PostgreSQL, never by the WAF.
 
 ## 6. Deploy and verify technical health
 

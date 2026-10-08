@@ -9,7 +9,6 @@ import type {
   AdminUserErrorCode,
   AdminUserResult,
   AdminUserSummary,
-  CreatedAdminUser,
   SessionActor,
   SessionRevocation,
 } from "./types";
@@ -94,10 +93,6 @@ function failure<T>(error: AdminUserErrorCode): AdminUserResult<T> {
   return { ok: false, error };
 }
 
-function successful<T>(value: T): AdminUserResult<T> {
-  return { ok: true, value };
-}
-
 async function withinManagementLimit(
   dependencies: AdminUserDependencies,
   actor: AdminActor,
@@ -124,37 +119,19 @@ export async function createAdminUser(
   dependencies: AdminUserDependencies,
   actor: AuthenticatedAdmin,
   input: CreateAdminUserInput,
-): Promise<AdminUserResult<CreatedAdminUser>> {
+): Promise<AdminUserResult<AdminUserSummary>> {
   if (!(await withinManagementLimit(dependencies, actor))) {
     return failure("RATE_LIMITED");
   }
 
   const email = input.email.trim();
-  const result = await dependencies.repository.create(actor.id, {
+  return dependencies.repository.create(actor.id, {
     email,
     emailNormalized: email.toLowerCase(),
     displayName: input.displayName.trim(),
     role: input.role,
     passwordHash: await dependencies.hashPassword(input.password),
   });
-  if (!result.ok) {
-    return result;
-  }
-
-  let notification: CreatedAdminUser["notification"] = "SENT";
-  try {
-    await dependencies.notifications.sendAdminAdded({
-      to: { email: result.value.email, name: result.value.displayName },
-      displayName: result.value.displayName,
-      role: result.value.role,
-      addedByDisplayName: actor.displayName,
-    });
-  } catch {
-    dependencies.logError("admin_added_email_failed");
-    notification = "FAILED";
-  }
-
-  return successful({ ...result.value, notification });
 }
 
 export async function updateAdminUser(

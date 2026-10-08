@@ -52,17 +52,12 @@ export interface SubmitReservationInput {
   rateLimitSubject: string;
 }
 
-export type ConfirmedReservation = {
-  email: string;
-  fullName: string;
-  reservationNumber: number;
-  partySize: number;
-  eventStartsAt: Date;
-};
+// The outbox row for these outcomes is written inside the allocation transaction.
+const outcomesWithEmail: ReadonlySet<string> = new Set(["CONFIRMED", "WAITLISTED"]);
 
 export interface SubmitReservationResult extends ReservationResponse {
   replayed: boolean;
-  confirmedReservation?: ConfirmedReservation;
+  acceptedReservation: boolean;
 }
 
 const idempotencyKeySchema = z.uuid();
@@ -71,6 +66,7 @@ function validationFailure(fieldErrors: Record<string, string[]>): SubmitReserva
   return {
     ...mapReservationOutcome({ code: "VALIDATION_FAILED", fieldErrors }),
     replayed: false,
+    acceptedReservation: false,
   };
 }
 
@@ -86,6 +82,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       return {
         ...mapReservationOutcome({ code: "IDEMPOTENCY_KEY_REQUIRED" }),
         replayed: false,
+        acceptedReservation: false,
       };
     }
 
@@ -132,10 +129,11 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
         return {
           ...mapReservationOutcome({ code: "IDEMPOTENCY_KEY_REUSED" }),
           replayed: false,
+          acceptedReservation: false,
         };
       }
 
-      return { ...completed.response, replayed: true };
+      return { ...completed.response, replayed: true, acceptedReservation: false };
     }
 
     const ipLimit = await dependencies.rateLimiter.consume({
@@ -149,6 +147,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
           retryAfterSeconds: ipLimit.retryAfterSeconds,
         }),
         replayed: false,
+        acceptedReservation: false,
       };
     }
 
@@ -164,6 +163,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
           ...(botResult.reason === "TOKEN_EXPIRED_OR_SPENT" ? { reason: botResult.reason } : {}),
         }),
         replayed: false,
+        acceptedReservation: false,
       };
     }
 
@@ -185,6 +185,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       return {
         ...mapReservationOutcome({ code: "RATE_LIMITED", retryAfterSeconds }),
         replayed: false,
+        acceptedReservation: false,
       };
     }
 
@@ -203,19 +204,10 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       mapOutcome: mapReservationOutcome,
     });
 
-    if (allocation.replayed === false && allocation.outcome?.code === "CONFIRMED") {
-      return {
-        ...allocation,
-        confirmedReservation: {
-          email: emailAsEntered,
-          fullName: parsed.data.fullName,
-          reservationNumber: allocation.outcome.number,
-          partySize: allocation.outcome.partySize,
-          eventStartsAt: allocation.outcome.eventStartsAt,
-        },
-      };
-    }
-
-    return allocation;
+    return {
+      ...allocation,
+      acceptedReservation:
+        allocation.replayed === false && outcomesWithEmail.has(allocation.outcome?.code ?? ""),
+    };
   };
 }

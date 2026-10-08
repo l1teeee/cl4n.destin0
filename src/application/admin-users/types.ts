@@ -35,10 +35,6 @@ export interface SessionRevocation {
   revokedSessions: number;
 }
 
-export interface CreatedAdminUser extends AdminUserSummary {
-  notification: "SENT" | "FAILED";
-}
-
 export interface AdminDeletionCodeRecord {
   codeId: string;
   target: {

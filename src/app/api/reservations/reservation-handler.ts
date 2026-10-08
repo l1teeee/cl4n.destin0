@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  ConfirmedReservation,
-  SubmitReservationDependencies,
-} from "@/application/reservations/submit-reservation";
+import type { SubmitReservationDependencies } from "@/application/reservations/submit-reservation";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { mapReservationOutcome } from "@/application/reservations/reservation-response";
 import { retryableDatabaseErrorCode } from "@/infrastructure/db/retryable-database-error";
@@ -20,7 +17,7 @@ interface HandlerObservability {
 
 export interface ReservationHandlerDependencies extends SubmitReservationDependencies {
   observability: HandlerObservability;
-  onReservationConfirmed?(reservation: ConfirmedReservation): void;
+  onReservationAccepted?(): void;
 }
 
 const MAXIMUM_BODY_BYTES = 16 * 1024;
@@ -172,13 +169,12 @@ export function createReservationHandler(dependencies: ReservationHandlerDepende
         outcome,
         durationMs: Math.round(performance.now() - startedAt),
       });
-      if (result.confirmedReservation) {
+      if (result.acceptedReservation) {
         try {
-          dependencies.onReservationConfirmed?.(result.confirmedReservation);
+          dependencies.onReservationAccepted?.();
         } catch (error) {
           dependencies.observability.log("error", "reservation_confirmation_schedule_failed", {
             requestId,
-            reservationNumber: result.confirmedReservation.reservationNumber,
           });
           dependencies.observability.captureException?.(error);
         }

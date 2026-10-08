@@ -26,6 +26,7 @@ const serverEnvSchema = z
     VERCEL_ENV: z.enum(["production", "preview", "development"]).optional(),
     DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
     APP_SECRET: z.string().min(32),
+    CRON_SECRET: optionalString,
     EMAIL_MODE: z.enum(["brevo", "log"]),
     BREVO_API_KEY: optionalString,
     EMAIL_FROM_ADDRESS: optionalEmail,
@@ -82,6 +83,14 @@ const serverEnvSchema = z
       context.addIssue({
         code: "custom",
         path: ["APP_SECRET"],
+        message: "must contain at least 32 characters in preview or production",
+      });
+    }
+
+    if (protectedEnvironment && (value.CRON_SECRET?.length ?? 0) < 32) {
+      context.addIssue({
+        code: "custom",
+        path: ["CRON_SECRET"],
         message: "must contain at least 32 characters in preview or production",
       });
     }

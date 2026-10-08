@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { OutgoingEmail } from "@/application/ports/email-sender";
 import { createBrevoEmailSender } from "@/infrastructure/email/brevo-email-sender";
-import { EmailDeliveryError } from "@/infrastructure/email/email-delivery-error";
+import { EmailDeliveryError } from "@/application/notifications/email-delivery-error";
 
 const outgoingEmail: OutgoingEmail = {
   to: { email: "guest@example.com", name: "Guest Name" },

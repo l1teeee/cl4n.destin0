@@ -29,6 +29,7 @@ export interface SignInInput {
   email: string;
   password: string;
   clientIp: string;
+  rawClientIp: string | null;
 }
 
 export interface SignInDependencies {
@@ -70,7 +71,11 @@ export async function signIn(
     return { ok: false, error: "INVALID_CREDENTIALS" };
   }
 
-  const session = await dependencies.repository.createSession(admin.id, admin.passwordHash);
+  const session = await dependencies.repository.createSession(
+    admin.id,
+    admin.passwordHash,
+    input.rawClientIp,
+  );
   if (!session) {
     return { ok: false, error: "INVALID_CREDENTIALS" };
   }
