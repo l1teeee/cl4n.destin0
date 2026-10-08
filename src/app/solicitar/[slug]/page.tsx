@@ -18,7 +18,7 @@ export default async function RequestAccessPage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  if (event.phase !== "OPEN") {
+  if (event.phase !== "OPEN" && event.phase !== "WAITLIST") {
     return <ClosedState soldOut={event.phase === "FULL"} />;
   }
 

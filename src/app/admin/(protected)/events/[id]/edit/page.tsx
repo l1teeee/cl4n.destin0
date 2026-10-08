@@ -40,6 +40,7 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
           closesAt: formatUtcForElSalvador(event.closesAt, "yyyy-MM-dd'T'HH:mm"),
           maxPartySize: event.maxPartySize,
           autoCloseOnFull: event.autoCloseOnFull,
+          waitlistCapacity: event.waitlistCapacity,
         }}
       />
     </main>

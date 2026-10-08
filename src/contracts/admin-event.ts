@@ -36,6 +36,11 @@ const eventFields = {
     .int("El tamaño máximo del grupo debe ser un número entero.")
     .positive("El tamaño máximo del grupo debe ser mayor que cero."),
   autoCloseOnFull: z.boolean({ error: "El cierre automático debe ser verdadero o falso." }),
+  waitlistCapacity: z
+    .number({ error: "Los lugares en cola deben ser un número." })
+    .int("Los lugares en cola deben ser un número entero.")
+    .min(0, "Los lugares en cola no pueden ser negativos.")
+    .max(50, "Los lugares en cola no pueden superar 50."),
 };
 
 export const createAdminEventSchema = z
@@ -61,6 +66,7 @@ export const updateAdminEventSchema = z
     closesAt: eventFields.closesAt,
     maxPartySize: eventFields.maxPartySize,
     autoCloseOnFull: eventFields.autoCloseOnFull,
+    waitlistCapacity: eventFields.waitlistCapacity,
   })
   .strict();
 

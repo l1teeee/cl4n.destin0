@@ -180,6 +180,18 @@ export function ReservationForm({
     );
   }
 
+  if (formState?.kind === "waitlisted") {
+    return (
+      <section className="reservation-success" aria-live="polite">
+        <h2>HAS QUEDADO EN COLA</h2>
+        <p className="reservation-success-number">#{formState.position}</p>
+        <p>{formState.partySize} personas</p>
+        <p>{formattedDate}</p>
+        <p>Te avisaremos por correo si se libera un lugar.</p>
+      </section>
+    );
+  }
+
   return (
     <form
       onSubmit={(event) => void handleSubmit(onSubmit)(event)}

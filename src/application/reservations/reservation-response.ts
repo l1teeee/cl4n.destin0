@@ -55,7 +55,7 @@ const responseDefinitions: Record<ReservationErrorCode, { status: number; messag
   },
   DUPLICATE_RESERVATION: {
     status: 409,
-    message: "Ya existe una reservación confirmada con este email o teléfono.",
+    message: "Ya existe una reservación o un lugar en la cola con este email o teléfono.",
   },
   EVENT_FULL: {
     status: 409,
@@ -81,6 +81,20 @@ export function mapReservationOutcome(
         status: "CONFIRMED",
         reservation: {
           number: outcome.number,
+          partySize: outcome.partySize,
+          eventStartsAt: outcome.eventStartsAt.toISOString(),
+        },
+      },
+    };
+  }
+
+  if (outcome.code === "WAITLISTED") {
+    return {
+      status: 202,
+      body: {
+        status: "WAITLISTED",
+        waitlist: {
+          position: outcome.position,
           partySize: outcome.partySize,
           eventStartsAt: outcome.eventStartsAt.toISOString(),
         },

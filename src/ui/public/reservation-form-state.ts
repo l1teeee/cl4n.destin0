@@ -25,6 +25,11 @@ export type ReservationFormState =
       partySize: number;
     }
   | {
+      kind: "waitlisted";
+      position: number;
+      partySize: number;
+    }
+  | {
       kind: "error";
       message: string;
       fieldErrors: Partial<Record<ReservationFormField, string[]>>;
@@ -100,13 +105,24 @@ export function toFormState(response: ReservationResponseData): ReservationFormS
     }
   }
 
+  if (response.status === 202) {
+    const waitlist = record(body?.waitlist);
+    if (typeof waitlist?.position === "number" && typeof waitlist.partySize === "number") {
+      return {
+        kind: "waitlisted",
+        position: waitlist.position,
+        partySize: waitlist.partySize,
+      };
+    }
+  }
+
   const error = parsedError(body);
   if (response.status === 409 && error.code === "EVENT_FULL") {
     return errorState("Los cupos para esta experiencia se agotaron.", error);
   }
   if (response.status === 409 && error.code === "DUPLICATE_RESERVATION") {
     return errorState(
-      "Ya existe una reservación con este email o teléfono para esta experiencia.",
+      "Ya existe una reservación o un lugar en la cola con este email o teléfono.",
       error,
     );
   }

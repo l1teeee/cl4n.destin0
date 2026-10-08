@@ -6,6 +6,7 @@ import type {
   SortDirection,
 } from "@/application/events/types";
 import type { AdminRole } from "@/domain/admin/admin-access";
+import type { EventPhase } from "@/domain/event/event-phase";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 
 export type DashboardAction = "OPEN_NOW" | "CLOSE_NOW" | "EDIT" | "RESERVATIONS";
@@ -43,11 +44,15 @@ export function dashboardActions(event: AdminEventSummary, databaseTime: Date): 
     (event.status === "DRAFT" || event.status === "SCHEDULED" || event.status === "CLOSED") &&
     event.closesAt > databaseTime &&
     event.phase !== "OPEN" &&
+    event.phase !== "WAITLIST" &&
     event.phase !== "FULL"
   ) {
     actions.push("OPEN_NOW");
   }
-  if (event.status === "SCHEDULED" && (event.phase === "OPEN" || event.phase === "FULL")) {
+  if (
+    event.status === "SCHEDULED" &&
+    (event.phase === "OPEN" || event.phase === "WAITLIST" || event.phase === "FULL")
+  ) {
     actions.push("CLOSE_NOW");
   }
   actions.push("EDIT", "RESERVATIONS");
@@ -67,6 +72,7 @@ export function lifecycleActions(event: AdminEventSummary, databaseTime: Date): 
     (event.status === "DRAFT" || event.status === "SCHEDULED" || event.status === "CLOSED") &&
     event.closesAt > databaseTime &&
     event.phase !== "OPEN" &&
+    event.phase !== "WAITLIST" &&
     event.phase !== "FULL"
   ) {
     actions.push("OPEN_NOW");
@@ -103,6 +109,10 @@ export function adminStatusLabel(isActive: boolean): string {
 
 export function adminStatusBadgeClass(status: string): string {
   return `admin-badge admin-badge-${status.toLowerCase().replaceAll("_", "-")}`;
+}
+
+export function eventPhaseLabel(phase: EventPhase): string {
+  return phase === "WAITLIST" ? "Solo cola" : phase;
 }
 
 export function reservationStatusLabel(status: ReservationStatus): string {

@@ -219,6 +219,43 @@ describe("POST /api/reservations", () => {
     expect(onReservationConfirmed).not.toHaveBeenCalled();
   });
 
+  it("returns 202 WAITLISTED with the queue position and replays it unchanged", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 1,
+      reservedSeats: 1,
+      maxPartySize: 1,
+      waitlistCapacity: 2,
+    });
+    const eventResult = await pool.query<{ starts_at: Date }>(
+      "SELECT starts_at FROM events WHERE id = $1",
+      [event.id],
+    );
+    const onReservationConfirmed = vi.fn();
+    const setup = dependencies({ onReservationConfirmed });
+    const key = randomUUID();
+    const body = reservationBody(event.slug, 108);
+
+    const first = await setup.handler(request(body, key));
+    const replay = await setup.handler(request(body, key));
+
+    const expectedBody = {
+      status: "WAITLISTED",
+      waitlist: {
+        position: 1,
+        partySize: 1,
+        eventStartsAt: eventResult.rows[0]!.starts_at.toISOString(),
+      },
+    };
+    expect(first.status).toBe(202);
+    await expect(first.json()).resolves.toEqual(expectedBody);
+    expect(replay.status).toBe(202);
+    expect(replay.headers.get("Idempotent-Replayed")).toBe("true");
+    await expect(replay.json()).resolves.toEqual(expectedBody);
+    expect(onReservationConfirmed).not.toHaveBeenCalled();
+    const logOutput = JSON.stringify(log.mock.calls);
+    expect(logOutput).toContain("WAITLISTED");
+  });
+
   it("does not schedule a confirmation for DUPLICATE_RESERVATION", async () => {
     const event = await insertTestEvent(pool);
     const body = reservationBody(event.slug, 107);
@@ -470,6 +507,9 @@ describe("POST /api/reservations", () => {
         async cancelReservation() {
           return "NOT_FOUND";
         },
+        async cancelWaitlistEntry() {
+          return "NOT_FOUND";
+        },
       };
       const rateLimiter = {
         consume: vi.fn(async () => {
@@ -509,6 +549,9 @@ describe("POST /api/reservations", () => {
         throw new Error(internalMessage);
       },
       async cancelReservation() {
+        return "NOT_FOUND";
+      },
+      async cancelWaitlistEntry() {
         return "NOT_FOUND";
       },
     };

@@ -24,6 +24,7 @@ import { availableSeats, derivePhase, type EventLifecycleStatus } from "@/domain
 
 import { pool as applicationPool } from "../client";
 import { inTransaction as runInTransaction } from "../transaction";
+import { promoteWaitlist } from "./waitlist-promotion";
 
 interface EventRow extends QueryResultRow {
   id: string;
@@ -36,6 +37,8 @@ interface EventRow extends QueryResultRow {
   opens_at: Date;
   closes_at: Date;
   auto_close_on_full: boolean;
+  waitlist_capacity: number;
+  waitlisted_count: number;
   status: EventLifecycleStatus;
   created_at?: Date;
   updated_at?: Date;
@@ -82,6 +85,8 @@ const eventColumns = `
   opens_at,
   closes_at,
   auto_close_on_full,
+  waitlist_capacity,
+  waitlisted_count,
   status`;
 
 function eventRecord(row: EventRow): EventRecord {
@@ -96,6 +101,8 @@ function eventRecord(row: EventRow): EventRecord {
     opensAt: row.opens_at,
     closesAt: row.closes_at,
     autoCloseOnFull: row.auto_close_on_full,
+    waitlistCapacity: row.waitlist_capacity,
+    waitlistedCount: row.waitlisted_count,
     status: row.status,
   };
 }
@@ -164,6 +171,7 @@ function comparableEvent(record: EventRecord): Record<string, unknown> {
     opensAt: record.opensAt.toISOString(),
     closesAt: record.closesAt.toISOString(),
     autoCloseOnFull: record.autoCloseOnFull,
+    waitlistCapacity: record.waitlistCapacity,
     status: record.status,
   };
 }
@@ -222,9 +230,10 @@ export class PostgresEventRepository implements EventRepository {
              opens_at,
              closes_at,
              auto_close_on_full,
+             waitlist_capacity,
              status
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            RETURNING ${eventColumns}`,
           [
             command.internalName,
@@ -235,6 +244,7 @@ export class PostgresEventRepository implements EventRepository {
             command.opensAt,
             command.closesAt,
             command.autoCloseOnFull,
+            command.waitlistCapacity,
             command.status,
           ],
         );
@@ -272,6 +282,9 @@ export class PostgresEventRepository implements EventRepository {
         if (command.slug !== locked.slug && locked.status !== "DRAFT") {
           return failed("SLUG_LOCKED");
         }
+        if (command.waitlistCapacity < locked.waitlisted_count) {
+          return failed("WAITLIST_CAPACITY_BELOW_WAITING");
+        }
 
         const before = eventRecord(locked);
         const updated = await client.query<EventRow>(
@@ -283,6 +296,7 @@ export class PostgresEventRepository implements EventRepository {
                   opens_at = $6,
                   closes_at = $7,
                   auto_close_on_full = $8,
+                  waitlist_capacity = $9,
                   updated_at = clock_timestamp()
             WHERE id = $1
             RETURNING ${eventColumns}`,
@@ -295,6 +309,7 @@ export class PostgresEventRepository implements EventRepository {
             command.opensAt,
             command.closesAt,
             command.autoCloseOnFull,
+            command.waitlistCapacity,
           ],
         );
         const after = eventRecord(updated.rows[0]!);
@@ -377,20 +392,20 @@ export class PostgresEventRepository implements EventRepository {
         return failed("CAPACITY_BELOW_MAX_PARTY_SIZE");
       }
 
-      const updated = await client.query<EventRow>(
+      await client.query(
         `UPDATE events
             SET capacity = $2,
                 updated_at = clock_timestamp()
-          WHERE id = $1
-          RETURNING ${eventColumns}`,
+          WHERE id = $1`,
         [id, capacity],
       );
-      const after = eventRecord(updated.rows[0]!);
       await insertAudit(client, actorAdminId, "CAPACITY_CHANGED", id, {
         from: locked.capacity,
         to: capacity,
       });
-      return successful(after);
+      await promoteWaitlist(client, id);
+      const refreshed = await lockEvent(client, id);
+      return successful(eventRecord(refreshed!));
     });
   }
 
@@ -554,7 +569,9 @@ export class PostgresEventRepository implements EventRepository {
     const timed = await this.publicEvents();
     return {
       databaseTime: timed.databaseTime,
-      value: timed.value.filter((event) => event.phase === "OPEN" || event.phase === "FULL"),
+      value: timed.value.filter(
+        (event) => event.phase === "OPEN" || event.phase === "WAITLIST" || event.phase === "FULL",
+      ),
     };
   }
 

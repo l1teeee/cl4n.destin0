@@ -40,7 +40,7 @@ export function rotateAttemptKey(
 }
 
 export function shouldRotateAttemptKey(outcome: AttemptOutcome): boolean {
-  if (outcome.status === 201) {
+  if (outcome.status === 201 || outcome.status === 202) {
     return true;
   }
 

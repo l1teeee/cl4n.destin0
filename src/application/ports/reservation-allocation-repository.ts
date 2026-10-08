@@ -14,6 +14,12 @@ export type AllocationOutcome =
       eventStartsAt: Date;
     }
   | {
+      code: "WAITLISTED";
+      position: number;
+      partySize: number;
+      eventStartsAt: Date;
+    }
+  | {
       code: Extract<
         ReservationErrorCode,
         | "IDEMPOTENCY_KEY_REUSED"
@@ -57,8 +63,16 @@ export interface CancelReservationCommand {
   actorAdminId: string;
 }
 
+export type CancelWaitlistEntryOutcome = CancelReservationOutcome;
+
+export interface CancelWaitlistEntryCommand {
+  waitlistEntryId: string;
+  actorAdminId: string;
+}
+
 export interface ReservationAllocationRepository {
   findCompletedIdempotencyRecord(key: string): Promise<CompletedIdempotencyRecord | null>;
   allocate(command: AllocationCommand): Promise<AllocationResult>;
   cancelReservation(command: CancelReservationCommand): Promise<CancelReservationOutcome>;
+  cancelWaitlistEntry(command: CancelWaitlistEntryCommand): Promise<CancelWaitlistEntryOutcome>;
 }

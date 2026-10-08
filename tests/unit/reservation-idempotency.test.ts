@@ -46,6 +46,7 @@ describe("reservation idempotency key lifecycle", () => {
 
   it.each([
     [201, undefined],
+    [202, undefined],
     [400, "IDEMPOTENCY_KEY_REQUIRED"],
     [404, "EVENT_NOT_FOUND"],
     [409, "EVENT_FULL"],

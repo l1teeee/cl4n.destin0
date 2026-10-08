@@ -38,6 +38,10 @@ describe("classifyAllocationFailure", () => {
     expect(classifyAllocationFailure(snapshot(), 2, opensAt)).toBe("EVENT_FULL");
   });
 
+  it("keeps classifying a sold-out scheduled event as full so the caller can try the queue", () => {
+    expect(classifyAllocationFailure(snapshot({ reservedSeats: 20 }), 1, now)).toBe("EVENT_FULL");
+  });
+
   it("returns TRY_AGAIN when a scheduled in-window snapshot still has capacity", () => {
     expect(classifyAllocationFailure(snapshot(), 1, now)).toBe("TRY_AGAIN");
     expect(classifyAllocationFailure(snapshot({ reservedSeats: 0 }), 2, now)).toBe("TRY_AGAIN");

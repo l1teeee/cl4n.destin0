@@ -10,6 +10,7 @@ export interface TestEventOptions {
   opensOffset?: string;
   closesOffset?: string;
   autoCloseOnFull?: boolean;
+  waitlistCapacity?: number;
 }
 
 export interface TestEvent {
@@ -30,14 +31,14 @@ export async function insertTestEvent(
     `INSERT INTO events (
        slug, internal_name, starts_at, capacity, reserved_seats,
        max_party_size, opens_at, closes_at, auto_close_on_full,
-       status, last_reservation_number
+       status, last_reservation_number, waitlist_capacity
      )
      VALUES (
        $1, 'Reservation Engine Test', clock_timestamp() + INTERVAL '1 day',
        $2, $3, $4,
        clock_timestamp() + $5::interval,
        clock_timestamp() + $6::interval,
-       $7, $8, 0
+       $7, $8, 0, $9
      )
      RETURNING id`,
     [
@@ -49,6 +50,7 @@ export async function insertTestEvent(
       options.closesOffset ?? "1 hour",
       options.autoCloseOnFull ?? false,
       options.status ?? "SCHEDULED",
+      options.waitlistCapacity ?? 0,
     ],
   );
 

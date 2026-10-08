@@ -26,6 +26,7 @@ interface RequestResult {
 interface InvariantSummary {
   confirmed: number;
   fullRejected: number;
+  waiting: number;
   reservedSeats: number;
   capacity: number;
   oversold: number;
@@ -91,8 +92,8 @@ async function fireTogether(
 }
 
 function resultCode(result: RequestResult): string {
-  if (result.body.status === "CONFIRMED") {
-    return "CONFIRMED";
+  if (result.body.status === "CONFIRMED" || result.body.status === "WAITLISTED") {
+    return result.body.status;
   }
   const error = result.body.error as { code?: string } | undefined;
   return error?.code ?? "UNKNOWN";
@@ -106,9 +107,15 @@ async function assertInvariants(
     capacity: number;
     reserved_seats: number;
     last_reservation_number: number;
-  }>("SELECT capacity, reserved_seats, last_reservation_number FROM events WHERE id = $1", [
-    eventId,
-  ]);
+    waitlist_capacity: number;
+    waitlisted_count: number;
+    last_waitlist_number: number;
+  }>(
+    `SELECT capacity, reserved_seats, last_reservation_number,
+            waitlist_capacity, waitlisted_count, last_waitlist_number
+       FROM events WHERE id = $1`,
+    [eventId],
+  );
   const event = eventResult.rows[0]!;
   const reservationResult = await pool.query<{
     status: string;
@@ -140,6 +147,29 @@ async function assertInvariants(
   expect(event.reserved_seats).toBeLessThanOrEqual(event.capacity);
   expect(new Set(numbers).size).toBe(numbers.length);
   expect(numbers).toEqual(expectedNumbers);
+
+  const waitlistEntries = await pool.query<{ status: string; waitlist_number: number }>(
+    `SELECT status, waitlist_number
+       FROM waitlist_entries
+      WHERE event_id = $1
+      ORDER BY waitlist_number`,
+    [eventId],
+  );
+  const waiting = waitlistEntries.rows.filter((row) => row.status === "WAITING");
+  expect(event.waitlisted_count).toBe(waiting.length);
+  expect(event.waitlisted_count).toBeLessThanOrEqual(event.waitlist_capacity);
+  expect(waitlistEntries.rows.map((row) => row.waitlist_number)).toEqual(
+    Array.from({ length: event.last_waitlist_number }, (_, index) => index + 1),
+  );
+  const promotedCount = waitlistEntries.rows.filter((row) => row.status === "PROMOTED").length;
+  const promotedReservations = await pool.query(
+    `SELECT 1
+       FROM waitlist_entries w
+       JOIN reservations r ON r.id = w.promoted_reservation_id
+      WHERE w.event_id = $1 AND w.status = 'PROMOTED'`,
+    [eventId],
+  );
+  expect(promotedReservations.rowCount).toBe(promotedCount);
 
   const duplicates = await pool.query(
     `SELECT 1
@@ -176,6 +206,7 @@ async function assertInvariants(
   return {
     confirmed: confirmed.length,
     fullRejected: fullRejected.length,
+    waiting: waiting.length,
     reservedSeats: event.reserved_seats,
     capacity: event.capacity,
     oversold: Math.max(0, event.reserved_seats - event.capacity),
@@ -190,10 +221,10 @@ function printSummary(
   durationMs: number,
 ): void {
   const otherOutcomes = results.filter(
-    (result) => !["CONFIRMED", "EVENT_FULL"].includes(resultCode(result)),
+    (result) => !["CONFIRMED", "WAITLISTED", "EVENT_FULL"].includes(resultCode(result)),
   ).length;
   console.log(
-    `CONCURRENCY ${scenario} requests=${requests} confirmed=${summary.confirmed} full_rejected=${summary.fullRejected} other=${otherOutcomes} reserved=${summary.reservedSeats}/${summary.capacity} oversold=${summary.oversold} duration_ms=${durationMs}`,
+    `CONCURRENCY ${scenario} requests=${requests} confirmed=${summary.confirmed} full_rejected=${summary.fullRejected} waiting=${summary.waiting} other=${otherOutcomes} reserved=${summary.reservedSeats}/${summary.capacity} oversold=${summary.oversold} duration_ms=${durationMs}`,
   );
 }
 
@@ -216,6 +247,92 @@ async function insertConcurrencyAdmin(): Promise<string> {
     [`${randomUUID()}@example.com`],
   );
   return admin.rows[0]!.id;
+}
+
+async function fireWithOperations<T>(
+  eventSlug: string,
+  requests: Array<{ sequence: number; overrides?: Record<string, unknown> }>,
+  operations: Array<() => Promise<T>>,
+): Promise<{ results: RequestResult[]; operationResults: T[] }> {
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const submissions = requests.map(async (request) => {
+    const key = randomUUID();
+    await barrier;
+    const result = await submitReservation({
+      idempotencyKey: key,
+      body: reservationBody(eventSlug, request.sequence, request.overrides),
+      remoteIp: null,
+      rateLimitSubject: "unknown",
+    });
+    return { key, status: result.status, body: result.body };
+  });
+  const running = operations.map(async (operation) => {
+    await barrier;
+    return operation();
+  });
+
+  release();
+  const [results, operationResults] = await Promise.all([
+    Promise.all(submissions),
+    Promise.all(running),
+  ]);
+  return { results, operationResults };
+}
+
+async function seedWaitlist(
+  eventSlug: string,
+  entries: Array<{ sequence: number; partySize: number }>,
+): Promise<void> {
+  for (const entry of entries) {
+    const result = await submitReservation({
+      idempotencyKey: randomUUID(),
+      body: reservationBody(eventSlug, entry.sequence, { partySize: entry.partySize }),
+      remoteIp: null,
+      rateLimitSubject: "unknown",
+    });
+    expect(result.status).toBe(202);
+  }
+}
+
+async function confirmedReservationIds(eventId: string, limit: number): Promise<string[]> {
+  const rows = await pool.query<{ id: string }>(
+    `SELECT id FROM reservations
+      WHERE event_id = $1 AND status = 'CONFIRMED' AND reservation_number IS NOT NULL
+      ORDER BY reservation_number
+      LIMIT $2`,
+    [eventId, limit],
+  );
+  return rows.rows.map((row) => row.id);
+}
+
+async function waitlistStatuses(
+  eventId: string,
+): Promise<Array<{ number: number; status: string }>> {
+  const rows = await pool.query<{ waitlist_number: number; status: string }>(
+    `SELECT waitlist_number, status
+       FROM waitlist_entries
+      WHERE event_id = $1
+      ORDER BY waitlist_number`,
+    [eventId],
+  );
+  return rows.rows.map((row) => ({ number: row.waitlist_number, status: row.status }));
+}
+
+async function expectPromotionsInFifoOrder(eventId: string): Promise<number[]> {
+  const promoted = await pool.query<{ waitlist_number: number; reservation_number: number }>(
+    `SELECT w.waitlist_number, r.reservation_number
+       FROM waitlist_entries w
+       JOIN reservations r ON r.id = w.promoted_reservation_id
+      WHERE w.event_id = $1 AND w.status = 'PROMOTED'
+      ORDER BY w.waitlist_number`,
+    [eventId],
+  );
+  const reservationNumbers = promoted.rows.map((row) => row.reservation_number);
+  expect(reservationNumbers).toEqual([...reservationNumbers].sort((left, right) => left - right));
+  return promoted.rows.map((row) => row.waitlist_number);
 }
 
 describe("reservation allocation concurrency", () => {
@@ -562,5 +679,156 @@ describe("reservation allocation concurrency", () => {
     expect(finalState.rows[0]).toEqual({ status: "CLOSED", closed_audits: 1 });
     expect(summary.oversold).toBe(0);
     printSummary("J", requests.length, results, summary, durationMs);
+  });
+
+  it("WE: waitlists exactly five and rejects the rest of 100 requests on a 20-seat event", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 20,
+      maxPartySize: 1,
+      waitlistCapacity: 5,
+    });
+    const requests = Array.from({ length: 100 }, (_, index) => ({
+      sequence: 1_100_000 + index,
+    }));
+    const startedAt = performance.now();
+    const results = await fireTogether(event.slug, requests);
+    const durationMs = Math.round(performance.now() - startedAt);
+    const summary = await assertInvariants(event.id, results);
+
+    expect(results.filter((result) => resultCode(result) === "CONFIRMED")).toHaveLength(20);
+    expect(results.filter((result) => resultCode(result) === "WAITLISTED")).toHaveLength(5);
+    expect(results.filter((result) => resultCode(result) === "EVENT_FULL")).toHaveLength(75);
+    expect(await waitlistStatuses(event.id)).toEqual(
+      [1, 2, 3, 4, 5].map((number) => ({ number, status: "WAITING" })),
+    );
+    expect(summary.reservedSeats).toBe(20);
+    expect(summary.waiting).toBe(5);
+    expect(summary.oversold).toBe(0);
+    printSummary("WE", requests.length, results, summary, durationMs);
+  });
+
+  it("WF: promotes entries 1..3 in order while 50 new requests arrive during three cancellations", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 20,
+      maxPartySize: 1,
+      waitlistCapacity: 5,
+    });
+    await seedReservations(event.slug, 20, 1_200_000);
+    await seedWaitlist(
+      event.slug,
+      Array.from({ length: 5 }, (_, index) => ({ sequence: 1_210_000 + index, partySize: 1 })),
+    );
+    const adminId = await insertConcurrencyAdmin();
+    const cancellable = await confirmedReservationIds(event.id, 3);
+    const requests = Array.from({ length: 50 }, (_, index) => ({
+      sequence: 1_220_000 + index,
+    }));
+    const startedAt = performance.now();
+    const { results, operationResults } = await fireWithOperations(
+      event.slug,
+      requests,
+      cancellable.map(
+        (reservationId) => () => cancelReservation({ reservationId, actorAdminId: adminId }),
+      ),
+    );
+    const durationMs = Math.round(performance.now() - startedAt);
+    const summary = await assertInvariants(event.id, results);
+
+    expect(operationResults).toEqual(["CANCELLED", "CANCELLED", "CANCELLED"]);
+    expect(summary.reservedSeats).toBe(20);
+    expect(await expectPromotionsInFifoOrder(event.id)).toEqual([1, 2, 3]);
+    const codes = results.map(resultCode);
+    expect(codes.filter((code) => code === "CONFIRMED")).toHaveLength(0);
+    expect(codes.every((code) => code === "WAITLISTED" || code === "EVENT_FULL")).toBe(true);
+    const joined = codes.filter((code) => code === "WAITLISTED").length;
+    expect(joined).toBeLessThanOrEqual(3);
+    expect(summary.waiting).toBe(2 + joined);
+    expect(summary.oversold).toBe(0);
+    printSummary("WF", requests.length, results, summary, durationMs);
+  });
+
+  it("WG: keeps strict FIFO and never skips a larger head for a smaller party", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 6,
+      maxPartySize: 3,
+      waitlistCapacity: 5,
+    });
+    const adminId = await insertConcurrencyAdmin();
+    for (const [index, partySize] of [1, 2, 3].entries()) {
+      const seeded = await submitReservation({
+        idempotencyKey: randomUUID(),
+        body: reservationBody(event.slug, 1_300_000 + index, { partySize }),
+        remoteIp: null,
+        rateLimitSubject: "unknown",
+      });
+      expect(seeded.status).toBe(201);
+    }
+    await seedWaitlist(event.slug, [
+      { sequence: 1_310_000, partySize: 3 },
+      { sequence: 1_310_001, partySize: 1 },
+    ]);
+    const [partyOne, partyTwo] = await confirmedReservationIds(event.id, 2);
+    const startedAt = performance.now();
+
+    expect(await cancelReservation({ reservationId: partyOne!, actorAdminId: adminId })).toBe(
+      "CANCELLED",
+    );
+    expect(await waitlistStatuses(event.id)).toEqual([
+      { number: 1, status: "WAITING" },
+      { number: 2, status: "WAITING" },
+    ]);
+    const afterFirst = await pool.query<{ reserved_seats: number }>(
+      "SELECT reserved_seats FROM events WHERE id = $1",
+      [event.id],
+    );
+    expect(afterFirst.rows[0]!.reserved_seats).toBe(5);
+
+    expect(await cancelReservation({ reservationId: partyTwo!, actorAdminId: adminId })).toBe(
+      "CANCELLED",
+    );
+    const durationMs = Math.round(performance.now() - startedAt);
+    expect(await waitlistStatuses(event.id)).toEqual([
+      { number: 1, status: "PROMOTED" },
+      { number: 2, status: "WAITING" },
+    ]);
+    const summary = await assertInvariants(event.id, []);
+
+    expect(summary.reservedSeats).toBe(6);
+    expect(summary.waiting).toBe(1);
+    expect(summary.oversold).toBe(0);
+    printSummary("WG", 0, [], summary, durationMs);
+  });
+
+  it("WH: promotes in FIFO order when an admin raises capacity during 30 requests", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 10,
+      maxPartySize: 1,
+      waitlistCapacity: 5,
+    });
+    await seedReservations(event.slug, 10, 1_400_000);
+    await seedWaitlist(
+      event.slug,
+      Array.from({ length: 5 }, (_, index) => ({ sequence: 1_410_000 + index, partySize: 1 })),
+    );
+    const adminId = await insertConcurrencyAdmin();
+    const requests = Array.from({ length: 30 }, (_, index) => ({
+      sequence: 1_420_000 + index,
+    }));
+    const startedAt = performance.now();
+    const { results, operationResults } = await fireWithOperations(event.slug, requests, [
+      () => eventRepository.changeCapacity(event.id, 13, adminId),
+    ]);
+    const durationMs = Math.round(performance.now() - startedAt);
+    const summary = await assertInvariants(event.id, results);
+
+    expect(operationResults[0]!.ok).toBe(true);
+    expect(summary.capacity).toBe(13);
+    expect(summary.reservedSeats).toBe(13);
+    expect(await expectPromotionsInFifoOrder(event.id)).toEqual([1, 2, 3]);
+    const codes = results.map(resultCode);
+    expect(codes.filter((code) => code === "CONFIRMED")).toHaveLength(0);
+    expect(codes.every((code) => code === "WAITLISTED" || code === "EVENT_FULL")).toBe(true);
+    expect(summary.oversold).toBe(0);
+    printSummary("WH", requests.length, results, summary, durationMs);
   });
 });

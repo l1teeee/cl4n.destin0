@@ -22,6 +22,7 @@ const baseCommand: CreateEventCommand = {
   capacity: 20,
   maxPartySize: 2,
   autoCloseOnFull: false,
+  waitlistCapacity: 5,
   status: "DRAFT",
 };
 
@@ -144,6 +145,7 @@ describe("event mutations", () => {
       opensAt: baseCommand.opensAt,
       closesAt: baseCommand.closesAt,
       autoCloseOnFull: true,
+      waitlistCapacity: 3,
     };
 
     const updated = await repository.update(update, adminId);
@@ -361,7 +363,9 @@ describe("event read models", () => {
       capacity: 1,
       maxPartySize: 1,
     });
-    await pool.query("UPDATE events SET reserved_seats = 1 WHERE id = $1", [full]);
+    await pool.query("UPDATE events SET reserved_seats = 1, waitlist_capacity = 0 WHERE id = $1", [
+      full,
+    ]);
     await insertEvent("DRAFT", { slug: "draft-event" });
     const scheduled = await insertEvent("SCHEDULED", {
       slug: "scheduled-event",

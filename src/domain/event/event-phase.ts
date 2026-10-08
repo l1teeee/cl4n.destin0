@@ -1,6 +1,6 @@
 export type EventLifecycleStatus = "DRAFT" | "SCHEDULED" | "CLOSED" | "COMPLETED" | "CANCELLED";
 
-export type EventPhase = EventLifecycleStatus | "OPEN" | "FULL";
+export type EventPhase = EventLifecycleStatus | "OPEN" | "WAITLIST" | "FULL";
 
 export interface EventPhaseSnapshot {
   status: EventLifecycleStatus;
@@ -8,6 +8,8 @@ export interface EventPhaseSnapshot {
   closesAt: Date;
   capacity: number;
   reservedSeats: number;
+  waitlistCapacity: number;
+  waitlistedCount: number;
 }
 
 export function derivePhase(event: EventPhaseSnapshot, now: Date): EventPhase {
@@ -24,7 +26,7 @@ export function derivePhase(event: EventPhaseSnapshot, now: Date): EventPhase {
   }
 
   if (event.reservedSeats >= event.capacity) {
-    return "FULL";
+    return event.waitlistedCount < event.waitlistCapacity ? "WAITLIST" : "FULL";
   }
 
   return "OPEN";
