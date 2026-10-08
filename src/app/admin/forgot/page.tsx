@@ -1,14 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { signInAction } from "./actions";
+import { requestPasswordResetAction } from "./actions";
 
-interface LoginPageProps {
-  searchParams: Promise<{ error?: string | string[]; restablecida?: string | string[] }>;
+interface ForgotPageProps {
+  searchParams: Promise<{ enviado?: string | string[]; error?: string | string[] }>;
 }
 
-export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
-  const { error, restablecida } = await searchParams;
+export default async function AdminForgotPage({ searchParams }: ForgotPageProps) {
+  const { enviado, error } = await searchParams;
   return (
     <main className="admin-login">
       <div className="admin-login-panel">
@@ -21,19 +21,20 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
             height={800}
             priority
           />
-          <h1 className="admin-eyebrow">Administración</h1>
+          <h1 className="admin-eyebrow">Recuperar acceso</h1>
         </div>
-        {restablecida ? (
+        {enviado ? (
           <p className="admin-notice-success" role="status">
-            Tu contraseña se actualizó. Ya puedes iniciar sesión.
+            Si el correo pertenece a un administrador, te enviamos un enlace para crear una nueva
+            contraseña.
           </p>
         ) : null}
         {error ? (
           <p className="admin-notice-error" role="alert">
-            No se pudo iniciar sesión. Verifica tus credenciales.
+            Ingresa un email válido.
           </p>
         ) : null}
-        <form action={signInAction} className="grid gap-4">
+        <form action={requestPasswordResetAction} className="grid gap-4">
           <label className="admin-label grid gap-2">
             <span>Email</span>
             <input
@@ -44,22 +45,12 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
               required
             />
           </label>
-          <label className="admin-label grid gap-2">
-            <span>Contraseña</span>
-            <input
-              className="admin-input"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
           <button className="admin-button admin-button-full mt-2" type="submit">
-            Ingresar
+            Enviar enlace
           </button>
         </form>
-        <Link className="admin-link" href="/admin/forgot">
-          ¿Olvidaste tu contraseña?
+        <Link className="admin-link" href="/admin/login">
+          Volver a ingresar
         </Link>
       </div>
     </main>

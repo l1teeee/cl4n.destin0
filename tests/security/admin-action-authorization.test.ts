@@ -89,6 +89,12 @@ function firstAwaitedCallName(body: ts.Block): string | undefined {
     : undefined;
 }
 
+const unauthenticatedActions = [
+  "signInAction",
+  "requestPasswordResetAction",
+  "completePasswordResetAction",
+];
+
 function isUserManagementFile(file: string): boolean {
   return file.split(path.sep).includes("users");
 }
@@ -96,7 +102,7 @@ function isUserManagementFile(file: string): boolean {
 describe("admin Server Action authorization", () => {
   const adminDirectory = path.join(process.cwd(), "src", "app", "admin");
 
-  it("requires authorization as the first awaited call in every action except sign-in", () => {
+  it("requires authorization as the first awaited call in every action except the sign-in and recovery ones", () => {
     const violations: string[] = [];
 
     for (const file of actionFiles(adminDirectory)) {
@@ -107,7 +113,7 @@ describe("admin Server Action authorization", () => {
         : ["requireAdmin", "requireSuperAdmin"];
 
       for (const action of exportedAsyncFunctions(sourceFile)) {
-        if (action.name === "signInAction") continue;
+        if (unauthenticatedActions.includes(action.name)) continue;
 
         const guard = firstAwaitedCallName(action.body);
         if (!guard || !allowedGuards.includes(guard)) {
