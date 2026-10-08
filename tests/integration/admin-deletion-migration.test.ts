@@ -21,28 +21,25 @@ async function withMaintenanceClient(work: (client: Client) => Promise<void>): P
   }
 }
 
-function migrationsBefore(tag: string): string {
+function migrationsWithout(tag: string): string {
   const directory = mkdtempSync(path.join(os.tmpdir(), "cl4n-migrations-"));
   cpSync(path.resolve("drizzle"), directory, { recursive: true });
+  rmSync(path.join(directory, `${tag}.sql`));
   const journalPath = path.join(directory, "meta", "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
     entries: { tag: string }[];
   };
-  const firstExcluded = journal.entries.findIndex((entry) => entry.tag === tag);
-  for (const entry of journal.entries.slice(firstExcluded)) {
-    rmSync(path.join(directory, `${entry.tag}.sql`));
-  }
-  journal.entries = journal.entries.slice(0, firstExcluded);
+  journal.entries = journal.entries.filter((entry) => entry.tag !== tag);
   writeFileSync(journalPath, JSON.stringify(journal));
   return directory;
 }
 
-describe("migration 0002_admin_roles", () => {
-  it("promotes existing admins to super admin and defaults new admins to admin", async () => {
+describe("migration 0003_admin_user_deletion", () => {
+  it("keeps existing admins valid and replaces the old email constraint", async () => {
     const target = testDatabaseUrl();
-    const database = `${target.pathname.slice(1)}_roles`;
+    const database = `${target.pathname.slice(1)}_deletion`;
     target.pathname = `/${database}`;
-    const previousMigrations = migrationsBefore("0002_admin_roles");
+    const previousMigrations = migrationsWithout("0003_admin_user_deletion");
 
     await withMaintenanceClient(async (client) => {
       await client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
@@ -53,28 +50,39 @@ describe("migration 0002_admin_roles", () => {
     try {
       await migrate(drizzle(pool), { migrationsFolder: previousMigrations });
       await pool.query(
-        `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
-         VALUES ('previo@example.com', 'previo@example.com', 'hash', 'Previo')`,
+        `INSERT INTO admin_users (email, email_normalized, password_hash, display_name, role)
+         VALUES ('previo@example.com', 'previo@example.com', 'hash', 'Previo', 'SUPER_ADMIN')`,
       );
 
       await migrate(drizzle(pool), { migrationsFolder: path.resolve("drizzle") });
 
-      const existing = await pool.query("SELECT email_normalized, role FROM admin_users");
+      const existing = await pool.query(
+        "SELECT email_normalized, is_active, deleted_at FROM admin_users",
+      );
       expect(existing.rows).toEqual([
-        { email_normalized: "previo@example.com", role: "SUPER_ADMIN" },
+        { email_normalized: "previo@example.com", is_active: true, deleted_at: null },
       ]);
 
-      const created = await pool.query<{ role: string }>(
-        `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
-         VALUES ('nuevo@example.com', 'nuevo@example.com', 'hash', 'Nuevo')
-         RETURNING role`,
+      const oldConstraint = await pool.query(
+        "SELECT 1 FROM pg_constraint WHERE conname = 'admin_users_email_normalized_uq'",
       );
-      expect(created.rows[0]!.role).toBe("ADMIN");
+      expect(oldConstraint.rowCount).toBe(0);
+      const liveIndex = await pool.query(
+        "SELECT 1 FROM pg_indexes WHERE indexname = 'admin_users_email_normalized_live_uq'",
+      );
+      expect(liveIndex.rowCount).toBe(1);
 
       await pool.query(
-        `INSERT INTO audit_logs (actor_type, action, entity_type, entity_id)
-         VALUES ('SYSTEM', 'ADMIN_SESSIONS_REVOKED', 'ADMIN_USER', gen_random_uuid())`,
+        `UPDATE admin_users
+            SET is_active = false, deleted_at = clock_timestamp()
+          WHERE email_normalized = 'previo@example.com'`,
       );
+      await expect(
+        pool.query(
+          `INSERT INTO admin_users (email, email_normalized, password_hash, display_name, role)
+           VALUES ('previo@example.com', 'previo@example.com', 'hash', 'Nuevo', 'ADMIN')`,
+        ),
+      ).resolves.toMatchObject({ rowCount: 1 });
     } finally {
       await pool.end();
       rmSync(previousMigrations, { recursive: true, force: true });

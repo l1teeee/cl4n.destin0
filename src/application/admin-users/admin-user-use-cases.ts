@@ -1,11 +1,15 @@
 import type { AdminRole } from "@/domain/admin/admin-access";
+import type { AuthenticatedAdmin } from "@/application/auth/types";
 
+import type { AdminUserNotifications } from "./admin-user-notifications";
 import type { AdminUserRepository } from "./admin-user-repository";
 import type {
   AdminActor,
+  AdminDeletionCodeRecord,
   AdminUserErrorCode,
   AdminUserResult,
   AdminUserSummary,
+  CreatedAdminUser,
   SessionActor,
   SessionRevocation,
 } from "./types";
@@ -34,11 +38,27 @@ export const adminPasswordChangeRateLimit = {
   windowSeconds: 900,
 };
 
+export const adminUserDeletionCodeRateLimit = {
+  scope: "admin-user-deletion-code:admin",
+  limit: 5,
+  windowSeconds: 900,
+};
+
+export const adminUserDeletionConfirmRateLimit = {
+  scope: "admin-user-deletion-confirm:admin",
+  limit: 10,
+  windowSeconds: 900,
+};
+
 export interface AdminUserDependencies {
   repository: AdminUserRepository;
   consumeRateLimit: (input: RateLimitInput) => Promise<RateLimitResult>;
   hashPassword: (password: string) => Promise<string>;
   verifyPassword: (password: string, encoded: string) => Promise<boolean>;
+  notifications: AdminUserNotifications;
+  generateDeletionCode: () => string;
+  hashDeletionCode: (actorId: string, targetId: string, code: string) => string;
+  logError: (message: string) => void;
 }
 
 export interface CreateAdminUserInput {
@@ -65,8 +85,17 @@ export interface ChangeOwnPasswordInput {
   newPassword: string;
 }
 
+export interface ConfirmAdminUserDeletionInput {
+  targetId: string;
+  code: string;
+}
+
 function failure<T>(error: AdminUserErrorCode): AdminUserResult<T> {
   return { ok: false, error };
+}
+
+function successful<T>(value: T): AdminUserResult<T> {
+  return { ok: true, value };
 }
 
 async function withinManagementLimit(
@@ -93,21 +122,39 @@ export function getAdminUser(
 
 export async function createAdminUser(
   dependencies: AdminUserDependencies,
-  actor: AdminActor,
+  actor: AuthenticatedAdmin,
   input: CreateAdminUserInput,
-): Promise<AdminUserResult<AdminUserSummary>> {
+): Promise<AdminUserResult<CreatedAdminUser>> {
   if (!(await withinManagementLimit(dependencies, actor))) {
     return failure("RATE_LIMITED");
   }
 
   const email = input.email.trim();
-  return dependencies.repository.create(actor.id, {
+  const result = await dependencies.repository.create(actor.id, {
     email,
     emailNormalized: email.toLowerCase(),
     displayName: input.displayName.trim(),
     role: input.role,
     passwordHash: await dependencies.hashPassword(input.password),
   });
+  if (!result.ok) {
+    return result;
+  }
+
+  let notification: CreatedAdminUser["notification"] = "SENT";
+  try {
+    await dependencies.notifications.sendAdminAdded({
+      to: { email: result.value.email, name: result.value.displayName },
+      displayName: result.value.displayName,
+      role: result.value.role,
+      addedByDisplayName: actor.displayName,
+    });
+  } catch {
+    dependencies.logError("admin_added_email_failed");
+    notification = "FAILED";
+  }
+
+  return successful({ ...result.value, notification });
 }
 
 export async function updateAdminUser(
@@ -214,5 +261,71 @@ export async function changeOwnPassword(
     actor.sessionId,
     currentHash,
     await dependencies.hashPassword(input.newPassword),
+  );
+}
+
+export async function requestAdminUserDeletionCode(
+  dependencies: AdminUserDependencies,
+  actor: AuthenticatedAdmin,
+  targetId: string,
+): Promise<AdminUserResult<AdminDeletionCodeRecord>> {
+  if (actor.id === targetId) {
+    return failure("SELF_ACTION");
+  }
+
+  const limit = await dependencies.consumeRateLimit({
+    ...adminUserDeletionCodeRateLimit,
+    subject: actor.id,
+  });
+  if (!limit.allowed) {
+    return failure("RATE_LIMITED");
+  }
+
+  const code = dependencies.generateDeletionCode();
+  const codeHash = dependencies.hashDeletionCode(actor.id, targetId, code);
+  const result = await dependencies.repository.createDeletionCode(actor.id, targetId, codeHash);
+  if (!result.ok) {
+    return result;
+  }
+
+  try {
+    await dependencies.notifications.sendDeletionCode({
+      to: { email: actor.email, name: actor.displayName },
+      actorDisplayName: actor.displayName,
+      targetDisplayName: result.value.target.displayName,
+      targetEmail: result.value.target.email,
+      code,
+      expiresInMinutes: result.value.expiresInMinutes,
+    });
+  } catch {
+    dependencies.logError("admin_deletion_code_email_failed");
+    await dependencies.repository.invalidateCode(result.value.codeId);
+    return failure("EMAIL_DELIVERY_FAILED");
+  }
+
+  return result;
+}
+
+export async function confirmAdminUserDeletion(
+  dependencies: AdminUserDependencies,
+  actor: AuthenticatedAdmin,
+  input: ConfirmAdminUserDeletionInput,
+): Promise<AdminUserResult<SessionRevocation>> {
+  if (actor.id === input.targetId) {
+    return failure("SELF_ACTION");
+  }
+
+  const limit = await dependencies.consumeRateLimit({
+    ...adminUserDeletionConfirmRateLimit,
+    subject: actor.id,
+  });
+  if (!limit.allowed) {
+    return failure("RATE_LIMITED");
+  }
+
+  return dependencies.repository.deleteWithCode(
+    actor.id,
+    input.targetId,
+    dependencies.hashDeletionCode(actor.id, input.targetId, input.code),
   );
 }

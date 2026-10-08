@@ -37,7 +37,7 @@ export async function seedDatabase(
   try {
     await client.query("BEGIN");
     const existingAdmin = await client.query<{ id: string }>(
-      "SELECT id FROM admin_users WHERE email_normalized = $1",
+      "SELECT id FROM admin_users WHERE email_normalized = $1 AND deleted_at IS NULL",
       [DEV_ADMIN_EMAIL],
     );
     let adminId = existingAdmin.rows[0]?.id;

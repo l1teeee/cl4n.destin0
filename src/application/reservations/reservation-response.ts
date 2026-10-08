@@ -15,7 +15,7 @@ export interface ReservationResponseOutcome {
 const responseDefinitions: Record<ReservationErrorCode, { status: number; message: string }> = {
   PAYLOAD_TOO_LARGE: {
     status: 413,
-    message: "El cuerpo de la solicitud supera el l��mite permitido.",
+    message: "El cuerpo de la solicitud supera el límite permitido.",
   },
   UNSUPPORTED_MEDIA_TYPE: {
     status: 415,

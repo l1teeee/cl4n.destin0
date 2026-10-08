@@ -191,3 +191,65 @@ export function PasswordForm({ action, mode }: { action: FormAction; mode: "rese
     </form>
   );
 }
+
+export function AdminUserDeletionForm({
+  requestAction,
+  confirmAction,
+}: {
+  requestAction: FormAction;
+  confirmAction: FormAction;
+}) {
+  const [requestState, requestFormAction, requestPending] = useActionState(
+    requestAction,
+    initialState,
+  );
+  const [confirmState, confirmFormAction, confirmPending] = useActionState(
+    confirmAction,
+    initialState,
+  );
+
+  return (
+    <div className="grid max-w-xl gap-4">
+      <p className="text-zinc-400">
+        Esta acción es permanente. Te enviaremos un código a tu correo para confirmarla.
+      </p>
+      <form action={requestFormAction}>
+        <button className={submitClass} type="submit" disabled={requestPending}>
+          {requestPending ? "Enviando..." : "Enviar código"}
+        </button>
+      </form>
+      <StatusMessage state={requestState} />
+
+      {requestState.ok ? (
+        <form action={confirmFormAction} className="grid gap-4">
+          <label className="grid gap-1">
+            <span>Código de confirmación</span>
+            <input
+              className={inputClass}
+              name="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              pattern="\d{6}"
+              required
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-4">
+            <button className={submitClass} type="submit" disabled={confirmPending}>
+              {confirmPending ? "Eliminando..." : "Eliminar definitivamente"}
+            </button>
+            <button
+              className="text-sm underline disabled:cursor-not-allowed disabled:opacity-50"
+              type="submit"
+              formAction={requestFormAction}
+              disabled={requestPending}
+            >
+              Solicitar un código nuevo
+            </button>
+          </div>
+          <StatusMessage state={confirmState} />
+        </form>
+      ) : null}
+    </div>
+  );
+}

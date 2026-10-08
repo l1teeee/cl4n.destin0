@@ -49,6 +49,8 @@ export const auditAction = pgEnum("audit_action", [
   "ADMIN_PASSWORD_RESET",
   "ADMIN_PASSWORD_CHANGED",
   "ADMIN_SESSIONS_REVOKED",
+  "ADMIN_USER_DELETION_REQUESTED",
+  "ADMIN_USER_DELETED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -68,10 +70,52 @@ export const adminUsers = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => [
     primaryKey({ name: "admin_users_pkey", columns: [table.id] }),
-    unique("admin_users_email_normalized_uq").on(table.emailNormalized),
+    uniqueIndex("admin_users_email_normalized_live_uq")
+      .on(table.emailNormalized)
+      .where(sql`${table.deletedAt} IS NULL`),
+    check(
+      "admin_users_deleted_inactive_chk",
+      sql`${table.deletedAt} IS NULL OR ${table.isActive} = false`,
+    ),
+  ],
+);
+
+export const adminActionCodes = pgTable(
+  "admin_action_codes",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    purpose: text("purpose").notNull(),
+    actorAdminId: uuid("actor_admin_id").notNull(),
+    targetAdminId: uuid("target_admin_id").notNull(),
+    codeHash: text("code_hash").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "admin_action_codes_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "admin_action_codes_actor_admin_fk",
+      columns: [table.actorAdminId],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    foreignKey({
+      name: "admin_action_codes_target_admin_fk",
+      columns: [table.targetAdminId],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    check("admin_action_codes_purpose_chk", sql`${table.purpose} IN ('ADMIN_USER_DELETE')`),
+    check("admin_action_codes_attempts_chk", sql`${table.attempts} >= 0`),
+    uniqueIndex("admin_action_codes_live_uq")
+      .on(table.actorAdminId, table.targetAdminId, table.purpose)
+      .where(sql`${table.consumedAt} IS NULL AND ${table.invalidatedAt} IS NULL`),
+    index("admin_action_codes_target_admin_idx").on(table.targetAdminId),
   ],
 );
 

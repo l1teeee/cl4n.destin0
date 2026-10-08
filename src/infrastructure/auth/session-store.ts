@@ -52,7 +52,8 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
     const result = await this.pool.query<AdminUserRow>(
       `SELECT id, email_normalized, display_name, password_hash, role, is_active
          FROM admin_users
-        WHERE email_normalized = $1`,
+        WHERE email_normalized = $1
+          AND deleted_at IS NULL`,
       [emailNormalized],
     );
     const row = result.rows[0];
@@ -81,6 +82,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
           WHERE id = $1
             AND password_hash = $2
             AND is_active = true
+            AND deleted_at IS NULL
           FOR NO KEY UPDATE`,
         [adminId, verifiedPasswordHash],
       );
@@ -164,6 +166,7 @@ export class PostgresAdminAuthRepository implements AdminAuthRepository {
          CROSS JOIN db_clock
         WHERE s.token_hash = $1
           AND a.is_active = true
+          AND a.deleted_at IS NULL
           AND s.expires_at > db_clock.db_now
           AND s.last_seen_at > db_clock.db_now - make_interval(hours => $3)
       `,

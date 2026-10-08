@@ -1,15 +1,20 @@
 "use server";
 
+import { redirect } from "next/navigation";
+
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import {
+  confirmAdminUserDeletion,
   createAdminUser,
   deactivateAdminUser,
   reactivateAdminUser,
+  requestAdminUserDeletionCode,
   resetAdminPassword,
   revokeAdminSessions,
   updateAdminUser,
 } from "@/application/admin-users/admin-user-use-cases";
 import {
+  adminDeletionCodeSchema,
   adminUserIdSchema,
   createAdminUserSchema,
   resetAdminPasswordSchema,
@@ -49,7 +54,61 @@ export async function createAdminUserAction(
   if (!result.ok) return errorState(result.error);
 
   revalidateAdminUserPaths(result.value.id);
-  return { ok: true, message: `Administrador ${result.value.email} creado correctamente.` };
+  return {
+    ok: true,
+    message:
+      result.value.notification === "SENT"
+        ? `Administrador ${result.value.email} creado. Le enviamos un correo de aviso.`
+        : `Administrador ${result.value.email} creado, pero no se pudo enviar el correo de aviso.`,
+  };
+}
+
+export async function requestAdminUserDeletionCodeAction(
+  id: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireSuperAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return deniedState(authorization.error);
+
+  const parsed = adminUserIdSchema.safeParse({ id });
+  if (!parsed.success) return validationState(parsed.error);
+
+  const result = await requestAdminUserDeletionCode(
+    adminUserDependencies(),
+    authorization.session.admin,
+    parsed.data.id,
+  );
+  if (!result.ok) return errorState(result.error);
+
+  return {
+    ok: true,
+    message: `Te enviamos un código a tu correo. Vence en ${result.value.expiresInMinutes} minutos.`,
+  };
+}
+
+export async function confirmAdminUserDeletionAction(
+  id: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireSuperAdmin("action");
+  if (!authorization.authorized) return deniedState(authorization.error);
+
+  const parsed = adminDeletionCodeSchema.safeParse({ id, code: formData.get("code") });
+  if (!parsed.success) return validationState(parsed.error);
+
+  const result = await confirmAdminUserDeletion(
+    adminUserDependencies(),
+    authorization.session.admin,
+    { targetId: parsed.data.id, code: parsed.data.code },
+  );
+  if (!result.ok) return errorState(result.error);
+
+  revalidateAdminUserPaths(parsed.data.id);
+  redirect("/admin/users?eliminado=1");
 }
 
 export async function updateAdminUserAction(

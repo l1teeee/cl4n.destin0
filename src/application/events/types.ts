@@ -115,7 +115,9 @@ export interface AuditLogItem {
     | "ADMIN_USER_REACTIVATED"
     | "ADMIN_PASSWORD_RESET"
     | "ADMIN_PASSWORD_CHANGED"
-    | "ADMIN_SESSIONS_REVOKED";
+    | "ADMIN_SESSIONS_REVOKED"
+    | "ADMIN_USER_DELETION_REQUESTED"
+    | "ADMIN_USER_DELETED";
   entityType: "EVENT" | "RESERVATION" | "ADMIN_USER";
   entityId: string;
   metadata: Record<string, unknown>;

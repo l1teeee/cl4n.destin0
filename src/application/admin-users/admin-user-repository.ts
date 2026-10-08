@@ -1,4 +1,5 @@
 import type {
+  AdminDeletionCodeRecord,
   AdminUserResult,
   AdminUserSummary,
   CreateAdminUserCommand,
@@ -31,5 +32,16 @@ export interface AdminUserRepository {
     keepSessionId: string,
     expectedPasswordHash: string,
     passwordHash: string,
+  ): Promise<AdminUserResult<SessionRevocation>>;
+  createDeletionCode(
+    actorId: string,
+    targetId: string,
+    codeHash: string,
+  ): Promise<AdminUserResult<AdminDeletionCodeRecord>>;
+  invalidateCode(codeId: string): Promise<void>;
+  deleteWithCode(
+    actorId: string,
+    targetId: string,
+    codeHash: string,
   ): Promise<AdminUserResult<SessionRevocation>>;
 }

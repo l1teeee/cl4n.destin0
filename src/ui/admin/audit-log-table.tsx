@@ -28,6 +28,8 @@ const actionLabels: Record<AuditLogItem["action"], string> = {
   ADMIN_PASSWORD_RESET: "Contraseña restablecida",
   ADMIN_PASSWORD_CHANGED: "Contraseña cambiada",
   ADMIN_SESSIONS_REVOKED: "Sesiones cerradas",
+  ADMIN_USER_DELETION_REQUESTED: "Eliminación solicitada",
+  ADMIN_USER_DELETED: "Administrador eliminado",
 };
 
 export function AuditLogTable({ items }: { items: AuditLogItem[] }) {

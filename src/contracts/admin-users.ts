@@ -47,6 +47,16 @@ export const updateAdminUserSchema = z
 
 export const adminUserIdSchema = z.object({ id }).strict();
 
+export const adminDeletionCodeSchema = z
+  .object({
+    id,
+    code: z
+      .string()
+      .trim()
+      .regex(/^\d{6}$/, "Ingresa el código de 6 dígitos."),
+  })
+  .strict();
+
 export const resetAdminPasswordSchema = z
   .object({ id, password: newPassword, passwordConfirmation })
   .strict()
