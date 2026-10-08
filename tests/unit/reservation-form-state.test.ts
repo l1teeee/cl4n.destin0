@@ -83,6 +83,23 @@ describe("toFormState", () => {
     });
   });
 
+  it("maps allergy validation errors to both form fields", () => {
+    expect(
+      toFormState({
+        status: 422,
+        body: errorBody("VALIDATION_FAILED", "Revisa estos datos.", {
+          hasAllergies: ["Indica si tienes alergias."],
+          allergies: ["Cuéntanos a qué eres alérgico."],
+        }),
+      }),
+    ).toMatchObject({
+      fieldErrors: {
+        hasAllergies: ["Indica si tienes alergias."],
+        allergies: ["Cuéntanos a qué eres alérgico."],
+      },
+    });
+  });
+
   it("maps PARTY_SIZE_NOT_ALLOWED to partySize", () => {
     expect(
       toFormState({ status: 422, body: errorBody("PARTY_SIZE_NOT_ALLOWED", "Máximo 2.") }),

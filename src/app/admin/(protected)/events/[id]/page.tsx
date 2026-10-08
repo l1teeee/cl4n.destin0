@@ -170,6 +170,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
                     "Teléfono",
                     "Email",
                     "Personas",
+                    "Alergias",
                     "Estado",
                     "Recibida",
                     "Correo",
@@ -192,6 +193,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
                     <td>{row.phone}</td>
                     <td>{row.email}</td>
                     <td>{row.partySize}</td>
+                    <td>{row.allergies ?? "No"}</td>
                     <td>
                       <span className={rosterStatusBadgeClass(row.status)}>
                         {rosterStatusLabel(row.status)}

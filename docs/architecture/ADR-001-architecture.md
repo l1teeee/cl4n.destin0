@@ -389,6 +389,7 @@ Indexes: `(status, opens_at)`.
 | email_normalized | |
 | party_size | CHECK >= 1 |
 | notes | null, max 500 |
+| allergies | null, 1..300 when provided; copied from waitlist entries on promotion |
 | terms_accepted_at | |
 | idempotency_key | uuid UNIQUE |
 | submitted_at | |
@@ -648,6 +649,7 @@ Parallel worktrees use distinct test database names on the same local server.
 
 ## Changelog
 
+- 2026-10-08: section 9. Added optional allergy information to reservations and waitlist entries for kitchen preparation, without including it in audit metadata or logs.
 - 2026-10-07: section 18. Reservation confirmation and admin-added email moved from best effort to the transactional outbox (ADR-003).
 - 2026-10-07: sections 9, 10 and 12. Added terminal admin soft deletion, actor-email one-time confirmation codes, deletion rate limits, audit actions, and the last-super-admin transaction rules.
 - 2026-10-07: section 18. Added Brevo HTTP transactional email delivery policy, delivery timing and failure behavior, template constraints, and environment restrictions.

@@ -19,6 +19,7 @@ interface RosterRecord extends QueryResultRow {
   phone_e164: string;
   email: string;
   party_size: number;
+  allergies: string | null;
   submitted_at: Date;
   email_status: RosterEmailStatus | null;
   email_sent_at: Date | null;
@@ -61,6 +62,7 @@ const rosterCte = `
            r.phone_e164,
            r.email,
            r.party_size,
+           r.allergies,
            r.submitted_at
       FROM reservations r
      WHERE r.event_id = $1
@@ -79,6 +81,7 @@ const rosterCte = `
            w.phone_e164,
            w.email,
            w.party_size,
+           w.allergies,
            w.submitted_at
       FROM waitlist_entries w
      WHERE w.event_id = $1
@@ -96,6 +99,7 @@ function toRosterRow(record: RosterRecord): EventRosterRow {
     phone: record.phone_e164,
     email: record.email,
     partySize: record.party_size,
+    allergies: record.allergies,
     submittedAt: record.submitted_at,
     emailStatus: record.email_status,
     emailSentAt: record.email_sent_at,

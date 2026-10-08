@@ -69,6 +69,7 @@ function allocationCommand(eventSlug: string, key = randomUUID()): AllocationCom
     emailNormalized: "retry@example.com",
     partySize: 1,
     notes: "Retry test",
+    allergies: null,
     mapOutcome: mapReservationOutcome,
   };
 }
@@ -80,7 +81,12 @@ describe("reservation allocation repository", () => {
     const result = await submit(
       event.slug,
       1,
-      { email: "  PERSON@Example.COM ", phone: "+503 7100-0001" },
+      {
+        email: "  PERSON@Example.COM ",
+        phone: "+503 7100-0001",
+        hasAllergies: true,
+        allergies: "  Maní  ",
+      },
       key,
     );
 
@@ -96,6 +102,7 @@ describe("reservation allocation repository", () => {
       phone_e164: string;
       status: string;
       reservation_number: number;
+      allergies: string | null;
       submitted_at: Date;
       accepted_at: Date;
     }>("SELECT * FROM reservations WHERE idempotency_key = $1", [key]);
@@ -105,6 +112,7 @@ describe("reservation allocation repository", () => {
       phone_e164: "+50371000001",
       status: "CONFIRMED",
       reservation_number: 1,
+      allergies: "Maní",
     });
     expect(reservation.rows[0]!.submitted_at).toBeInstanceOf(Date);
     expect(reservation.rows[0]!.accepted_at).toBeInstanceOf(Date);
@@ -125,7 +133,7 @@ describe("reservation allocation repository", () => {
       partySize: 1,
     });
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(
-      /email|phone|instagram|person@example/i,
+      /allerg|email|phone|instagram|maní|person@example/i,
     );
 
     const idempotency = await pool.query(
@@ -139,6 +147,28 @@ describe("reservation allocation repository", () => {
       reservation_id: reservation.rows[0]!.id,
     });
     expect(idempotency.rows[0]!.completed_at).toBeInstanceOf(Date);
+  });
+
+  it("stores NULL when allergies are provided with a no answer", async () => {
+    const event = await insertTestEvent(pool);
+    const key = randomUUID();
+
+    expect(
+      (
+        await submit(
+          event.slug,
+          101,
+          { hasAllergies: false, allergies: "Este valor se debe ignorar" },
+          key,
+        )
+      ).status,
+    ).toBe(201);
+
+    const reservation = await pool.query<{ allergies: string | null }>(
+      "SELECT allergies FROM reservations WHERE idempotency_key = $1",
+      [key],
+    );
+    expect(reservation.rows[0]).toEqual({ allergies: null });
   });
 
   it("returns not found for a missing or draft event and stores both outcomes", async () => {
@@ -175,16 +205,24 @@ describe("reservation allocation repository", () => {
 
   it("stores a FULL_REJECTED row without changing counters", async () => {
     const event = await insertTestEvent(pool, { capacity: 1, reservedSeats: 1, maxPartySize: 1 });
-    const result = await submit(event.slug, 5);
+    const result = await submit(event.slug, 5, {
+      hasAllergies: true,
+      allergies: "Mariscos",
+    });
 
     expect(result.body).toMatchObject({ error: { code: "EVENT_FULL" } });
     const reservation = await pool.query(
-      `SELECT status, reservation_number, accepted_at
+      `SELECT status, reservation_number, accepted_at, allergies
          FROM reservations WHERE event_id = $1`,
       [event.id],
     );
     expect(reservation.rows).toEqual([
-      { status: "FULL_REJECTED", reservation_number: null, accepted_at: null },
+      {
+        status: "FULL_REJECTED",
+        reservation_number: null,
+        accepted_at: null,
+        allergies: "Mariscos",
+      },
     ]);
     const eventState = await pool.query(
       "SELECT reserved_seats, last_reservation_number FROM events WHERE id = $1",

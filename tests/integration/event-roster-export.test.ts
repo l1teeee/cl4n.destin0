@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 import { GET } from "@/app/admin/(protected)/events/[id]/export/route";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { queryEventRoster } from "@/infrastructure/db/repositories/event-roster-queries";
 
 import { insertTestEvent } from "../helpers/reservation-test-data";
 import { resetTestDatabase } from "../helpers/test-db";
@@ -39,10 +40,10 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO reservations (
        event_id, reservation_number, status, full_name, instagram_handle, phone_e164,
-       email, email_normalized, party_size, terms_accepted_at, idempotency_key, submitted_at,
-       accepted_at
+       email, email_normalized, party_size, allergies, terms_accepted_at, idempotency_key,
+       submitted_at, accepted_at
      ) VALUES ($1, 7, 'CONFIRMED', '=Ana Pérez', 'anaperez', '+50370000007',
-       'ana@example.com', 'ana@example.com', 2, now(), $2, now(), now())`,
+       'ana@example.com', 'ana@example.com', 2, '=Maní', now(), $2, now(), now())`,
     [eventId, randomUUID()],
   );
 });
@@ -52,6 +53,13 @@ afterAll(async () => {
 });
 
 describe("event roster CSV route", () => {
+  it("returns allergies in the roster query", async () => {
+    const roster = await queryEventRoster(pool, eventId, "confirmadas");
+
+    expect(roster).toHaveLength(1);
+    expect(roster[0]!.allergies).toBe("=Maní");
+  });
+
   it("returns 401 without a valid session", async () => {
     const token = authState.token;
     authState.token = undefined;
@@ -80,5 +88,7 @@ describe("event roster CSV route", () => {
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     expect(body).toContain('"Confirmada","#007"');
     expect(body).toContain('"\'=Ana Pérez"');
+    expect(body).toContain('"Alergias"');
+    expect(body).toContain('"\'=Maní"');
   });
 });

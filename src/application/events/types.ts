@@ -115,6 +115,7 @@ export interface EventRosterRow {
   phone: string;
   email: string;
   partySize: number;
+  allergies: string | null;
   submittedAt: Date;
   emailStatus: RosterEmailStatus | null;
   emailSentAt: Date | null;

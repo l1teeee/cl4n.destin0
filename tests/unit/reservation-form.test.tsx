@@ -114,6 +114,7 @@ describe("ReservationForm", () => {
     fireEvent.change(screen.getByLabelText("Cantidad de personas"), {
       target: { value: "2" },
     });
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
     fireEvent.click(screen.getByRole("checkbox"));
     const form = submitButton.closest("form");
     expect(form).not.toBeNull();
@@ -131,7 +132,33 @@ describe("ReservationForm", () => {
     expect(JSON.parse(String(request?.body))).toMatchObject({
       eventSlug: "cena-demo",
       partySize: 2,
+      hasAllergies: false,
       turnstileToken: "test-token",
     });
+    expect(JSON.parse(String(request?.body))).not.toHaveProperty("allergies");
+  });
+
+  it("shows, clears and removes the allergy description based on the radio selection", async () => {
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    const noOption = screen.getByRole("radio", { name: "No" }) as HTMLInputElement;
+    const yesOption = screen.getByRole("radio", { name: "Sí" }) as HTMLInputElement;
+    expect(noOption.checked).toBe(false);
+    expect(yesOption.checked).toBe(false);
+    expect(screen.queryByLabelText("¿A qué?")).toBeNull();
+
+    fireEvent.click(yesOption);
+    const description = await screen.findByLabelText("¿A qué?");
+    expect(screen.getByText("Incluye las de tu grupo si vienes acompañado.")).toBeDefined();
+    fireEvent.change(description, { target: { value: "Maní" } });
+
+    fireEvent.click(noOption);
+    await waitFor(() => {
+      expect(screen.queryByLabelText("¿A qué?")).toBeNull();
+    });
+
+    fireEvent.click(yesOption);
+    expect(((await screen.findByLabelText("¿A qué?")) as HTMLTextAreaElement).value).toBe("");
   });
 });

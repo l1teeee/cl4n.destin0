@@ -9,6 +9,7 @@ const validFields = {
   phone: "7123 4567",
   email: "ana@example.com",
   partySize: 2,
+  hasAllergies: false,
   notes: "Sin alergias",
   acceptTerms: true,
 } as const;
@@ -34,6 +35,8 @@ describe("reservationFormSchema", () => {
     ["large party", { ...validFields, partySize: 21 }],
     ["fractional party", { ...validFields, partySize: 1.5 }],
     ["long notes", { ...validFields, notes: "a".repeat(501) }],
+    ["allergies without detail", { ...validFields, hasAllergies: true }],
+    ["allergies with detail", { ...validFields, hasAllergies: true, allergies: "Maní" }],
     ["terms rejected", { ...validFields, acceptTerms: false }],
   ])("keeps the contract result for %s", (_label, fields) => {
     const formResult = reservationFormSchema.safeParse(fields).success;

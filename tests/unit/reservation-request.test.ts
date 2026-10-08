@@ -9,6 +9,7 @@ const validRequest = {
   phone: "7123 4567",
   email: "ana@example.com",
   partySize: 2,
+  hasAllergies: false,
   notes: "Sin alergias",
   acceptTerms: true,
   turnstileToken: "token",
@@ -38,6 +39,96 @@ describe("reservationRequestSchema", () => {
     expect(
       reservationRequestSchema.safeParse({ ...validRequest, acceptTerms: false }).success,
     ).toBe(false);
+  });
+
+  it("requires an allergy description when the guest answers yes", () => {
+    const result = reservationRequestSchema.safeParse({
+      ...validRequest,
+      hasAllergies: true,
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["allergies"],
+          message: "Cuéntanos a qué eres alérgico.",
+        }),
+      );
+    }
+  });
+
+  it("accepts and trims an allergy description when the guest answers yes", () => {
+    const result = reservationRequestSchema.parse({
+      ...validRequest,
+      hasAllergies: true,
+      allergies: "  Maní y mariscos  ",
+    });
+
+    expect(result.allergies).toBe("Maní y mariscos");
+  });
+
+  it("requires an allergy answer", () => {
+    const result = reservationRequestSchema.safeParse({
+      ...validRequest,
+      hasAllergies: undefined,
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["hasAllergies"],
+          message: "Indica si tienes alergias.",
+        }),
+      );
+    }
+  });
+
+  it("accepts an allergy description when the guest answers no", () => {
+    expect(
+      reservationRequestSchema.safeParse({
+        ...validRequest,
+        hasAllergies: false,
+        allergies: "Este valor se ignorará",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects allergy descriptions longer than 300 characters", () => {
+    const result = reservationRequestSchema.safeParse({
+      ...validRequest,
+      hasAllergies: true,
+      allergies: "a".repeat(301),
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["allergies"],
+          message: "La descripción de alergias no puede superar 300 caracteres.",
+        }),
+      );
+    }
+  });
+
+  it("rejects control characters in allergy descriptions", () => {
+    const result = reservationRequestSchema.safeParse({
+      ...validRequest,
+      hasAllergies: true,
+      allergies: "Maní\0",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["allergies"],
+          message: "No se permiten caracteres de control.",
+        }),
+      );
+    }
   });
 
   it.each([

@@ -332,6 +332,39 @@ textarea.reservation-input {
   text-underline-offset: 0.16em;
 }
 
+.reservation-allergies {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.reservation-allergies legend {
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  opacity: 0.7;
+  transition: opacity 250ms ease;
+}
+
+.reservation-allergies:focus-within legend {
+  opacity: 1;
+}
+
+.reservation-allergy-options {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.reservation-allergy-options .reservation-terms {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.reservation-help {
+  margin-top: 0.5rem;
+  color: var(--clan-muted);
+  font-size: 0.85rem;
+}
+
 .reservation-message {
   min-height: 1.5rem;
 }

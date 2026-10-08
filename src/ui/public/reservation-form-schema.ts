@@ -1,11 +1,13 @@
 import { z } from "zod";
 
-import { reservationRequestSchema } from "@/contracts/reservation-request";
+import { reservationRequestBaseSchema, validateAllergies } from "@/contracts/reservation-request";
 
-export const reservationFormSchema = reservationRequestSchema.omit({
-  eventSlug: true,
-  turnstileToken: true,
-});
+export const reservationFormSchema = reservationRequestBaseSchema
+  .omit({
+    eventSlug: true,
+    turnstileToken: true,
+  })
+  .superRefine(validateAllergies);
 
 export type ReservationFormInput = z.input<typeof reservationFormSchema>;
 export type ReservationFormValues = z.output<typeof reservationFormSchema>;
