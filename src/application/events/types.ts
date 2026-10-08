@@ -117,8 +117,13 @@ export interface AuditLogItem {
     | "ADMIN_PASSWORD_CHANGED"
     | "ADMIN_SESSIONS_REVOKED"
     | "ADMIN_USER_DELETION_REQUESTED"
-    | "ADMIN_USER_DELETED";
-  entityType: "EVENT" | "RESERVATION" | "ADMIN_USER";
+    | "ADMIN_USER_DELETED"
+    | "RESERVATION_WAITLISTED"
+    | "WAITLIST_PROMOTED"
+    | "WAITLIST_CANCELLED"
+    | "ADMIN_PASSWORD_RESET_REQUESTED"
+    | "ADMIN_PASSWORD_RESET_COMPLETED";
+  entityType: "EVENT" | "RESERVATION" | "ADMIN_USER" | "WAITLIST_ENTRY";
   entityId: string;
   metadata: Record<string, unknown>;
 }

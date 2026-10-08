@@ -21,15 +21,22 @@ async function withMaintenanceClient(work: (client: Client) => Promise<void>): P
   }
 }
 
-function migrationsWithout(tag: string): string {
+function migrationsBefore(tag: string): string {
   const directory = mkdtempSync(path.join(os.tmpdir(), "cl4n-migrations-"));
   cpSync(path.resolve("drizzle"), directory, { recursive: true });
-  rmSync(path.join(directory, `${tag}.sql`));
   const journalPath = path.join(directory, "meta", "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
-    entries: { tag: string }[];
+    entries: { idx: number; tag: string }[];
   };
-  journal.entries = journal.entries.filter((entry) => entry.tag !== tag);
+  const target = journal.entries.find((entry) => entry.tag === tag);
+  if (!target) {
+    throw new Error(`Migration ${tag} not found`);
+  }
+  const excluded = journal.entries.filter((entry) => entry.idx >= target.idx);
+  for (const entry of excluded) {
+    rmSync(path.join(directory, `${entry.tag}.sql`));
+  }
+  journal.entries = journal.entries.filter((entry) => entry.idx < target.idx);
   writeFileSync(journalPath, JSON.stringify(journal));
   return directory;
 }
@@ -39,7 +46,7 @@ describe("migration 0003_admin_user_deletion", () => {
     const target = testDatabaseUrl();
     const database = `${target.pathname.slice(1)}_deletion`;
     target.pathname = `/${database}`;
-    const previousMigrations = migrationsWithout("0003_admin_user_deletion");
+    const previousMigrations = migrationsBefore("0003_admin_user_deletion");
 
     await withMaintenanceClient(async (client) => {
       await client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);

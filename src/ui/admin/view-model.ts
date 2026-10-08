@@ -30,6 +30,7 @@ const auditEntityTypes = new Set<AuditLogItem["entityType"]>([
   "EVENT",
   "RESERVATION",
   "ADMIN_USER",
+  "WAITLIST_ENTRY",
 ]);
 
 function first(value: string | string[] | undefined): string | undefined {
