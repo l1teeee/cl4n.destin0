@@ -3,25 +3,26 @@ import { emailDetailRow, emailHeading, emailParagraph } from "./email-blocks";
 import { renderEmailLayout } from "./email-layout";
 import type { RenderedEmail } from "./rendered-email";
 
-export function reservationConfirmationEmail(input: {
+export function reservationWaitlistedEmail(input: {
   fullName: string;
-  reservationNumber: number;
+  position: number;
   partySize: number;
   eventStartsAt: Date;
 }): RenderedEmail {
-  const subject = "Tu lugar en el clan está confirmado";
-  const reservationNumber = `#${String(input.reservationNumber).padStart(3, "0")}`;
-  const preheader = `Reserva ${reservationNumber} confirmada.`;
-  const heading = "Tu lugar está confirmado";
-  const greeting = `${input.fullName}, el clan te espera.`;
+  const subject = "Estás en la cola del clan";
+  const position = `#${input.position}`;
+  const preheader = `Posición ${position} en la cola.`;
+  const heading = "Quedaste en la cola";
+  const intro = `${input.fullName}, los lugares se agotaron, pero tienes un lugar en la cola.`;
   const partySize = String(input.partySize);
   const eventDate = formatPublicEventDate(input.eventStartsAt);
-  const closing = "Guarda este correo como comprobante de tu reserva.";
+  const closing =
+    "Si se libera un lugar, te avisaremos por este medio. No necesitas hacer nada más.";
 
   const bodyHtml = [
     emailHeading(heading),
-    emailParagraph(greeting),
-    emailDetailRow("Reserva", reservationNumber),
+    emailParagraph(intro),
+    emailDetailRow("Posición", position),
     emailDetailRow("Personas", partySize),
     emailDetailRow("Fecha", eventDate),
     emailParagraph(closing),
@@ -29,8 +30,8 @@ export function reservationConfirmationEmail(input: {
 
   const text = [
     heading,
-    greeting,
-    `Reserva: ${reservationNumber}`,
+    intro,
+    `Posición: ${position}`,
     `Personas: ${partySize}`,
     `Fecha: ${eventDate}`,
     closing,

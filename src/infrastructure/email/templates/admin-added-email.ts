@@ -1,5 +1,5 @@
 import type { AdminRole } from "@/domain/admin/admin-access";
-import { emailFontFamily, emailHeading, emailParagraph } from "./email-blocks";
+import { emailFontFamily, emailHeading, emailOutlinedButton, emailParagraph } from "./email-blocks";
 import { renderEmailLayout } from "./email-layout";
 import { escapeHtml } from "./escape-html";
 import type { RenderedEmail } from "./rendered-email";
@@ -8,14 +8,6 @@ const roleLabels: Record<AdminRole, string> = {
   SUPER_ADMIN: "super administrador",
   ADMIN: "administrador",
 };
-
-function outlinedButton(label: string, href: string): string {
-  return `<tr>
-<td style="padding-top:24px;padding-bottom:8px;">
-<a href="${escapeHtml(href)}" style="display:inline-block;font-family:${emailFontFamily};font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:#fffbf4;text-decoration:none;border:1px solid #fffbf4;padding:12px 28px;">${escapeHtml(label)}</a>
-</td>
-</tr>`;
-}
 
 function smallParagraph(text: string): string {
   return `<tr>
@@ -42,7 +34,7 @@ export function adminAddedEmail(input: {
     emailHeading(heading),
     emailParagraph(intro),
     emailParagraph(passwordNote),
-    outlinedButton(buttonLabel, input.loginUrl),
+    emailOutlinedButton(buttonLabel, input.loginUrl),
     smallParagraph(ignoreNote),
   ].join("\n");
 
