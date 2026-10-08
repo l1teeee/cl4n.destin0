@@ -7,6 +7,7 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import { EventForm } from "@/ui/admin/event-form";
+import { Button } from "@/ui/primitives/button";
 
 export default async function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin("page");
@@ -17,9 +18,9 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
 
   return (
     <main className="admin-page space-y-8">
-      <Link className="admin-link admin-muted" href={`/admin/events/${id}`}>
-        Volver al detalle
-      </Link>
+      <Button variant="link" className="admin-muted" asChild>
+        <Link href={`/admin/events/${id}`}>Volver al detalle</Link>
+      </Button>
       <div>
         <p className="admin-eyebrow">Administración</p>
         <h1 className="admin-title">Editar experiencia</h1>

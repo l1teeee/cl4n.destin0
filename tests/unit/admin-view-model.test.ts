@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AdminEventSummary } from "@/application/events/types";
 import {
+  adminStatusBadgeVariant,
   dashboardActions,
   eventPhaseLabel,
   formatAdminDate,
@@ -9,7 +10,7 @@ import {
   formatReservationNumber,
   lifecycleActions,
   emailKindLabel,
-  emailStatusBadgeClass,
+  emailStatusBadgeVariant,
   emailStatusLabel,
   parseEmailLogSearchParams,
   parseRosterView,
@@ -17,7 +18,7 @@ import {
   parseReservationSearchParams,
   reservationStatusLabel,
   rosterStatusLabel,
-  rosterStatusBadgeClass,
+  rosterStatusBadgeVariant,
 } from "@/ui/admin/view-model";
 
 const now = new Date("2026-10-05T12:00:00Z");
@@ -130,10 +131,20 @@ describe("admin formatting and query parsing", () => {
   });
 
   it("maps roster and email labels and allow-lists their filters", () => {
+    expect(adminStatusBadgeVariant("ACTIVE")).toBe("active");
+    expect(adminStatusBadgeVariant("INACTIVE")).toBe("inactive");
+    expect(adminStatusBadgeVariant("OPEN")).toBe("open");
+    expect(adminStatusBadgeVariant("WAITLIST")).toBe("waitlist");
+    expect(adminStatusBadgeVariant("DRAFT")).toBe("draft");
+    expect(adminStatusBadgeVariant("CLOSED")).toBe("closed");
+    expect(adminStatusBadgeVariant("CANCELLED")).toBe("cancelled");
+    expect(adminStatusBadgeVariant("SCHEDULED")).toBe("default");
+    expect(adminStatusBadgeVariant("FULL")).toBe("default");
+    expect(adminStatusBadgeVariant("COMPLETED")).toBe("default");
     expect(rosterStatusLabel("PROMOTED")).toBe("Promovida");
-    expect(rosterStatusBadgeClass("REJECTED")).toBe("admin-badge admin-badge-full-rejected");
+    expect(rosterStatusBadgeVariant("REJECTED")).toBe("rejected");
     expect(emailStatusLabel("FAILED")).toBe("Falló");
-    expect(emailStatusBadgeClass("SENT")).toBe("admin-badge admin-badge-confirmed");
+    expect(emailStatusBadgeVariant("SENT")).toBe("confirmed");
     expect(emailKindLabel("ADMIN_SIGNED_IN")).toBe("Inicio de sesión");
     expect(parseRosterView("en-cola", "confirmadas")).toBe("en-cola");
     expect(parseRosterView("invalida", "confirmadas")).toBe("confirmadas");

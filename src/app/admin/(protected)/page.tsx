@@ -5,12 +5,22 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import {
-  adminStatusBadgeClass,
+  adminStatusBadgeVariant,
   eventPhaseLabel,
   dashboardActions,
   formatAdminDate,
   formatCount,
 } from "@/ui/admin/view-model";
+import { Badge } from "@/ui/primitives/badge";
+import { Button } from "@/ui/primitives/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/ui/primitives/table";
 
 import { closeEventNowAction, openEventNowAction } from "./events/actions";
 
@@ -26,85 +36,87 @@ export default async function AdminPage() {
           <h1 className="admin-title">Experiencias</h1>
           <p className="admin-description">Control de eventos y reservaciones.</p>
         </div>
-        <Link className="admin-button" href="/admin/events/new">
-          Nueva experiencia
-        </Link>
+        <Button asChild>
+          <Link href="/admin/events/new">Nueva experiencia</Link>
+        </Button>
       </div>
       {events.value.length === 0 ? (
         <p className="admin-empty">Todavía no hay experiencias.</p>
       ) : (
-        <div className="admin-table-scroll">
-          <table className="admin-table min-w-[1180px]">
-            <thead>
-              <tr>
-                {[
-                  "Experiencia",
-                  "Fecha",
-                  "Estado",
-                  "Capacidad",
-                  "Reservados",
-                  "Disponibles",
-                  "Reservaciones",
-                  "En cola",
-                  "Abre",
-                  "Cierra",
-                  "Acciones",
-                ].map((heading) => (
-                  <th key={heading}>{heading}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {events.value.map((event) => {
-                const actions = dashboardActions(event, events.databaseTime);
-                return (
-                  <tr key={event.id} className="align-top">
-                    <td className="font-medium">{event.internalName}</td>
-                    <td>{formatAdminDate(event.startsAt)}</td>
-                    <td>
-                      <span className={adminStatusBadgeClass(event.phase)}>
-                        {eventPhaseLabel(event.phase)}
-                      </span>
-                    </td>
-                    <td>{formatCount(event.capacity)}</td>
-                    <td>{formatCount(event.reservedSeats)}</td>
-                    <td>{formatCount(event.availableSeats)}</td>
-                    <td>{formatCount(event.confirmedReservationCount)}</td>
-                    <td>
-                      {formatCount(event.waitlistedCount)} / {formatCount(event.waitlistCapacity)}
-                    </td>
-                    <td>{formatAdminDate(event.opensAt)}</td>
-                    <td>{formatAdminDate(event.closesAt)}</td>
-                    <td>
-                      <div className="flex min-w-48 flex-col gap-2">
-                        {actions.includes("OPEN_NOW") ? (
-                          <MutationForm
-                            action={openEventNowAction.bind(null, event.id)}
-                            label="Abrir ahora"
-                          />
-                        ) : null}
-                        {actions.includes("CLOSE_NOW") ? (
-                          <MutationForm
-                            action={closeEventNowAction.bind(null, event.id)}
-                            label="Cerrar ahora"
-                            confirmation="La experiencia dejará de aceptar nuevas reservaciones. Confirma para continuar."
-                            danger
-                          />
-                        ) : null}
-                        <Link className="admin-link" href={`/admin/events/${event.id}/edit`}>
-                          Editar experiencia
-                        </Link>
-                        <Link className="admin-link" href={`/admin/events/${event.id}`}>
-                          Ver reservaciones
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Table className="min-w-[1180px]">
+          <TableHeader>
+            <TableRow>
+              {[
+                "Experiencia",
+                "Fecha",
+                "Estado",
+                "Capacidad",
+                "Reservados",
+                "Disponibles",
+                "Reservaciones",
+                "En cola",
+                "Abre",
+                "Cierra",
+                "Acciones",
+              ].map((heading) => (
+                <TableHead key={heading}>{heading}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {events.value.map((event, index) => {
+              const actions = dashboardActions(event, events.databaseTime);
+              return (
+                <TableRow
+                  key={event.id}
+                  className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
+                  style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+                >
+                  <TableCell className="font-medium">{event.internalName}</TableCell>
+                  <TableCell>{formatAdminDate(event.startsAt)}</TableCell>
+                  <TableCell>
+                    <Badge variant={adminStatusBadgeVariant(event.phase)}>
+                      {eventPhaseLabel(event.phase)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatCount(event.capacity)}</TableCell>
+                  <TableCell>{formatCount(event.reservedSeats)}</TableCell>
+                  <TableCell>{formatCount(event.availableSeats)}</TableCell>
+                  <TableCell>{formatCount(event.confirmedReservationCount)}</TableCell>
+                  <TableCell>
+                    {formatCount(event.waitlistedCount)} / {formatCount(event.waitlistCapacity)}
+                  </TableCell>
+                  <TableCell>{formatAdminDate(event.opensAt)}</TableCell>
+                  <TableCell>{formatAdminDate(event.closesAt)}</TableCell>
+                  <TableCell>
+                    <div className="flex min-w-48 flex-col gap-2">
+                      {actions.includes("OPEN_NOW") ? (
+                        <MutationForm
+                          action={openEventNowAction.bind(null, event.id)}
+                          label="Abrir ahora"
+                        />
+                      ) : null}
+                      {actions.includes("CLOSE_NOW") ? (
+                        <MutationForm
+                          action={closeEventNowAction.bind(null, event.id)}
+                          label="Cerrar ahora"
+                          confirmation="La experiencia dejará de aceptar nuevas reservaciones. Confirma para continuar."
+                          danger
+                        />
+                      ) : null}
+                      <Button variant="link" asChild>
+                        <Link href={`/admin/events/${event.id}/edit`}>Editar experiencia</Link>
+                      </Button>
+                      <Button variant="link" asChild>
+                        <Link href={`/admin/events/${event.id}`}>Ver reservaciones</Link>
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
     </main>
   );

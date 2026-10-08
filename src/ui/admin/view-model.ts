@@ -16,6 +16,7 @@ import {
 import type { AdminRole } from "@/domain/admin/admin-access";
 import type { EventPhase } from "@/domain/event/event-phase";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
+import type { BadgeVariant } from "@/ui/primitives/badge";
 
 export type DashboardAction = "OPEN_NOW" | "CLOSE_NOW" | "EDIT" | "RESERVATIONS";
 export type LifecycleAction = "PUBLISH" | "OPEN_NOW" | "CLOSE_NOW" | "COMPLETE" | "CANCEL";
@@ -115,8 +116,20 @@ export function adminStatusLabel(isActive: boolean): string {
   return isActive ? "Activo" : "Inactivo";
 }
 
-export function adminStatusBadgeClass(status: string): string {
-  return `admin-badge admin-badge-${status.toLowerCase().replaceAll("_", "-")}`;
+export function adminStatusBadgeVariant(status: EventPhase | "ACTIVE" | "INACTIVE"): BadgeVariant {
+  const variants: Record<EventPhase | "ACTIVE" | "INACTIVE", BadgeVariant> = {
+    ACTIVE: "active",
+    CANCELLED: "cancelled",
+    CLOSED: "closed",
+    COMPLETED: "default",
+    DRAFT: "draft",
+    FULL: "default",
+    INACTIVE: "inactive",
+    OPEN: "open",
+    SCHEDULED: "default",
+    WAITLIST: "waitlist",
+  };
+  return variants[status];
 }
 
 export function eventPhaseLabel(phase: EventPhase): string {
@@ -196,15 +209,15 @@ export function rosterStatusLabel(status: RosterStatus): string {
   return labels[status];
 }
 
-export function rosterStatusBadgeClass(status: RosterStatus): string {
-  const badgeStatus: Record<RosterStatus, string> = {
+export function rosterStatusBadgeVariant(status: RosterStatus): BadgeVariant {
+  const badgeStatus: Record<RosterStatus, BadgeVariant> = {
     CONFIRMED: "confirmed",
     WAITING: "waitlist",
-    REJECTED: "full-rejected",
+    REJECTED: "rejected",
     CANCELLED: "cancelled",
     PROMOTED: "confirmed",
   };
-  return `admin-badge admin-badge-${badgeStatus[status]}`;
+  return badgeStatus[status];
 }
 
 export function emailStatusLabel(status: RosterEmailStatus): string {
@@ -216,13 +229,13 @@ export function emailStatusLabel(status: RosterEmailStatus): string {
   return labels[status];
 }
 
-export function emailStatusBadgeClass(status: EmailOutboxStatus): string {
-  const badgeStatus: Record<EmailOutboxStatus, string> = {
+export function emailStatusBadgeVariant(status: EmailOutboxStatus): BadgeVariant {
+  const badgeStatus: Record<EmailOutboxStatus, BadgeVariant> = {
     PENDING: "draft",
     SENT: "confirmed",
-    FAILED: "full-rejected",
+    FAILED: "rejected",
   };
-  return `admin-badge admin-badge-${badgeStatus[status]}`;
+  return badgeStatus[status];
 }
 
 export function rosterEmailLabel(status: RosterEmailStatus | null, sentAt: Date | null): string {

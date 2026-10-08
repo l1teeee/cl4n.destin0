@@ -1,4 +1,12 @@
 import type { AuditLogItem } from "@/application/events/types";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/ui/primitives/table";
 
 import { formatAdminDate } from "./view-model";
 
@@ -44,31 +52,35 @@ export function AuditLogTable({ items }: { items: AuditLogItem[] }) {
   }
 
   return (
-    <div className="admin-table-scroll">
-      <table className="admin-table min-w-[760px]">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Actor</th>
-            <th>Acción</th>
-            <th>Entidad</th>
-            <th>Identificador</th>
-            <th>Metadatos</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id.toString()} className="align-top">
-              <td>{formatAdminDate(item.occurredAt)}</td>
-              <td>{actorLabels[item.actorType]}</td>
-              <td>{actionLabels[item.action]}</td>
-              <td>{entityLabels[item.entityType]}</td>
-              <td className="font-mono text-xs">{item.entityId}</td>
-              <td className="max-w-sm font-mono text-xs">{JSON.stringify(item.metadata)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table className="min-w-[760px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Fecha</TableHead>
+          <TableHead>Actor</TableHead>
+          <TableHead>Acción</TableHead>
+          <TableHead>Entidad</TableHead>
+          <TableHead>Identificador</TableHead>
+          <TableHead>Metadatos</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {items.map((item, index) => (
+          <TableRow
+            key={item.id.toString()}
+            className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
+            style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+          >
+            <TableCell>{formatAdminDate(item.occurredAt)}</TableCell>
+            <TableCell>{actorLabels[item.actorType]}</TableCell>
+            <TableCell>{actionLabels[item.action]}</TableCell>
+            <TableCell>{entityLabels[item.entityType]}</TableCell>
+            <TableCell className="font-mono text-xs">{item.entityId}</TableCell>
+            <TableCell className="max-w-sm font-mono text-xs">
+              {JSON.stringify(item.metadata)}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }

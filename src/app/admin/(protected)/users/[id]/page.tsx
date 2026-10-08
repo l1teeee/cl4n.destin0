@@ -16,6 +16,7 @@ import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import { adminRoleLabel, adminStatusLabel, formatAdminDate } from "@/ui/admin/view-model";
+import { Button } from "@/ui/primitives/button";
 
 import {
   confirmAdminUserDeletionAction,
@@ -45,9 +46,9 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
   return (
     <main className="admin-page space-y-10">
       <div>
-        <Link className="admin-link admin-muted" href="/admin/users">
-          Volver a usuarios
-        </Link>
+        <Button variant="link" className="admin-muted" asChild>
+          <Link href="/admin/users">Volver a usuarios</Link>
+        </Button>
         <p className="admin-eyebrow mt-6">Administrador</p>
         <h1 className="admin-title">{user.displayName}</h1>
         <p className="admin-description">{user.email}</p>
@@ -108,9 +109,9 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         {isSelf ? (
           <p className="admin-muted">
             Para cambiar tu contraseña ve a{" "}
-            <Link className="admin-link admin-secondary" href="/admin/account">
-              Mi cuenta
-            </Link>
+            <Button variant="link" className="admin-secondary" asChild>
+              <Link href="/admin/account">Mi cuenta</Link>
+            </Button>
             .
           </p>
         ) : (

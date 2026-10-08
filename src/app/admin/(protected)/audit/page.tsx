@@ -5,6 +5,9 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { parseAuditSearchParams } from "@/ui/admin/view-model";
+import { Button } from "@/ui/primitives/button";
+import { Label } from "@/ui/primitives/label";
+import { NativeSelect } from "@/ui/primitives/native-select";
 
 export default async function AuditPage({
   searchParams,
@@ -25,18 +28,18 @@ export default async function AuditPage({
         <p className="admin-description">Actividad global, de la más reciente a la más antigua.</p>
       </div>
       <form className="flex items-end gap-3" method="get">
-        <label className="admin-label grid gap-2">
+        <Label className="grid gap-2">
           <span>Tipo de entidad</span>
-          <select className="admin-input" name="entityType" defaultValue={query.entityType ?? ""}>
+          <NativeSelect name="entityType" defaultValue={query.entityType ?? ""}>
             <option value="">Todas</option>
             <option value="EVENT">Experiencia</option>
             <option value="RESERVATION">Reservación</option>
             <option value="ADMIN_USER">Administrador</option>
-          </select>
-        </label>
-        <button className="admin-button-ghost" type="submit">
+          </NativeSelect>
+        </Label>
+        <Button variant="outline" type="submit">
           Filtrar
-        </button>
+        </Button>
       </form>
       <AuditLogTable items={result.value.items} />
       <nav className="admin-muted flex items-center gap-4" aria-label="Paginación">
@@ -44,14 +47,14 @@ export default async function AuditPage({
           Página {result.value.page} de {pages}
         </span>
         {result.value.page > 1 ? (
-          <Link className="admin-link" href={`/admin/audit?page=${result.value.page - 1}${filter}`}>
-            Anterior
-          </Link>
+          <Button variant="link" asChild>
+            <Link href={`/admin/audit?page=${result.value.page - 1}${filter}`}>Anterior</Link>
+          </Button>
         ) : null}
         {result.value.page < pages ? (
-          <Link className="admin-link" href={`/admin/audit?page=${result.value.page + 1}${filter}`}>
-            Siguiente
-          </Link>
+          <Button variant="link" asChild>
+            <Link href={`/admin/audit?page=${result.value.page + 1}${filter}`}>Siguiente</Link>
+          </Button>
         ) : null}
       </nav>
     </main>

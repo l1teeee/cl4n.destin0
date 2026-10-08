@@ -1,6 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { Alert } from "@/ui/primitives/alert";
+import { Button } from "@/ui/primitives/button";
+import { Input } from "@/ui/primitives/input";
+import { Label } from "@/ui/primitives/label";
+
 import { signInAction } from "./actions";
 
 interface LoginPageProps {
@@ -24,43 +29,31 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
           <h1 className="admin-eyebrow">Administración</h1>
         </div>
         {restablecida ? (
-          <p className="admin-notice-success" role="status">
+          <Alert variant="success" role="status">
             Tu contraseña se actualizó. Ya puedes iniciar sesión.
-          </p>
+          </Alert>
         ) : null}
         {error ? (
-          <p className="admin-notice-error" role="alert">
+          <Alert variant="destructive" role="alert">
             No se pudo iniciar sesión. Verifica tus credenciales.
-          </p>
+          </Alert>
         ) : null}
         <form action={signInAction} className="grid gap-4">
-          <label className="admin-label grid gap-2">
+          <Label className="grid gap-2">
             <span>Email</span>
-            <input
-              className="admin-input"
-              name="email"
-              type="email"
-              autoComplete="username"
-              required
-            />
-          </label>
-          <label className="admin-label grid gap-2">
+            <Input name="email" type="email" autoComplete="username" required />
+          </Label>
+          <Label className="grid gap-2">
             <span>Contraseña</span>
-            <input
-              className="admin-input"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          <button className="admin-button admin-button-full mt-2" type="submit">
+            <Input name="password" type="password" autoComplete="current-password" required />
+          </Label>
+          <Button className="mt-2 w-full" type="submit">
             Ingresar
-          </button>
+          </Button>
         </form>
-        <Link className="admin-link" href="/admin/forgot">
-          ¿Olvidaste tu contraseña?
-        </Link>
+        <Button variant="link" asChild>
+          <Link href="/admin/forgot">¿Olvidaste tu contraseña?</Link>
+        </Button>
       </div>
     </main>
   );
