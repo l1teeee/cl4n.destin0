@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { Pool } from "pg";
+import type { ComponentProps } from "react";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
@@ -41,6 +42,7 @@ import AdminUsersPage from "@/app/admin/(protected)/users/page";
 import type { AdminRole } from "@/application/auth/types";
 import { hashPassword } from "@/infrastructure/auth/password";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { AdminHeader } from "@/ui/admin/admin-header";
 
 import { resetTestDatabase } from "../helpers/test-db";
 
@@ -89,17 +91,20 @@ function createForm(email: string, overrides: Record<string, string> = {}): Form
   return form;
 }
 
-function linkTargets(node: unknown, found: string[] = []): string[] {
+function findAdminHeaderProps(node: unknown): ComponentProps<typeof AdminHeader> | undefined {
   if (Array.isArray(node)) {
-    for (const child of node) linkTargets(child, found);
-    return found;
+    for (const child of node) {
+      const props = findAdminHeaderProps(child);
+      if (props) return props;
+    }
+    return undefined;
   }
   if (node && typeof node === "object" && "props" in node) {
-    const props = (node as { props: Record<string, unknown> }).props;
-    if (typeof props.href === "string") found.push(props.href);
-    linkTargets(props.children, found);
+    const element = node as { type: unknown; props: { children?: unknown } };
+    if (element.type === AdminHeader) return element.props as ComponentProps<typeof AdminHeader>;
+    return findAdminHeaderProps(element.props.children);
   }
-  return found;
+  return undefined;
 }
 
 async function adminExists(email: string): Promise<boolean> {
@@ -256,12 +261,14 @@ describe("user management pages", () => {
 
   it("shows the users link only to super admins and the account page to everyone", async () => {
     await signedInAdmin("ADMIN");
-    const adminLinks = linkTargets(await ProtectedAdminLayout({ children: null }));
-    expect(adminLinks).toContain("/admin/account");
-    expect(adminLinks).not.toContain("/admin/users");
+    expect(
+      findAdminHeaderProps(await ProtectedAdminLayout({ children: null }))?.showUsersLink,
+    ).toBe(false);
     await expect(AccountPage()).resolves.toBeTruthy();
 
     await signedInAdmin("SUPER_ADMIN");
-    expect(linkTargets(await ProtectedAdminLayout({ children: null }))).toContain("/admin/users");
+    expect(
+      findAdminHeaderProps(await ProtectedAdminLayout({ children: null }))?.showUsersLink,
+    ).toBe(true);
   });
 });
