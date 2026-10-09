@@ -52,6 +52,7 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
           locationMapsUrl: event.location.mapsUrl,
           locationNotes: event.location.notes,
           locationStatus: event.location.status,
+          locationRevision: event.locationRevision,
         }}
       />
       <section className="admin-section max-w-3xl space-y-4">

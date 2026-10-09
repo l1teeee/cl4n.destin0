@@ -9,6 +9,7 @@ import {
   formatCount,
   formatReservationNumber,
   lifecycleActions,
+  emailErrorLabel,
   emailKindLabel,
   emailStatusBadgeVariant,
   emailStatusLabel,
@@ -155,6 +156,8 @@ describe("admin formatting and query parsing", () => {
     expect(emailStatusLabel("FAILED")).toBe("Falló");
     expect(emailStatusBadgeVariant("SENT")).toBe("confirmed");
     expect(emailKindLabel("ADMIN_SIGNED_IN")).toBe("Inicio de sesión");
+    expect(emailKindLabel("EVENT_LOCATION")).toBe("Ubicación del evento");
+    expect(emailErrorLabel("LOCATION_SUPERSEDED")).toBe("Existe una ubicación más reciente");
     expect(parseRosterView("en-cola", "confirmadas")).toBe("en-cola");
     expect(parseRosterView("invalida", "confirmadas")).toBe("confirmadas");
     expect(parseEmailLogSearchParams({ estado: "FAILED", tipo: "RESERVATION_CONFIRMED" })).toEqual({

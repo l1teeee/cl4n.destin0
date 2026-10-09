@@ -14,13 +14,15 @@ import {
   setLocationStatus,
   updateEvent,
 } from "@/application/events/event-use-cases";
-import type { EventOperationErrorCode } from "@/application/events/types";
+import { sendEventLocation } from "@/application/events/event-location-email";
+import type { EventOperationErrorCode, LoadedLocationVersion } from "@/application/events/types";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
 import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
+import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import {
@@ -56,11 +58,21 @@ const capacitySchema = z
   })
   .strict();
 const locationStatusSchema = z
-  .object({ id: z.string().uuid(), status: z.enum(["PENDING", "CONFIRMED"]) })
+  .object({
+    id: z.string().uuid(),
+    status: z.enum(["PENDING", "CONFIRMED"]),
+    loadedRevision: z.number().int().min(0),
+    loadedStatus: z.enum(["PENDING", "CONFIRMED"]),
+  })
   .strict();
 const imageActionSchema = z
   .object({ eventId: z.string().uuid(), imageId: z.string().uuid() })
   .strict();
+// The budget is only checked before each claim; the 20 s margin inside maxDuration = 60 covers
+// one send (up to 8 s) plus the action and page re-render, so the function is never killed
+// between the provider accepting a send and markSent, which would duplicate the email.
+const LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS = 40_000;
+const LOCATION_EMAIL_DRAIN_LIMIT = 100;
 
 const operationMessages: Record<EventOperationErrorCode, string> = {
   EVENT_NOT_FOUND: "No se encontró la experiencia.",
@@ -75,6 +87,8 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
   WAITLIST_CAPACITY_BELOW_WAITING: "No puedes dejar menos lugares en cola que personas esperando.",
   LOCATION_CONFIRMATION_INCOMPLETE:
     "Para confirmar la ubicación agrega la dirección o el enlace de Google Maps.",
+  LOCATION_CHANGED:
+    "La ubicación cambió mientras editabas. Recarga la página para ver la versión actual.",
 };
 
 function unauthorized(): AdminActionState {
@@ -190,6 +204,8 @@ export async function updateEventAction(
     locationMapsUrl: formData.get("locationMapsUrl"),
     locationNotes: formData.get("locationNotes"),
     locationStatus: formData.get("locationStatus"),
+    locationRevision: formData.get("locationRevision"),
+    locationStatusLoaded: formData.get("locationStatusLoaded"),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
 
@@ -219,6 +235,10 @@ export async function updateEventAction(
         notes: parsed.data.locationNotes,
         status: parsed.data.locationStatus,
       },
+      expectedLocation: {
+        revision: parsed.data.locationRevision,
+        status: parsed.data.locationStatusLoaded,
+      },
     },
     authorization.session.admin.id,
   );
@@ -231,6 +251,7 @@ export async function updateEventAction(
 export async function setEventLocationStatusAction(
   id: string,
   status: "PENDING" | "CONFIRMED",
+  loadedLocation: LoadedLocationVersion,
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
@@ -238,17 +259,85 @@ export async function setEventLocationStatusAction(
   void _previousState;
   void _formData;
   if (!authorization.authorized) return unauthorized();
-  const parsed = locationStatusSchema.safeParse({ id, status });
+  const parsed = locationStatusSchema.safeParse({
+    id,
+    status,
+    loadedRevision: loadedLocation.revision,
+    loadedStatus: loadedLocation.status,
+  });
   if (!parsed.success) return firstValidationError(parsed.error);
   const result = await setLocationStatus(
     postgresEventRepository,
     parsed.data.id,
     parsed.data.status,
+    { revision: parsed.data.loadedRevision, status: parsed.data.loadedStatus },
     authorization.session.admin.id,
   );
   if (!result.ok) return operationError(result.error);
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Estado de la ubicación actualizado." };
+}
+
+export async function sendEventLocationAction(
+  id: string,
+  loadedLocation: LoadedLocationVersion,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = idSchema.safeParse({ id });
+  if (!parsed.success) return firstValidationError(parsed.error);
+
+  const result = await sendEventLocation(
+    postgresEventLocationEmailRepository,
+    parsed.data.id,
+    loadedLocation,
+    authorization.session.admin.id,
+  );
+  if (!result.ok && result.error === "EVENT_NOT_FOUND") {
+    return invalid("No se encontró la experiencia.");
+  }
+  if (!result.ok && result.error === "LOCATION_CHANGED") {
+    return operationError("LOCATION_CHANGED");
+  }
+  if (!result.ok) return invalid("Confirma la ubicación antes de enviarla.");
+
+  if (result.queued > 0) {
+    scheduleEmailDelivery({
+      limit: Math.min(result.queued, LOCATION_EMAIL_DRAIN_LIMIT),
+      timeBudgetMs: LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS,
+    });
+  }
+  revalidatePath(`/admin/events/${parsed.data.id}`);
+  revalidatePath("/admin/emails");
+  if (result.queued === 0) {
+    return { ok: true, message: "Todas las personas confirmadas ya tienen esta ubicación." };
+  }
+  return { ok: true, message: `Se encolaron ${result.queued} correos de ubicación.` };
+}
+
+export async function processPendingLocationEmailsAction(
+  id: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = idSchema.safeParse({ id });
+  if (!parsed.success) return firstValidationError(parsed.error);
+
+  scheduleEmailDelivery({
+    limit: LOCATION_EMAIL_DRAIN_LIMIT,
+    timeBudgetMs: LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS,
+  });
+  revalidatePath(`/admin/events/${parsed.data.id}`);
+  revalidatePath("/admin/emails");
+  return { ok: true, message: "Se programó el procesamiento de los correos pendientes." };
 }
 
 export async function deleteEventImageAction(

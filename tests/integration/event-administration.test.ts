@@ -179,6 +179,7 @@ describe("event mutations", () => {
         notes: created.value.location.notes,
         status: created.value.location.status,
       },
+      expectedLocation: { revision: 0, status: created.value.location.status },
     };
     const unchanged = await repository.update(command, adminId);
     expect(unchanged.ok && unchanged.value.location.confirmedAt?.getTime()).toBe(confirmedAt);
@@ -189,10 +190,20 @@ describe("event mutations", () => {
       adminId,
     );
     expect(changed.ok && changed.value.locationRevision).toBe(1);
-    const pending = await repository.setLocationStatus(created.value.id, "PENDING", adminId);
+    const pending = await repository.setLocationStatus(
+      created.value.id,
+      "PENDING",
+      { revision: 1, status: "CONFIRMED" },
+      adminId,
+    );
     expect(pending.ok && pending.value.location.confirmedAt).toBeNull();
     expect(pending.ok && pending.value.locationRevision).toBe(1);
-    const reconfirmed = await repository.setLocationStatus(created.value.id, "CONFIRMED", adminId);
+    const reconfirmed = await repository.setLocationStatus(
+      created.value.id,
+      "CONFIRMED",
+      { revision: 1, status: "PENDING" },
+      adminId,
+    );
     expect(reconfirmed.ok && reconfirmed.value.location.confirmedAt).toBeInstanceOf(Date);
     const audits = await auditFor(created.value.id);
     expect(
@@ -206,6 +217,81 @@ describe("event mutations", () => {
     expect(audits.rows.at(-1)?.metadata).toMatchObject({
       changedFields: expect.arrayContaining(["locationStatus", "locationConfirmedAt"]),
     });
+    const notesAudit = audits.rows.find(
+      (row) =>
+        Array.isArray(row.metadata.changedFields) &&
+        row.metadata.changedFields.includes("locationNotes"),
+    )!;
+    expect(notesAudit.metadata.locationNotes).toEqual({ changed: true });
+    expect(JSON.stringify(notesAudit.metadata.before)).not.toContain("Entrada lateral");
+    expect(JSON.stringify(notesAudit.metadata.after)).not.toContain("Nueva entrada");
+  });
+
+  it("rejects stale location edits and quick status changes", async () => {
+    const created = await repository.create(
+      {
+        ...baseCommand,
+        slug: "stale-location",
+        location: {
+          name: "Casa",
+          address: "Calle 1",
+          mapsUrl: null,
+          notes: null,
+          status: "CONFIRMED",
+        },
+      },
+      adminId,
+    );
+    if (!created.ok) throw new Error(created.error);
+    const command = {
+      id: created.value.id,
+      internalName: created.value.internalName,
+      slug: created.value.slug,
+      startsAt: created.value.startsAt,
+      maxPartySize: created.value.maxPartySize,
+      opensAt: created.value.opensAt,
+      closesAt: created.value.closesAt,
+      autoCloseOnFull: created.value.autoCloseOnFull,
+      waitlistCapacity: created.value.waitlistCapacity,
+      location: { ...created.value.location, address: "Calle vieja" },
+      expectedLocation: { revision: 0, status: "CONFIRMED" as const },
+    };
+
+    const fresh = await repository.update(
+      { ...command, location: { ...command.location, address: "Calle 2" } },
+      adminId,
+    );
+    expect(fresh.ok && fresh.value.locationRevision).toBe(1);
+
+    expectError(await repository.update(command, adminId), "LOCATION_CHANGED");
+    expectError(
+      await repository.setLocationStatus(
+        created.value.id,
+        "PENDING",
+        { revision: 0, status: "CONFIRMED" },
+        adminId,
+      ),
+      "LOCATION_CHANGED",
+    );
+
+    await repository.setLocationStatus(
+      created.value.id,
+      "PENDING",
+      { revision: 1, status: "CONFIRMED" },
+      adminId,
+    );
+    expectError(
+      await repository.update(
+        { ...command, expectedLocation: { revision: 1, status: "CONFIRMED" } },
+        adminId,
+      ),
+      "LOCATION_CHANGED",
+    );
+    const stored = await pool.query(
+      "SELECT location_address, location_status FROM events WHERE id = $1",
+      [created.value.id],
+    );
+    expect(stored.rows[0]).toEqual({ location_address: "Calle 2", location_status: "PENDING" });
   });
 
   it("rejects incomplete confirmed locations in the domain and database", async () => {
@@ -242,6 +328,7 @@ describe("event mutations", () => {
       autoCloseOnFull: true,
       waitlistCapacity: 3,
       location: baseCommand.location,
+      expectedLocation: { revision: 0, status: baseCommand.location.status },
     };
 
     const updated = await repository.update(update, adminId);

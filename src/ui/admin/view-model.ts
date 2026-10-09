@@ -263,6 +263,7 @@ export function emailKindLabel(kind: EmailOutboxKind): string {
     WAITLIST_PROMOTED: "Promoción desde la cola",
     RESERVATION_CANCELLED: "Reserva cancelada",
     WAITLIST_CANCELLED: "Retiro de la cola",
+    EVENT_LOCATION: "Ubicación del evento",
     ADMIN_ADDED: "Alta de administrador",
     ADMIN_SIGNED_IN: "Inicio de sesión",
     ADMIN_PASSWORD_RESET_BY_ADMIN: "Contraseña restablecida por un administrador",
@@ -275,6 +276,16 @@ export function emailKindLabel(kind: EmailOutboxKind): string {
     ADMIN_SESSIONS_REVOKED: "Sesiones cerradas",
   };
   return labels[kind];
+}
+
+export function emailErrorLabel(error: string | null): string {
+  if (error === null) return "-";
+  const labels: Record<string, string> = {
+    RESERVATION_NOT_CONFIRMED: "La reserva ya no está confirmada",
+    LOCATION_NOT_CONFIRMED: "La ubicación ya no está confirmada",
+    LOCATION_SUPERSEDED: "Existe una ubicación más reciente",
+  };
+  return labels[error] ?? error;
 }
 
 export const emailStatusFilters: readonly {

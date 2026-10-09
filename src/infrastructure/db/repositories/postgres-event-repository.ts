@@ -13,6 +13,7 @@ import type {
   EventOperationResult,
   EventOperationErrorCode,
   EventRecord,
+  LoadedLocationVersion,
   EventRosterCounts,
   EventRosterRow,
   PaginatedAuditLog,
@@ -207,6 +208,13 @@ async function lockEvent(client: PoolClient, id: string): Promise<EventRow | nul
   return result.rows[0] ?? null;
 }
 
+// Guards against a form loaded earlier restoring and re-confirming an outdated location.
+function isLocationStale(locked: EventRow, expected: LoadedLocationVersion): boolean {
+  return (
+    locked.location_revision !== expected.revision || locked.location_status !== expected.status
+  );
+}
+
 function comparableEvent(record: EventRecord): Record<string, unknown> {
   return {
     internalName: record.internalName,
@@ -232,11 +240,17 @@ function changedMetadata(
   after: Record<string, unknown>,
 ): Record<string, unknown> {
   const changedFields = Object.keys(after).filter((field) => before[field] !== after[field]);
-  return {
+  // Notes can hold door codes and audit rows are append-only, so only the fact of change is kept.
+  const loggedFields = changedFields.filter((field) => field !== "locationNotes");
+  const metadata: Record<string, unknown> = {
     changedFields,
-    before: Object.fromEntries(changedFields.map((field) => [field, before[field]])),
-    after: Object.fromEntries(changedFields.map((field) => [field, after[field]])),
+    before: Object.fromEntries(loggedFields.map((field) => [field, before[field]])),
+    after: Object.fromEntries(loggedFields.map((field) => [field, after[field]])),
   };
+  if (changedFields.includes("locationNotes")) {
+    metadata.locationNotes = { changed: true };
+  }
+  return metadata;
 }
 
 const sortColumns: Record<ReservationSortKey, string> = {
@@ -346,6 +360,9 @@ export class PostgresEventRepository implements EventRepository {
         if (!locked) {
           return failed("EVENT_NOT_FOUND");
         }
+        if (isLocationStale(locked, command.expectedLocation)) {
+          return failed("LOCATION_CHANGED");
+        }
         if (command.maxPartySize > locked.capacity) {
           return failed("MAX_PARTY_SIZE_ABOVE_CAPACITY");
         }
@@ -424,11 +441,13 @@ export class PostgresEventRepository implements EventRepository {
   async setLocationStatus(
     id: string,
     status: EventLocationStatus,
+    expectedLocation: LoadedLocationVersion,
     actorAdminId: string,
   ): Promise<EventOperationResult<EventRecord>> {
     return inTransaction(this.pool, async (client) => {
       const locked = await lockEvent(client, id);
       if (!locked) return failed("EVENT_NOT_FOUND");
+      if (isLocationStale(locked, expectedLocation)) return failed("LOCATION_CHANGED");
       if (
         !isEventLocationConfirmationValid({
           address: locked.location_address,

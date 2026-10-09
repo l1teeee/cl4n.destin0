@@ -5,7 +5,9 @@ import type {
   EmailOutboxRow,
   OutboxEmailComposer,
 } from "@/application/notifications/email-outbox";
+import { PermanentEmailCompositionError } from "@/application/notifications/email-delivery-error";
 import type { AdminRole } from "@/domain/admin/admin-access";
+import type { EventLocationStatus } from "@/domain/event/event-location";
 
 import { env } from "../../config/env";
 import { pool as applicationPool } from "../../db/client";
@@ -13,6 +15,7 @@ import type { AdminAccountNotice } from "../templates/admin-account-notice-email
 import { adminAccountNoticeEmail } from "../templates/admin-account-notice-email";
 import { adminAddedEmail } from "../templates/admin-added-email";
 import { adminSignInAlertEmail } from "../templates/admin-sign-in-alert-email";
+import { eventLocationEmail } from "../templates/event-location-email";
 import { reservationCancelledEmail } from "../templates/reservation-cancelled-email";
 import { reservationConfirmationEmail } from "../templates/reservation-confirmation-email";
 import { reservationWaitlistedEmail } from "../templates/reservation-waitlisted-email";
@@ -24,6 +27,14 @@ interface GuestRecord extends QueryResultRow {
   party_size: number;
   starts_at: Date;
   reservation_number: number | null;
+  reservation_status: string;
+  location_name: string | null;
+  location_address: string | null;
+  location_maps_url: string | null;
+  location_notes: string | null;
+  location_status: EventLocationStatus;
+  location_revision: number;
+  image_tokens: string[];
 }
 
 interface AdminRecord extends QueryResultRow {
@@ -55,6 +66,14 @@ function payloadPosition(row: EmailOutboxRow): number {
   const value = row.payload.position;
   if (typeof value !== "number") {
     throw new Error(`Outbox payload field position is missing for ${row.kind}`);
+  }
+  return value;
+}
+
+function payloadBoolean(row: EmailOutboxRow, field: string): boolean {
+  const value = row.payload[field];
+  if (typeof value !== "boolean") {
+    throw new Error(`Outbox payload field ${field} is missing for ${row.kind}`);
   }
   return value;
 }
@@ -95,10 +114,19 @@ export class PostgresOutboxEmailComposer implements OutboxEmailComposer {
     reservationId: string,
   ): Promise<ComposedOutboxEmail | null> {
     const result = await this.pool.query<GuestRecord>(
-      `SELECT r.email, r.full_name, r.party_size, e.starts_at, r.reservation_number
+      `SELECT r.email, r.full_name, r.party_size, r.status AS reservation_status,
+              r.reservation_number, e.starts_at, e.location_name, e.location_address,
+              e.location_maps_url, e.location_notes, e.location_status, e.location_revision,
+              COALESCE(
+                array_agg(i.public_token ORDER BY i.created_at, i.id)
+                  FILTER (WHERE i.id IS NOT NULL),
+                ARRAY[]::text[]
+              ) AS image_tokens
          FROM reservations r
          JOIN events e ON e.id = r.event_id
-        WHERE r.id = $1`,
+         LEFT JOIN event_images i ON i.event_id = e.id
+        WHERE r.id = $1
+        GROUP BY r.id, e.id`,
       [reservationId],
     );
     const guest = result.rows[0];
@@ -136,6 +164,32 @@ export class PostgresOutboxEmailComposer implements OutboxEmailComposer {
             fullName: guest.full_name,
             reservationNumber: guest.reservation_number,
             eventStartsAt: guest.starts_at,
+          }),
+        };
+      case "EVENT_LOCATION":
+        if (guest.reservation_status !== "CONFIRMED") {
+          throw new PermanentEmailCompositionError("RESERVATION_NOT_CONFIRMED");
+        }
+        if (guest.location_status !== "CONFIRMED") {
+          throw new PermanentEmailCompositionError("LOCATION_NOT_CONFIRMED");
+        }
+        if (row.locationRevision !== guest.location_revision) {
+          throw new PermanentEmailCompositionError("LOCATION_SUPERSEDED");
+        }
+        return {
+          to,
+          rendered: eventLocationEmail({
+            fullName: guest.full_name,
+            reservationNumber: requireReservationNumber(row, guest),
+            partySize: guest.party_size,
+            eventStartsAt: guest.starts_at,
+            locationName: guest.location_name,
+            locationAddress: guest.location_address,
+            locationMapsUrl: guest.location_maps_url,
+            locationNotes: guest.location_notes,
+            imageTokens: guest.image_tokens,
+            appBaseUrl: env.APP_BASE_URL,
+            isUpdate: payloadBoolean(row, "isUpdate"),
           }),
         };
       default:

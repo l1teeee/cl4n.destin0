@@ -124,6 +124,17 @@ export class PostgresEventImageRepository implements EventImageRepository {
     return row ? { ...imageItem(row), data: row.data! } : null;
   }
 
+  async getByPublicToken(publicToken: string): Promise<StoredEventImage | null> {
+    const result = await this.pool.query<EventImageRow>(
+      `SELECT id, content_type, byte_size, data, created_at
+         FROM event_images
+        WHERE public_token = $1`,
+      [publicToken],
+    );
+    const row = result.rows[0];
+    return row ? { ...imageItem(row), data: row.data! } : null;
+  }
+
   remove(eventId: string, imageId: string, actorId: string): Promise<boolean> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
       await lockEventImages(client, eventId);

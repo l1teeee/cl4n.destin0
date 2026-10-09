@@ -92,3 +92,34 @@ describe("event roster CSV route", () => {
     expect(body).toContain('"\'=Maní"');
   });
 });
+
+describe("roster email column", () => {
+  it("ignores location emails when picking the latest delivery status", async () => {
+    const event = await insertTestEvent(pool);
+    const reservation = await pool.query<{ id: string }>(
+      `INSERT INTO reservations (
+         event_id, reservation_number, status, full_name, instagram_handle, phone_e164,
+         email, email_normalized, party_size, terms_accepted_at, idempotency_key,
+         submitted_at, accepted_at
+       ) VALUES ($1, 1, 'CONFIRMED', 'Luz', 'luz', '+50370000001',
+         'luz@example.com', 'luz@example.com', 1, now(), $2, now(), now())
+       RETURNING id`,
+      [event.id, randomUUID()],
+    );
+    const reservationId = reservation.rows[0]!.id;
+    await pool.query(
+      `INSERT INTO email_outbox (kind, reservation_id, status, attempts, last_error, created_at)
+       VALUES ('RESERVATION_CONFIRMED', $1, 'FAILED', 1, 'HTTP_400', now() - interval '1 minute')`,
+      [reservationId],
+    );
+    await pool.query(
+      `INSERT INTO email_outbox (kind, reservation_id, location_revision, status, sent_at)
+       VALUES ('EVENT_LOCATION', $1, 0, 'SENT', now())`,
+      [reservationId],
+    );
+
+    const roster = await queryEventRoster(pool, event.id, "confirmadas");
+
+    expect(roster[0]).toMatchObject({ emailStatus: "FAILED", emailLastError: "HTTP_400" });
+  });
+});

@@ -6,6 +6,7 @@ export const emailOutboxKinds = [
   "WAITLIST_PROMOTED",
   "RESERVATION_CANCELLED",
   "WAITLIST_CANCELLED",
+  "EVENT_LOCATION",
   "ADMIN_ADDED",
   "ADMIN_SIGNED_IN",
   "ADMIN_PASSWORD_RESET_BY_ADMIN",
@@ -27,6 +28,7 @@ export interface EmailOutboxRow {
   reservationId: string | null;
   waitlistEntryId: string | null;
   adminUserId: string | null;
+  locationRevision: number | null;
   payload: Record<string, unknown>;
   status: EmailOutboxStatus;
   attempts: number;

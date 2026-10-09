@@ -7,9 +7,11 @@ import {
   getEventRoster,
   getEventRosterCounts,
 } from "@/application/events/event-use-cases";
+import { getEventLocationEmailSummary } from "@/application/events/event-location-email";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
+import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { StatGrid } from "@/ui/admin/stat-grid";
@@ -47,8 +49,12 @@ import {
   completeEventAction,
   openEventNowAction,
   publishEventAction,
+  processPendingLocationEmailsAction,
+  sendEventLocationAction,
   setEventLocationStatusAction,
 } from "../actions";
+
+export const maxDuration = 60;
 
 interface EventDetailPageProps {
   params: Promise<{ id: string }>;
@@ -63,12 +69,15 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   if (!event) notFound();
 
   const view = parseRosterView((await searchParams).vista, "confirmadas");
-  const [roster, rosterCounts, audit, images] = await Promise.all([
+  const [roster, rosterCounts, audit, images, locationEmailSummary] = await Promise.all([
     getEventRoster(postgresEventRepository, id, view),
     getEventRosterCounts(postgresEventRepository, id),
     getAdminAuditLog(postgresEventRepository, { eventId: id, pageSize: 100 }),
     postgresEventImageRepository.list(id),
+    getEventLocationEmailSummary(postgresEventLocationEmailRepository, id),
   ]);
+  if (!locationEmailSummary) notFound();
+  const loadedLocation = { revision: event.locationRevision, status: event.location.status };
   const controls = lifecycleActions(event, eventResult.databaseTime);
 
   return (
@@ -178,15 +187,67 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         ) : null}
         {event.location.status === "CONFIRMED" ? (
           <MutationForm
-            action={setEventLocationStatusAction.bind(null, id, "PENDING")}
+            action={setEventLocationStatusAction.bind(null, id, "PENDING", loadedLocation)}
             label="Marcar por confirmar"
           />
         ) : event.location.address || event.location.mapsUrl ? (
           <MutationForm
-            action={setEventLocationStatusAction.bind(null, id, "CONFIRMED")}
+            action={setEventLocationStatusAction.bind(null, id, "CONFIRMED", loadedLocation)}
             label="Confirmar ubicación"
           />
         ) : null}
+        <div className="space-y-4 border-t border-border pt-5">
+          <h3 className="font-semibold">Envío a invitados</h3>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="default">
+              Confirmadas: {locationEmailSummary.confirmedReservations}
+            </Badge>
+            <Badge variant="confirmed">Enviados: {locationEmailSummary.sent}</Badge>
+            <Badge variant="draft">Pendientes: {locationEmailSummary.pending}</Badge>
+            <Badge variant={locationEmailSummary.failed > 0 ? "rejected" : "default"}>
+              Fallidos: {locationEmailSummary.failed}
+            </Badge>
+            <Badge variant="default">Sin encolar: {locationEmailSummary.notYetQueued}</Badge>
+          </div>
+          {event.location.status !== "CONFIRMED" ? (
+            <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
+          ) : (
+            <div className="flex flex-wrap items-start gap-3">
+              {locationEmailSummary.sendable > 0 ? (
+                <MutationForm
+                  action={sendEventLocationAction.bind(null, id, loadedLocation)}
+                  label={
+                    locationEmailSummary.hasOlderSent
+                      ? `Enviar ubicación actualizada a ${locationEmailSummary.sendable}`
+                      : `Enviar ubicación a ${locationEmailSummary.sendable} confirmados`
+                  }
+                  confirmation={`Se enviará un correo con la ubicación a ${locationEmailSummary.sendable} personas con reserva confirmada. No se puede deshacer.`}
+                />
+              ) : null}
+              {locationEmailSummary.pending > 0 ? (
+                <MutationForm
+                  action={processPendingLocationEmailsAction.bind(null, id)}
+                  label={`Procesar envíos pendientes (${locationEmailSummary.pending})`}
+                />
+              ) : null}
+              {locationEmailSummary.failed > 0 ? (
+                <Button variant="link" asChild>
+                  <Link href="/admin/emails?estado=FAILED&tipo=EVENT_LOCATION">Ver fallidos</Link>
+                </Button>
+              ) : null}
+            </div>
+          )}
+          {event.location.status === "CONFIRMED" &&
+          locationEmailSummary.confirmedReservations > 0 &&
+          locationEmailSummary.confirmedReservations === locationEmailSummary.sent ? (
+            <p className="admin-muted">
+              Todas las personas confirmadas tienen la ubicación actual.
+              {locationEmailSummary.lastSentAt
+                ? ` Último envío: ${formatAdminDate(locationEmailSummary.lastSentAt)}.`
+                : ""}
+            </p>
+          ) : null}
+        </div>
       </section>
 
       <section className="admin-section space-y-4">

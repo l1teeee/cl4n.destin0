@@ -5,11 +5,13 @@ import { postgresEmailOutboxRepository } from "@/infrastructure/email/outbox/pos
 import { drainEmailOutbox } from "@/infrastructure/email/outbox/drain-email-outbox";
 
 export const dynamic = "force-dynamic";
-// The drain budget is 60 s, so the function must be allowed to run that long.
 export const maxDuration = 60;
 
 const CRON_DRAIN_LIMIT = 50;
-const CRON_DRAIN_TIME_BUDGET_MS = 60_000;
+// The budget is only checked before each claim; the 15 s margin covers one send (up to 8 s)
+// plus request overhead, so the function is never killed between the provider accepting a
+// send and markSent, which would duplicate the email after the lease expires.
+const CRON_DRAIN_TIME_BUDGET_MS = 45_000;
 const SENT_RETENTION_DAYS = 90;
 
 function hasValidBearerToken(request: Request): boolean {

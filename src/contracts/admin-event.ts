@@ -23,7 +23,17 @@ const slug = z
 const mapsUrlMessage =
   "Pega un enlace de Google Maps (https://maps.app.goo.gl/... o https://www.google.com/maps/...).";
 
+const pathPrefixedMapsHosts = new Set([
+  "goo.gl",
+  "google.com",
+  "www.google.com",
+  "google.com.sv",
+  "www.google.com.sv",
+]);
+
 export function isAllowedGoogleMapsUrl(value: string): boolean {
+  // WHATWG parsing treats a backslash as a slash, but other consumers do not; refuse the ambiguity.
+  if (value.includes("\\")) return false;
   let url: URL;
   try {
     url = new URL(value);
@@ -31,14 +41,11 @@ export function isAllowedGoogleMapsUrl(value: string): boolean {
     return false;
   }
   if (url.protocol !== "https:") return false;
+  if (url.username !== "" || url.password !== "") return false;
 
   const host = url.hostname.toLowerCase();
-  if (host === "maps.app.goo.gl") return true;
-  if (host === "goo.gl") return url.pathname.startsWith("/maps");
-  if (host === "maps.google.com") return true;
-
-  const isGoogleHost = /^(?:(?:www|maps)\.)?google\.[a-z]{2,}(?:\.[a-z]{2,})?$/.test(host);
-  return isGoogleHost && url.pathname.startsWith("/maps");
+  if (host === "maps.app.goo.gl" || host === "maps.google.com") return true;
+  return pathPrefixedMapsHosts.has(host) && url.pathname.startsWith("/maps");
 }
 
 function nullableTrimmedText(max: number) {
@@ -51,10 +58,9 @@ function nullableTrimmedText(max: number) {
 const locationFields = {
   locationName: nullableTrimmedText(120),
   locationAddress: nullableTrimmedText(300),
-  locationMapsUrl: nullableTrimmedText(2048).refine(
-    (value) => value === null || isAllowedGoogleMapsUrl(value),
-    mapsUrlMessage,
-  ),
+  locationMapsUrl: nullableTrimmedText(2048)
+    .refine((value) => value === null || isAllowedGoogleMapsUrl(value), mapsUrlMessage)
+    .transform((value) => (value === null ? null : new URL(value).href)),
   locationNotes: nullableTrimmedText(1000),
   locationStatus: z.enum(["PENDING", "CONFIRMED"]),
 };
@@ -112,6 +118,8 @@ export const updateAdminEventSchema = z
     autoCloseOnFull: eventFields.autoCloseOnFull,
     waitlistCapacity: eventFields.waitlistCapacity,
     ...locationFields,
+    locationRevision: z.string().regex(/^\d+$/).transform(Number),
+    locationStatusLoaded: z.enum(["PENDING", "CONFIRMED"]),
   })
   .strict();
 

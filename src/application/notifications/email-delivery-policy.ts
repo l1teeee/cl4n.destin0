@@ -1,4 +1,4 @@
-import { EmailDeliveryError } from "./email-delivery-error";
+import { EmailDeliveryError, PermanentEmailCompositionError } from "./email-delivery-error";
 
 export type EmailDeliveryFailure =
   | { action: "FAIL"; errorCode: string }
@@ -13,6 +13,9 @@ export function retryDelaySeconds(attempts: number): number {
 }
 
 function errorCodeFor(error: unknown): string {
+  if (error instanceof PermanentEmailCompositionError) {
+    return error.code;
+  }
   if (!(error instanceof EmailDeliveryError)) {
     return "INTERNAL";
   }
@@ -24,6 +27,9 @@ export function classifyEmailDeliveryFailure(
   attempts: number,
 ): EmailDeliveryFailure {
   const errorCode = errorCodeFor(error);
+  if (error instanceof PermanentEmailCompositionError) {
+    return { action: "FAIL", errorCode };
+  }
   const isPermanent =
     error instanceof EmailDeliveryError &&
     error.status !== null &&
