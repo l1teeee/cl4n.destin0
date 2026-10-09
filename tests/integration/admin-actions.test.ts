@@ -311,6 +311,21 @@ describe("admin event Server Actions", () => {
     ).toBe(7);
   });
 
+  it("rejects a missing or empty waitlist capacity instead of reading it as 0", async () => {
+    const id = await insertEvent("DRAFT", "waitlist-capacity-missing");
+    await authorize();
+
+    const empty = new FormData();
+    empty.set("waitlistCapacity", "");
+    expect(await changeWaitlistCapacityAction(id, initialState, empty)).toMatchObject({
+      ok: false,
+      message: "Los lugares en cola deben ser un número.",
+    });
+    expect(await changeWaitlistCapacityAction(id, initialState, new FormData())).toMatchObject({
+      ok: false,
+    });
+  });
+
   it("protects and performs reservation cancellation", async () => {
     const eventId = await insertEvent("SCHEDULED", "reservation-cancel-event");
     const reservation = await pool.query<{ id: string }>(

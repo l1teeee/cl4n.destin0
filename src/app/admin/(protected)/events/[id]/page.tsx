@@ -23,13 +23,18 @@ import {
   formatAdminDate,
   formatReservationNumber,
   lifecycleActions,
+  locationMap,
+  locationSendButtonLabel,
+  locationSendConfirmation,
   parseRosterView,
   publicEventUrl,
   publicLinkHint,
   rosterEmailLabel,
+  rosterLocationCell,
   rosterStatusBadgeVariant,
   rosterStatusLabel,
   rosterViews,
+  type RosterLocationCell,
 } from "@/ui/admin/view-model";
 import { Badge } from "@/ui/primitives/badge";
 import { Button } from "@/ui/primitives/button";
@@ -84,6 +89,11 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   if (!locationEmailSummary) notFound();
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
   const controls = lifecycleActions(event, eventResult.databaseTime);
+  const map = locationMap(event.location);
+  const sendLabel = locationSendButtonLabel(
+    locationEmailSummary.firstTimeSendable,
+    locationEmailSummary.updateSendable,
+  );
 
   return (
     <main className="admin-page space-y-10">
@@ -159,18 +169,17 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         ) : (
           <p className="admin-empty">Sin ubicación todavía.</p>
         )}
-        {event.location.address ? (
-          <iframe
-            className="aspect-video w-full border border-border grayscale"
-            src={`https://www.google.com/maps?q=${encodeURIComponent(
-              event.location.name
-                ? `${event.location.name}, ${event.location.address}`
-                : event.location.address,
-            )}&output=embed`}
-            title="Mapa de la ubicación"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
+        {map ? (
+          <figure className="space-y-2">
+            <iframe
+              className="aspect-video w-full border border-border grayscale"
+              src={map.src}
+              title="Mapa de la ubicación"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+            <figcaption className="admin-muted">{map.caption}</figcaption>
+          </figure>
         ) : null}
         {images.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
@@ -215,26 +224,30 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             <Badge variant="default">
               Confirmadas: {locationEmailSummary.confirmedReservations}
             </Badge>
-            <Badge variant="confirmed">Enviados: {locationEmailSummary.sent}</Badge>
-            <Badge variant="draft">Pendientes: {locationEmailSummary.pending}</Badge>
+            <Badge variant="confirmed">
+              Recibieron la ubicación actual: {locationEmailSummary.sent}
+            </Badge>
+            <Badge variant="default">
+              Por primera vez: {locationEmailSummary.firstTimeSendable}
+            </Badge>
+            <Badge variant="default">Por actualizar: {locationEmailSummary.updateSendable}</Badge>
+            <Badge variant="draft">En envío: {locationEmailSummary.pending}</Badge>
             <Badge variant={locationEmailSummary.failed > 0 ? "rejected" : "default"}>
               Fallidos: {locationEmailSummary.failed}
             </Badge>
-            <Badge variant="default">Sin encolar: {locationEmailSummary.notYetQueued}</Badge>
           </div>
           {event.location.status !== "CONFIRMED" ? (
             <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
           ) : (
             <div className="flex flex-wrap items-start gap-3">
-              {locationEmailSummary.sendable > 0 ? (
+              {sendLabel ? (
                 <MutationForm
                   action={sendEventLocationAction.bind(null, id, loadedLocation)}
-                  label={
-                    locationEmailSummary.hasOlderSent
-                      ? `Enviar ubicación actualizada a ${locationEmailSummary.sendable}`
-                      : `Enviar ubicación a ${locationEmailSummary.sendable} confirmados`
-                  }
-                  confirmation={`Se enviará un correo con la ubicación a ${locationEmailSummary.sendable} personas con reserva confirmada. No se puede deshacer.`}
+                  label={sendLabel}
+                  confirmation={locationSendConfirmation(
+                    locationEmailSummary.firstTimeSendable,
+                    locationEmailSummary.updateSendable,
+                  )}
                 />
               ) : null}
               {locationEmailSummary.pending > 0 ? (
@@ -250,6 +263,12 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
               ) : null}
             </div>
           )}
+          {event.location.status === "CONFIRMED" ? (
+            <p className="admin-muted">
+              Quien se confirme después de un envío, incluso desde la cola, recibe la ubicación
+              automáticamente.
+            </p>
+          ) : null}
           {event.location.status === "CONFIRMED" &&
           locationEmailSummary.confirmedReservations > 0 &&
           locationEmailSummary.confirmedReservations === locationEmailSummary.sent ? (
@@ -368,7 +387,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         {roster.value.length === 0 ? (
           <p className="admin-empty">No hay personas en esta vista.</p>
         ) : (
-          <Table className="min-w-[1250px]">
+          <Table className="min-w-[1400px]">
             <TableHeader>
               <TableRow>
                 {[
@@ -382,6 +401,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
                   "Estado",
                   "Recibida",
                   "Correo",
+                  "Ubicación",
                   "Acciones",
                 ].map((heading) => (
                   <TableHead key={heading}>{heading}</TableHead>
@@ -426,6 +446,9 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
                     </span>
                   </TableCell>
                   <TableCell>
+                    <LocationCell cell={rosterLocationCell(row)} />
+                  </TableCell>
+                  <TableCell>
                     {row.kind === "RESERVATION" && row.status === "CONFIRMED" ? (
                       <MutationForm
                         action={cancelReservationAction.bind(null, id, row.id)}
@@ -455,5 +478,13 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         <AuditLogTable items={audit.value.items} />
       </section>
     </main>
+  );
+}
+
+function LocationCell({ cell }: { cell: RosterLocationCell }) {
+  return (
+    <span className={cell.failed ? "text-destructive" : undefined} title={cell.title ?? undefined}>
+      {cell.text}
+    </span>
   );
 }

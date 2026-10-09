@@ -116,8 +116,8 @@ export const updateAdminEventSchema = z
     closesAt: eventFields.closesAt,
     maxPartySize: eventFields.maxPartySize,
     autoCloseOnFull: eventFields.autoCloseOnFull,
-    waitlistCapacity: eventFields.waitlistCapacity,
     ...locationFields,
+    keepMapsUrl: z.boolean(),
     locationRevision: z.string().regex(/^\d+$/).transform(Number),
     locationStatusLoaded: z.enum(["PENDING", "CONFIRMED"]),
   })

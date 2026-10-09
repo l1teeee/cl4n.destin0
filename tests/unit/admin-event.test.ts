@@ -42,12 +42,12 @@ describe("admin event contracts", () => {
       closesAt: validCreate.closesAt,
       maxPartySize: validCreate.maxPartySize,
       autoCloseOnFull: validCreate.autoCloseOnFull,
-      waitlistCapacity: validCreate.waitlistCapacity,
       locationName: validCreate.locationName,
       locationAddress: validCreate.locationAddress,
       locationMapsUrl: validCreate.locationMapsUrl,
       locationNotes: validCreate.locationNotes,
       locationStatus: validCreate.locationStatus,
+      keepMapsUrl: false,
       locationRevision: "3",
       locationStatusLoaded: "PENDING",
     };
@@ -141,7 +141,7 @@ describe("waitlist capacity contract", () => {
     };
 
     expect(updateAdminEventSchema.safeParse(update).success).toBe(false);
-    expect(updateAdminEventSchema.safeParse({ ...update, waitlistCapacity: 51 }).success).toBe(
+    expect(updateAdminEventSchema.safeParse({ ...update, waitlistCapacity: 5 }).success).toBe(
       false,
     );
   });

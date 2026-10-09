@@ -1,7 +1,12 @@
 import type { EventLifecycleStatus } from "@/domain/event/event-phase";
-import type { EventLocationStatus } from "@/domain/event/event-location";
+import {
+  parseMapsCoordinates,
+  type EventLocationStatus,
+  type MapsCoordinates,
+} from "@/domain/event/event-location";
 
 import type { EventRepository } from "./event-repository";
+import type { MapsLinkResolver } from "./maps-link-resolver";
 import type {
   AdminReservationQuery,
   AuditLogQuery,
@@ -11,20 +16,39 @@ import type {
   UpdateEventCommand,
 } from "./types";
 
-export function createEvent(
-  repository: EventRepository,
-  command: CreateEventCommand,
-  actorId: string,
-) {
-  return repository.create(command, actorId);
+export type CreateEventInput = Omit<CreateEventCommand, "coordinates">;
+export type UpdateEventInput = Omit<UpdateEventCommand, "coordinates">;
+
+async function resolveMapsCoordinates(
+  resolver: MapsLinkResolver,
+  mapsUrl: string | null,
+): Promise<MapsCoordinates | null> {
+  if (mapsUrl === null) return null;
+  const direct = parseMapsCoordinates(mapsUrl);
+  if (direct) return direct;
+  const expanded = await resolver.expand(mapsUrl);
+  return expanded === null ? null : parseMapsCoordinates(expanded);
 }
 
-export function updateEvent(
+export async function createEvent(
   repository: EventRepository,
-  command: UpdateEventCommand,
+  resolver: MapsLinkResolver,
+  input: CreateEventInput,
   actorId: string,
 ) {
-  return repository.update(command, actorId);
+  const coordinates = await resolveMapsCoordinates(resolver, input.location.mapsUrl);
+  return repository.create({ ...input, coordinates }, actorId);
+}
+
+export async function updateEvent(
+  repository: EventRepository,
+  resolver: MapsLinkResolver,
+  input: UpdateEventInput,
+  actorId: string,
+) {
+  // Resolved before the transaction so outbound HTTP never holds the event row lock.
+  const coordinates = await resolveMapsCoordinates(resolver, input.location.mapsUrl);
+  return repository.update({ ...input, coordinates }, actorId);
 }
 
 export function setLocationStatus(

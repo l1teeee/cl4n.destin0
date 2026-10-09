@@ -32,6 +32,12 @@ function isStale(event: EventLocationRow, loaded: LoadedLocationVersion): boolea
   return event.location_revision !== loaded.revision || event.location_status !== loaded.status;
 }
 
+function isLockNotAvailable(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && (error as { code?: string }).code === "55P03"
+  );
+}
+
 const transactionSettings = [
   "SET LOCAL lock_timeout = '3s'",
   "SET LOCAL statement_timeout = '5s'",
@@ -41,7 +47,21 @@ const transactionSettings = [
 export class PostgresEventLocationEmailRepository implements EventLocationEmailRepository {
   constructor(private readonly pool: Pool = applicationPool) {}
 
-  queue(
+  async queue(
+    eventId: string,
+    loadedLocation: LoadedLocationVersion,
+    actorAdminId: string,
+  ): Promise<QueueEventLocationEmailsResult> {
+    try {
+      return await this.queueInTransaction(eventId, loadedLocation, actorAdminId);
+    } catch (error) {
+      // Reservations hold the event row lock while a window is busy; the admin can simply retry.
+      if (isLockNotAvailable(error)) return { ok: false, error: "TRY_AGAIN" };
+      throw error;
+    }
+  }
+
+  private queueInTransaction(
     eventId: string,
     loadedLocation: LoadedLocationVersion,
     actorAdminId: string,

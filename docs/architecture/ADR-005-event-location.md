@@ -52,3 +52,13 @@ When a reservation becomes `CONFIRMED` after the admin has bulk-sent the current
 Bulk send, direct allocation and waitlist promotion serialize on the same event row lock. Under `READ COMMITTED`, the bulk insert sees a fresh statement snapshot after taking that lock. A concurrent late confirmation is therefore either included in the bulk insert or observes the released current revision and queues its own location email in the same transaction. The unique outbox index on reservation and location revision prevents duplicates.
 
 The admin can still bulk-send manually, including retrying failed current-revision rows. The Part 2 sentence "Saving or confirming a location never sends email" remains true: automatic sending is triggered only by a later transition of a guest into `CONFIRMED`, and only after the admin has released that exact location revision.
+
+## Part 4: Maps link follows the address, exact point
+
+When an update changes the address (compared trimmed, whitespace-collapsed and case-sensitive) and the submitted Maps link equals the stored one, the link and its coordinates are cleared unless the admin ticks `keepMapsUrl`. The comparison runs inside the update transaction against the locked row, never against client-sent previous values, and the confirmation rule is re-checked after clearing. The location revision still increments, so earlier sends become outdated.
+
+`events.location_latitude` and `location_longitude` come from the Maps link. A full URL is parsed in the domain with this precedence: the `!3d<lat>!4d<lng>` place pin, then the `@<lat>,<lng>` viewport, then the `q`, `query`, `ll`, `center` and `destination` parameters. Short links (`maps.app.goo.gl`, `goo.gl/maps`) carry no coordinates, so the application port `MapsLinkResolver` expands them before the transaction opens, so outbound HTTP never holds the event row lock. The infrastructure implementation sends GET requests with `redirect: "manual"`, follows at most 5 hops, requires `https:` and the same Google Maps host allowlist as the admin contract on every hop, uses one 4 s timeout for the whole expansion, never reads response bodies and logs only the host on failure.
+
+If the Maps link is unchanged and no coordinates could be obtained (for example a transient resolver failure), the stored point is kept. A changed or cleared link stores whatever was resolved, or null. The admin map previews the saved point, otherwise the address, otherwise nothing. Emails are unchanged: they keep linking to the saved Maps URL.
+
+Coordinates are derived data for the admin map preview. They are never sent to guests, never used by emails or public pages, and so do not bump `location_revision`; a change to the Maps URL they derive from already does.

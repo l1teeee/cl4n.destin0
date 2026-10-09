@@ -17,7 +17,11 @@ import {
   updateEvent,
 } from "@/application/events/event-use-cases";
 import { sendEventLocation } from "@/application/events/event-location-email";
-import type { EventOperationErrorCode, LoadedLocationVersion } from "@/application/events/types";
+import type {
+  EventOperationErrorCode,
+  EventRecord,
+  LoadedLocationVersion,
+} from "@/application/events/types";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
 import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import {
@@ -28,6 +32,7 @@ import {
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
+import { googleMapsLinkResolver } from "@/infrastructure/maps/google-maps-link-resolver";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
@@ -97,6 +102,12 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
     "La ubicación cambió mientras editabas. Recarga la página para ver la versión actual.",
 };
 
+// Number("") is 0, which would silently turn an empty field into "waitlist off".
+function optionalNumber(value: FormDataEntryValue | null): number | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return Number(value);
+}
+
 function unauthorized(): AdminActionState {
   return { ok: false, message: "Tu sesión no es válida. Inicia sesión nuevamente." };
 }
@@ -111,6 +122,19 @@ function operationError(error: EventOperationErrorCode): AdminActionState {
 
 function firstValidationError(error: z.ZodError): AdminActionState {
   return invalid(error.issues[0]?.message ?? "Revisa los datos del formulario.");
+}
+
+const MAPS_LINK_CLEARED_MESSAGE =
+  "Experiencia actualizada. Se quitó el enlace de Google Maps anterior porque cambió la dirección.";
+const MAPS_POINT_MISSING_MESSAGE =
+  "No se pudo leer el punto exacto del enlace; el mapa usará la dirección.";
+
+function updateSuccessMessage(submittedMapsUrl: string | null, saved: EventRecord): string {
+  const mapsUrlCleared = submittedMapsUrl !== null && saved.location.mapsUrl === null;
+  if (mapsUrlCleared) return MAPS_LINK_CLEARED_MESSAGE;
+  const message = "Experiencia actualizada correctamente.";
+  const pointMissing = saved.location.mapsUrl !== null && saved.location.latitude === null;
+  return pointMissing ? `${message} ${MAPS_POINT_MISSING_MESSAGE}` : message;
 }
 
 function revalidateEventPaths(id: string, slug?: string): void {
@@ -164,6 +188,7 @@ export async function createEventAction(
 
   const result = await createEvent(
     postgresEventRepository,
+    googleMapsLinkResolver,
     {
       ...parsed.data,
       startsAt,
@@ -204,12 +229,12 @@ export async function updateEventAction(
     closesAt: formData.get("closesAt"),
     maxPartySize: Number(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
-    waitlistCapacity: Number(formData.get("waitlistCapacity")),
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
     locationMapsUrl: formData.get("locationMapsUrl"),
     locationNotes: formData.get("locationNotes"),
     locationStatus: formData.get("locationStatus"),
+    keepMapsUrl: formData.get("keepMapsUrl") === "on",
     locationRevision: formData.get("locationRevision"),
     locationStatusLoaded: formData.get("locationStatusLoaded"),
   });
@@ -228,6 +253,7 @@ export async function updateEventAction(
 
   const result = await updateEvent(
     postgresEventRepository,
+    googleMapsLinkResolver,
     {
       id: parsedId.data.id,
       ...parsed.data,
@@ -251,7 +277,7 @@ export async function updateEventAction(
   if (!result.ok) return operationError(result.error);
 
   revalidateEventPaths(result.value.id, result.value.slug);
-  return { ok: true, message: "Experiencia actualizada correctamente." };
+  return { ok: true, message: updateSuccessMessage(parsed.data.locationMapsUrl, result.value) };
 }
 
 export async function setEventLocationStatusAction(
@@ -305,6 +331,11 @@ export async function sendEventLocationAction(
   );
   if (!result.ok && result.error === "EVENT_NOT_FOUND") {
     return invalid("No se encontró la experiencia.");
+  }
+  if (!result.ok && result.error === "TRY_AGAIN") {
+    return invalid(
+      "Hay reservas entrando en este momento. Intenta enviar de nuevo en unos segundos.",
+    );
   }
   if (!result.ok && result.error === "LOCATION_CHANGED") {
     return operationError("LOCATION_CHANGED");
@@ -503,7 +534,7 @@ export async function changeWaitlistCapacityAction(
   if (!authorization.authorized) return unauthorized();
   const parsed = changeWaitlistCapacitySchema.safeParse({
     id,
-    waitlistCapacity: Number(formData.get("waitlistCapacity")),
+    waitlistCapacity: optionalNumber(formData.get("waitlistCapacity")),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
   const result = await changeWaitlistCapacity(
@@ -570,5 +601,9 @@ export async function cancelWaitlistEntryAction(
   revalidatePath("/admin");
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");
-  return { ok: true, message: "Entrada retirada de la cola." };
+  return {
+    ok: true,
+    message:
+      "Entrada retirada de la cola. Si se liberó espacio, la siguiente persona entró automáticamente y recibió su correo.",
+  };
 }

@@ -1,5 +1,5 @@
 import type { EventLifecycleStatus, EventPhase } from "@/domain/event/event-phase";
-import type { EventLocationStatus } from "@/domain/event/event-location";
+import type { EventLocationStatus, MapsCoordinates } from "@/domain/event/event-location";
 
 export type EventOperationErrorCode =
   | "EVENT_NOT_FOUND"
@@ -68,6 +68,7 @@ export interface CreateEventCommand {
   waitlistCapacity: number;
   status: "DRAFT" | "SCHEDULED";
   location: EventLocation;
+  coordinates: MapsCoordinates | null;
 }
 
 export interface UpdateEventCommand {
@@ -79,8 +80,10 @@ export interface UpdateEventCommand {
   opensAt: Date;
   closesAt: Date;
   autoCloseOnFull: boolean;
-  waitlistCapacity: number;
   location: EventLocation;
+  keepMapsUrl: boolean;
+  // Null for an unchanged link keeps the stored point, so a failed lookup never erases it.
+  coordinates: MapsCoordinates | null;
   expectedLocation: LoadedLocationVersion;
 }
 

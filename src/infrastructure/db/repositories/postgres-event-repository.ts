@@ -25,8 +25,11 @@ import type {
 } from "@/application/events/types";
 import { canTransition } from "@/domain/event/event-lifecycle";
 import {
+  chooseStoredCoordinates,
   isEventLocationConfirmationValid,
+  reconcileMapsLink,
   type EventLocationStatus,
+  type MapsCoordinates,
 } from "@/domain/event/event-location";
 import { availableSeats, derivePhase, type EventLifecycleStatus } from "@/domain/event/event-phase";
 
@@ -217,6 +220,11 @@ async function lockEvent(client: PoolClient, id: string): Promise<EventRow | nul
   return result.rows[0] ?? null;
 }
 
+function storedCoordinates(row: EventRow): MapsCoordinates | null {
+  if (row.location_latitude === null || row.location_longitude === null) return null;
+  return { latitude: row.location_latitude, longitude: row.location_longitude };
+}
+
 // Guards against a form loaded earlier restoring and re-confirming an outdated location.
 function isLocationStale(locked: EventRow, expected: LoadedLocationVersion): boolean {
   return (
@@ -314,11 +322,14 @@ export class PostgresEventRepository implements EventRepository {
              location_maps_url,
              location_notes,
              location_status,
-             location_confirmed_at
+             location_confirmed_at,
+             location_latitude,
+             location_longitude
            )
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                    $15::event_location_status,
-                   CASE WHEN $15::event_location_status = 'CONFIRMED' THEN clock_timestamp() ELSE NULL END)
+                   CASE WHEN $15::event_location_status = 'CONFIRMED' THEN clock_timestamp() ELSE NULL END,
+                   $16, $17)
            RETURNING ${eventColumns}`,
           [
             command.internalName,
@@ -336,6 +347,8 @@ export class PostgresEventRepository implements EventRepository {
             command.location.mapsUrl,
             command.location.notes,
             command.location.status,
+            command.coordinates?.latitude ?? null,
+            command.coordinates?.longitude ?? null,
           ],
         );
         const created = eventRecord(inserted.rows[0]!);
@@ -378,9 +391,27 @@ export class PostgresEventRepository implements EventRepository {
         if (command.slug !== locked.slug && locked.status !== "DRAFT") {
           return failed("SLUG_LOCKED");
         }
-        if (command.waitlistCapacity < locked.waitlisted_count) {
-          return failed("WAITLIST_CAPACITY_BELOW_WAITING");
+
+        const reconciled = reconcileMapsLink(
+          { address: locked.location_address, mapsUrl: locked.location_maps_url },
+          { address: command.location.address, mapsUrl: command.location.mapsUrl },
+          command.keepMapsUrl,
+        );
+        if (
+          !isEventLocationConfirmationValid({
+            address: command.location.address,
+            mapsUrl: reconciled.mapsUrl,
+            status: command.location.status,
+          })
+        ) {
+          return failed("LOCATION_CONFIRMATION_INCOMPLETE");
         }
+        const coordinates = chooseStoredCoordinates({
+          previousMapsUrl: locked.location_maps_url,
+          previousCoordinates: storedCoordinates(locked),
+          nextMapsUrl: reconciled.mapsUrl,
+          resolvedCoordinates: command.coordinates,
+        });
 
         const before = eventRecord(locked);
         const updated = await client.query<EventRow>(
@@ -392,25 +423,26 @@ export class PostgresEventRepository implements EventRepository {
                   opens_at = $6,
                   closes_at = $7,
                   auto_close_on_full = $8,
-                  waitlist_capacity = $9,
-                  location_name = $10,
-                  location_address = $11,
-                  location_maps_url = $12,
-                  location_notes = $13,
-                  location_status = $14::event_location_status,
+                  location_name = $9,
+                  location_address = $10,
+                  location_maps_url = $11,
+                  location_notes = $12,
+                  location_latitude = $14,
+                  location_longitude = $15,
+                  location_status = $13::event_location_status,
                   location_confirmed_at = CASE
-                    WHEN $14::event_location_status = 'PENDING' THEN NULL
+                    WHEN $13::event_location_status = 'PENDING' THEN NULL
                     WHEN location_status = 'CONFIRMED' THEN location_confirmed_at
                     ELSE clock_timestamp()
                   END,
                   location_revision = location_revision + CASE WHEN
-                    location_name IS DISTINCT FROM $10 OR
-                    location_address IS DISTINCT FROM $11 OR
-                    location_maps_url IS DISTINCT FROM $12 OR
-                    location_notes IS DISTINCT FROM $13
+                    location_name IS DISTINCT FROM $9 OR
+                    location_address IS DISTINCT FROM $10 OR
+                    location_maps_url IS DISTINCT FROM $11 OR
+                    location_notes IS DISTINCT FROM $12
                   THEN 1 ELSE 0 END,
                   location_released_revision = CASE
-                    WHEN $14::event_location_status = 'PENDING' THEN NULL
+                    WHEN $13::event_location_status = 'PENDING' THEN NULL
                     ELSE location_released_revision
                   END,
                   updated_at = clock_timestamp()
@@ -425,12 +457,13 @@ export class PostgresEventRepository implements EventRepository {
             command.opensAt,
             command.closesAt,
             command.autoCloseOnFull,
-            command.waitlistCapacity,
             command.location.name,
             command.location.address,
-            command.location.mapsUrl,
+            reconciled.mapsUrl,
             command.location.notes,
             command.location.status,
+            coordinates?.latitude ?? null,
+            coordinates?.longitude ?? null,
           ],
         );
         const after = eventRecord(updated.rows[0]!);

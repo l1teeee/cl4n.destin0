@@ -4,7 +4,12 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import { createCsv } from "@/infrastructure/http/csv";
-import { formatReservationNumber, parseRosterView, rosterStatusLabel } from "@/ui/admin/view-model";
+import {
+  formatReservationNumber,
+  parseRosterView,
+  rosterLocationCell,
+  rosterStatusLabel,
+} from "@/ui/admin/view-model";
 
 function emailDelivery(row: EventRosterRow): string {
   if (row.emailStatus === "SENT") return "Enviado";
@@ -28,6 +33,7 @@ function rosterCsv(rows: EventRosterRow[]): string {
       "Recibida",
       "Correo",
       "Correo enviado",
+      "Ubicación",
     ],
     ...rows.map((row) => [
       rosterStatusLabel(row.status),
@@ -42,6 +48,7 @@ function rosterCsv(rows: EventRosterRow[]): string {
       formatUtcForElSalvador(row.submittedAt, "dd/MM/yyyy HH:mm"),
       emailDelivery(row),
       row.emailSentAt ? formatUtcForElSalvador(row.emailSentAt, "dd/MM/yyyy HH:mm") : "",
+      rosterLocationCell(row).text,
     ]),
   ]);
 }
