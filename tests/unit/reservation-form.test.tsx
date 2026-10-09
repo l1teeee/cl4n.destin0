@@ -12,6 +12,13 @@ const turnstileMethods = vi.hoisted(() => ({
 const turnstileCallbacks = vi.hoisted(() => ({
   onError: undefined as (() => void) | undefined,
 }));
+const sentryMethods = vi.hoisted(() => ({
+  captureException: vi.fn(),
+}));
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: sentryMethods.captureException,
+}));
 
 vi.mock("@marsidev/react-turnstile", async () => {
   const { forwardRef, useEffect, useImperativeHandle } = await import("react");
@@ -125,6 +132,7 @@ describe("ReservationForm", () => {
     turnstileMethods.reset.mockReset();
     turnstileMethods.getResponsePromise.mockReset();
     turnstileCallbacks.onError = undefined;
+    sentryMethods.captureException.mockReset();
   });
 
   afterEach(() => {
@@ -163,7 +171,7 @@ describe("ReservationForm", () => {
     expect(errorOutput).not.toContain("Maximum update depth exceeded");
   });
 
-  it("sends one request per slide and shows confirmation after the done delay", async () => {
+  it("sends one request when End is pressed twice in the same tick", async () => {
     let resolveFetch: (response: Response) => void = () => {};
     const fetchMock = vi.fn<typeof fetch>(
       () =>
@@ -184,8 +192,11 @@ describe("ReservationForm", () => {
       expect(slider.hasAttribute("aria-disabled")).toBe(false);
     });
 
-    fireEvent.keyDown(slider, { key: "End" });
-    fireEvent.keyDown(slider, { key: "End" });
+    act(() => {
+      const eventOptions = { key: "End", bubbles: true, cancelable: true };
+      slider.dispatchEvent(new KeyboardEvent("keydown", eventOptions));
+      slider.dispatchEvent(new KeyboardEvent("keydown", eventOptions));
+    });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -256,7 +267,8 @@ describe("ReservationForm", () => {
     ).toBeDefined();
   });
 
-  it("keeps a confirmed reservation when Turnstile errors during the done delay", async () => {
+  it("keeps a confirmed reservation when Turnstile errors synchronously during reset", async () => {
+    turnstileMethods.reset.mockImplementation(() => turnstileCallbacks.onError?.());
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(successResponse());
     vi.stubGlobal("fetch", fetchMock);
 
@@ -271,14 +283,70 @@ describe("ReservationForm", () => {
 
     fireEvent.keyDown(slider, { key: "End" });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByTestId("turnstile")).toBeNull());
-    act(() => turnstileCallbacks.onError?.());
+    await waitFor(() => expect(turnstileMethods.reset).toHaveBeenCalledTimes(1));
 
     expect(
       await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
     ).toBeDefined();
     expect(screen.getByText("#007")).toBeDefined();
   });
+
+  it("shows confirmation when rotating the attempt key cannot write to storage", async () => {
+    sessionStorage.setItem("cl4n:idem:cena-demo", "00000000-0000-4000-8000-000000000001");
+    const storageError = new DOMException("Storage quota exceeded.", "QuotaExceededError");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw storageError;
+    });
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    fillValidFields();
+    const slider = await screen.findByRole("slider", {
+      name: "DESLIZA PARA SOLICITAR ACCESO",
+    });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+    fireEvent.keyDown(slider, { key: "End" });
+
+    expect(
+      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+    ).toBeDefined();
+    expect(screen.getByText("#007")).toBeDefined();
+    expect(sentryMethods.captureException).toHaveBeenCalledOnce();
+    expect(sentryMethods.captureException).toHaveBeenCalledWith(storageError);
+  });
+
+  it.each(["getItem", "setItem"] as const)(
+    "submits with an in-memory key when sessionStorage.%s fails on mount",
+    async (storageMethod) => {
+      const storageError = new DOMException("Storage is blocked.", "SecurityError");
+      vi.spyOn(Storage.prototype, storageMethod).mockImplementation(() => {
+        throw storageError;
+      });
+      const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>(() => undefined));
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+      await screen.findByTestId("turnstile");
+      fillValidFields();
+      const slider = await screen.findByRole("slider", {
+        name: "DESLIZA PARA SOLICITAR ACCESO",
+      });
+      await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+      fireEvent.keyDown(slider, { key: "End" });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const request = fetchMock.mock.calls[0]?.[1];
+      expect(request?.headers).toMatchObject({
+        "Idempotency-Key": expect.stringMatching(/.+/),
+      });
+      expect(sentryMethods.captureException).toHaveBeenCalledOnce();
+      expect(sentryMethods.captureException).toHaveBeenCalledWith(storageError);
+    },
+  );
 
   it("retries TRY_AGAIN once with the same key and a fresh token", async () => {
     turnstileMethods.getResponsePromise.mockResolvedValue("fresh-token");
