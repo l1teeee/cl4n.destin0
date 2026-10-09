@@ -16,13 +16,15 @@ const validFields = {
 
 describe("reservationFormSchema", () => {
   it("omits server-composed fields", () => {
-    expect(reservationFormSchema.keyof().options).not.toContain("eventSlug");
-    expect(reservationFormSchema.keyof().options).not.toContain("turnstileToken");
+    const schema = reservationFormSchema(2);
+    expect(schema.keyof().options).not.toContain("eventSlug");
+    expect(schema.keyof().options).not.toContain("turnstileToken");
   });
 
   it("reuses the shared contract field schemas", () => {
-    for (const field of reservationFormSchema.keyof().options) {
-      expect(reservationFormSchema.shape[field]).toBe(reservationRequestSchema.shape[field]);
+    const schema = reservationFormSchema(2);
+    for (const field of schema.keyof().options) {
+      expect(schema.shape[field]).toBe(reservationRequestSchema.shape[field]);
     }
   });
 
@@ -39,12 +41,35 @@ describe("reservationFormSchema", () => {
     ["allergies with detail", { ...validFields, hasAllergies: true, allergies: "Maní" }],
     ["terms rejected", { ...validFields, acceptTerms: false }],
   ])("keeps the contract result for %s", (_label, fields) => {
-    const formResult = reservationFormSchema.safeParse(fields).success;
+    const formResult = reservationFormSchema(20).safeParse(fields).success;
     const requestResult = reservationRequestSchema.safeParse({
       ...fields,
       eventSlug: "cena-clandestino",
       turnstileToken: "token",
     }).success;
     expect(formResult).toBe(requestResult);
+  });
+
+  it.each([
+    ["abc", false],
+    ["12", false],
+    ["7012 3456", true],
+    ["+503 7012 3456", true],
+  ])("validates phone %j with the domain normalizer", (phone, accepted) => {
+    const result = reservationFormSchema(2).safeParse({ ...validFields, phone });
+
+    expect(result.success).toBe(accepted);
+    if (!accepted) {
+      expect(result.error?.flatten().fieldErrors.phone).toEqual(["Ingresa un teléfono válido."]);
+    }
+  });
+
+  it("rejects a party above the event maximum", () => {
+    const result = reservationFormSchema(1).safeParse(validFields);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.flatten().fieldErrors.partySize).toEqual([
+      "La cantidad de personas supera el máximo permitido.",
+    ]);
   });
 });

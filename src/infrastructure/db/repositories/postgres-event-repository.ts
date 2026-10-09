@@ -736,7 +736,11 @@ export class PostgresEventRepository implements EventRepository {
     return {
       databaseTime: timed.databaseTime,
       value: timed.value.filter(
-        (event) => event.phase === "OPEN" || event.phase === "WAITLIST" || event.phase === "FULL",
+        (event) =>
+          event.phase === "OPEN" ||
+          event.phase === "WAITLIST" ||
+          event.phase === "FULL" ||
+          event.phase === "SCHEDULED",
       ),
     };
   }
@@ -827,6 +831,7 @@ export class PostgresEventRepository implements EventRepository {
       value: result.rows.map((row) => ({
         slug: row.slug,
         startsAt: row.starts_at,
+        opensAt: row.opens_at,
         phase: derivePhase(
           {
             status: row.status,

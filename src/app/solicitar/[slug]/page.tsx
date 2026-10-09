@@ -5,6 +5,7 @@ import { getPublicEventBySlug } from "@/application/events/event-use-cases";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import { ClosedState } from "@/ui/public/closed-state";
+import { buildRequestAccessViewModel } from "@/ui/public/home-view-model";
 import { ReservationExperience } from "@/ui/public/reservation-experience";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +15,16 @@ export default async function RequestAccessPage({ params }: { params: Promise<{ 
   const readModel = await getPublicEventBySlug(postgresEventRepository, slug);
   const event = readModel.value;
 
-  if (!event) {
+  if (!event || event.phase === "DRAFT") {
     notFound();
   }
 
-  if (event.phase !== "OPEN" && event.phase !== "WAITLIST") {
-    return <ClosedState soldOut={event.phase === "FULL"} />;
+  const viewModel = buildRequestAccessViewModel(event);
+  if (viewModel.state === "NOT_FOUND") {
+    notFound();
+  }
+  if (viewModel.state === "CLOSED") {
+    return <ClosedState variant={viewModel.variant} />;
   }
 
   return (

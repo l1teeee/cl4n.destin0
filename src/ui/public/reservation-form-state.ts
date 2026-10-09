@@ -31,7 +31,8 @@ export type ReservationFormState =
       position: number;
       partySize: number;
     }
-  | { kind: "full" }
+  | { kind: "full"; reason: "full-rejected" | "event-full" }
+  | { kind: "closed" }
   | {
       kind: "error";
       message: string;
@@ -121,7 +122,10 @@ export function toFormState(response: ReservationResponseData): ReservationFormS
 
   const error = parsedError(body);
   if (response.status === 409 && error.code === "EVENT_FULL") {
-    return { kind: "full" };
+    return { kind: "full", reason: "event-full" };
+  }
+  if (body?.status === "FULL_REJECTED") {
+    return { kind: "full", reason: "full-rejected" };
   }
   if (response.status === 409 && error.code === "DUPLICATE_RESERVATION") {
     return errorState(
@@ -129,7 +133,10 @@ export function toFormState(response: ReservationResponseData): ReservationFormS
       error,
     );
   }
-  if (response.status === 404 || (response.status === 409 && error.code === "EVENT_NOT_OPEN")) {
+  if (response.status === 409 && error.code === "EVENT_NOT_OPEN") {
+    return { kind: "closed" };
+  }
+  if (response.status === 404) {
     return errorState("El clan está cerrado en este momento.", error);
   }
   if (response.status === 422 && error.code === "VALIDATION_FAILED") {

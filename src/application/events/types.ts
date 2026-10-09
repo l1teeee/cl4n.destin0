@@ -200,6 +200,7 @@ export interface PaginatedAuditLog {
 export interface PublicEvent {
   slug: string;
   startsAt: Date;
+  opensAt: Date;
   phase: EventPhase;
   maxPartySize: number;
 }
