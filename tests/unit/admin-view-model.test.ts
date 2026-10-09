@@ -17,12 +17,38 @@ import {
   parseRosterView,
   parseAuditSearchParams,
   parseReservationSearchParams,
+  publicEventUrl,
+  publicLinkHint,
   reservationStatusLabel,
   rosterStatusLabel,
   rosterStatusBadgeVariant,
 } from "@/ui/admin/view-model";
 
 const now = new Date("2026-10-05T12:00:00Z");
+
+describe("public event link", () => {
+  it("builds an absolute encoded URL with or without a trailing slash", () => {
+    expect(publicEventUrl("https://clandestino.example", "cena privada")).toBe(
+      "https://clandestino.example/solicitar/cena%20privada",
+    );
+    expect(publicEventUrl("https://clandestino.example/", "cena/uno")).toBe(
+      "https://clandestino.example/solicitar/cena%2Funo",
+    );
+  });
+
+  it.each([
+    ["DRAFT", "Borrador: el enlace no funciona hasta que publiques la experiencia."],
+    ["SCHEDULED", "El enlace mostrará el formulario cerrado hasta que abra."],
+    ["OPEN", null],
+    ["WAITLIST", null],
+    ["FULL", "Sin cupos: el enlace mostrará que no hay lugares."],
+    ["CLOSED", "El formulario ya cerró: el enlace mostrará el estado cerrado."],
+    ["COMPLETED", "El formulario ya cerró: el enlace mostrará el estado cerrado."],
+    ["CANCELLED", "El formulario ya cerró: el enlace mostrará el estado cerrado."],
+  ] as const)("returns the %s phase hint", (phase, expected) => {
+    expect(publicLinkHint(phase)).toBe(expected);
+  });
+});
 
 function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
   return {

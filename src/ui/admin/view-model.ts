@@ -146,6 +146,28 @@ export function eventPhaseLabel(phase: EventPhase): string {
   return phase === "WAITLIST" ? "Solo cola" : phase;
 }
 
+export function publicEventUrl(appBaseUrl: string, slug: string): string {
+  return `${appBaseUrl.replace(/\/+$/, "")}/solicitar/${encodeURIComponent(slug)}`;
+}
+
+export function publicLinkHint(phase: EventPhase): string | null {
+  switch (phase) {
+    case "DRAFT":
+      return "Borrador: el enlace no funciona hasta que publiques la experiencia.";
+    case "SCHEDULED":
+      return "El enlace mostrará el formulario cerrado hasta que abra.";
+    case "OPEN":
+    case "WAITLIST":
+      return null;
+    case "FULL":
+      return "Sin cupos: el enlace mostrará que no hay lugares.";
+    case "CLOSED":
+    case "COMPLETED":
+    case "CANCELLED":
+      return "El formulario ya cerró: el enlace mostrará el estado cerrado.";
+  }
+}
+
 export function reservationStatusLabel(status: ReservationStatus): string {
   const labels: Record<ReservationStatus, string> = {
     SUBMITTED: "Enviada",
