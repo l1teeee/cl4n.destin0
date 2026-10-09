@@ -42,12 +42,8 @@ describe("toFormState", () => {
     });
   });
 
-  it("maps EVENT_FULL", () => {
-    expect(toFormState({ status: 409, body: errorBody("EVENT_FULL") })).toMatchObject({
-      kind: "error",
-      message: "Los cupos para esta experiencia se agotaron.",
-      code: "EVENT_FULL",
-    });
+  it("maps EVENT_FULL to the terminal full outcome", () => {
+    expect(toFormState({ status: 409, body: errorBody("EVENT_FULL") })).toEqual({ kind: "full" });
   });
 
   it("maps DUPLICATE_RESERVATION", () => {

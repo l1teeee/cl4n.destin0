@@ -33,12 +33,19 @@ interface ReservationFormProps {
   nonce?: string;
 }
 
-type ConfirmedReservationState = Extract<ReservationFormState, { kind: "success" | "waitlisted" }>;
+type ConfirmedReservationState = Extract<
+  ReservationFormState,
+  { kind: "success" | "waitlisted" | "full" }
+>;
 
 const inputClassName = "reservation-input";
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function formatPartySize(partySize: number): string {
+  return partySize === 1 ? "1 persona" : `${partySize} personas`;
 }
 
 function FieldError({ message, id }: { message?: string; id?: string }) {
@@ -184,7 +191,11 @@ export function ReservationForm({
       ...(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? { retryAfterSeconds } : {}),
     });
 
-    if (nextState.kind === "success" || nextState.kind === "waitlisted") {
+    if (
+      nextState.kind === "success" ||
+      nextState.kind === "waitlisted" ||
+      nextState.kind === "full"
+    ) {
       setConfirmedState(nextState);
     }
 
@@ -251,14 +262,15 @@ export function ReservationForm({
   }
 
   if (showConfirmation && confirmedState?.kind === "success") {
+    const reservationNumber = String(confirmedState.reservationNumber).padStart(3, "0");
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>SOLICITUD CONFIRMADA</h2>
-        <p className="reservation-success-number">
-          #{String(confirmedState.reservationNumber).padStart(3, "0")}
+        <h2>REGISTRO COMPLETADO</h2>
+        <p className="reservation-success-lead">Confirmamos tu reserva. No le digas a nadie.</p>
+        <p>La ubicación llegará a tu correo cuando el clan la revele.</p>
+        <p className="reservation-success-details">
+          #{reservationNumber} · {formatPartySize(confirmedState.partySize)} · {formattedDate}
         </p>
-        <p>{confirmedState.partySize} personas</p>
-        <p>{formattedDate}</p>
       </section>
     );
   }
@@ -266,11 +278,27 @@ export function ReservationForm({
   if (showConfirmation && confirmedState?.kind === "waitlisted") {
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>HAS QUEDADO EN COLA</h2>
-        <p className="reservation-success-number">#{confirmedState.position}</p>
-        <p>{confirmedState.partySize} personas</p>
-        <p>{formattedDate}</p>
-        <p>Te avisaremos por correo si se libera un lugar.</p>
+        <h2>ESTÁS EN LA COLA</h2>
+        <p className="reservation-success-lead">
+          Registramos tu solicitud, pero los lugares ya se llenaron. Quedaste en la posición #
+          {confirmedState.position} de la cola.
+        </p>
+        <p>Si se libera un lugar te escribiremos. No le digas a nadie.</p>
+        <p className="reservation-success-details">
+          {formatPartySize(confirmedState.partySize)} · {formattedDate}
+        </p>
+      </section>
+    );
+  }
+
+  if (showConfirmation && confirmedState?.kind === "full") {
+    return (
+      <section className="reservation-success" aria-live="polite">
+        <h2>SIN LUGARES DISPONIBLES</h2>
+        <p className="reservation-success-lead">
+          Registramos tu solicitud, pero ya no hay lugares disponibles para tu grupo.
+        </p>
+        <p>Mantente atento a la próxima apertura del clan.</p>
       </section>
     );
   }

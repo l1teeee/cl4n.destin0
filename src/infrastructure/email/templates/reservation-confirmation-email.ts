@@ -16,6 +16,8 @@ export function reservationConfirmationEmail(input: {
   const greeting = `${input.fullName}, el clan te espera.`;
   const partySize = String(input.partySize);
   const eventDate = formatPublicEventDate(input.eventStartsAt);
+  const locationNotice =
+    "Te enviaremos la ubicación por correo antes de la experiencia. No le digas a nadie.";
   const closing = "Guarda este correo como comprobante de tu reserva.";
 
   const bodyHtml = [
@@ -24,6 +26,7 @@ export function reservationConfirmationEmail(input: {
     emailDetailRow("Reserva", reservationNumber),
     emailDetailRow("Personas", partySize),
     emailDetailRow("Fecha", eventDate),
+    emailParagraph(locationNotice),
     emailParagraph(closing),
   ].join("\n");
 
@@ -33,6 +36,7 @@ export function reservationConfirmationEmail(input: {
     `Reserva: ${reservationNumber}`,
     `Personas: ${partySize}`,
     `Fecha: ${eventDate}`,
+    locationNotice,
     closing,
   ].join("\n\n");
 

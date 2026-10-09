@@ -31,6 +31,7 @@ export type ReservationFormState =
       position: number;
       partySize: number;
     }
+  | { kind: "full" }
   | {
       kind: "error";
       message: string;
@@ -120,7 +121,7 @@ export function toFormState(response: ReservationResponseData): ReservationFormS
 
   const error = parsedError(body);
   if (response.status === 409 && error.code === "EVENT_FULL") {
-    return errorState("Los cupos para esta experiencia se agotaron.", error);
+    return { kind: "full" };
   }
   if (response.status === 409 && error.code === "DUPLICATE_RESERVATION") {
     return errorState(

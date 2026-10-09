@@ -505,8 +505,13 @@ textarea.reservation-input {
   letter-spacing: -0.06em;
 }
 
-.reservation-success-number {
-  font-size: 2rem;
+.reservation-success-lead {
+  font-size: 1.25rem;
+}
+
+.reservation-success-details {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
 }
 
 .public-home > :not(.public-home-mark, h1),
