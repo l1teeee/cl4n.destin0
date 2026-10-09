@@ -49,6 +49,7 @@ import {
   cancelReservationAction,
   cancelWaitlistEntryAction,
   changeCapacityAction,
+  changeWaitlistCapacityAction,
   closeEventNowAction,
   completeEventAction,
   openEventNowAction,
@@ -297,20 +298,55 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
       </section>
 
       <section className="admin-section space-y-4">
-        <h2 className="admin-section-title">Capacidad</h2>
-        <MutationForm action={changeCapacityAction.bind(null, id)} label="Cambiar capacidad">
-          <Label className="grid gap-2">
-            <span>Nueva capacidad</span>
-            <Input
-              className="w-40"
-              name="newCapacity"
-              type="number"
-              min={1}
-              defaultValue={event.capacity}
-              required
-            />
-          </Label>
-        </MutationForm>
+        <h2 className="admin-section-title">Cupos y cola</h2>
+        <p className="admin-muted">
+          Capacidad {event.capacity} · Reservados {event.reservedSeats} · Disponibles{" "}
+          {event.availableSeats} · Cola {event.waitlistedCount}/{event.waitlistCapacity}
+        </p>
+        {event.status === "CLOSED" ? (
+          <p className="admin-muted">
+            {event.closesAt > eventResult.databaseTime
+              ? 'El formulario está cerrado. Usa "Abrir ahora" para recibir nuevas solicitudes.'
+              : "El formulario está cerrado y su fecha de cierre ya pasó. Edita la fecha de cierre para volver a abrirlo."}
+          </p>
+        ) : null}
+        {event.status !== "COMPLETED" && event.status !== "CANCELLED" ? (
+          <div className="space-y-4">
+            <MutationForm action={changeCapacityAction.bind(null, id)} label="Actualizar cupos">
+              <Label className="grid gap-2">
+                <span>Cupos totales</span>
+                <Input
+                  className="w-40"
+                  name="newCapacity"
+                  type="number"
+                  min={1}
+                  defaultValue={event.capacity}
+                  required
+                />
+              </Label>
+            </MutationForm>
+            <p className="admin-muted">
+              Si amplías los cupos, las personas en la cola entran en orden y reciben su correo.
+            </p>
+            <MutationForm
+              action={changeWaitlistCapacityAction.bind(null, id)}
+              label="Actualizar cola"
+            >
+              <Label className="grid gap-2">
+                <span>Lugares en la cola</span>
+                <Input
+                  className="w-40"
+                  name="waitlistCapacity"
+                  type="number"
+                  min={0}
+                  max={50}
+                  defaultValue={event.waitlistCapacity}
+                  required
+                />
+              </Label>
+            </MutationForm>
+          </div>
+        ) : null}
       </section>
 
       <section className="admin-section space-y-4">

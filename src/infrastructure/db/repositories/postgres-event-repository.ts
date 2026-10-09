@@ -580,6 +580,38 @@ export class PostgresEventRepository implements EventRepository {
     });
   }
 
+  async changeWaitlistCapacity(
+    id: string,
+    waitlistCapacity: number,
+    actorAdminId: string,
+  ): Promise<EventOperationResult<EventRecord>> {
+    return inTransaction(this.pool, async (client) => {
+      const locked = await lockEvent(client, id);
+      if (!locked) {
+        return failed("EVENT_NOT_FOUND");
+      }
+      if (locked.status === "COMPLETED" || locked.status === "CANCELLED") {
+        return failed("INVALID_TRANSITION");
+      }
+      if (waitlistCapacity < locked.waitlisted_count) {
+        return failed("WAITLIST_CAPACITY_BELOW_WAITING");
+      }
+
+      const updated = await client.query<EventRow>(
+        `UPDATE events
+            SET waitlist_capacity = $2,
+                updated_at = clock_timestamp()
+          WHERE id = $1
+          RETURNING ${eventColumns}`,
+        [id, waitlistCapacity],
+      );
+      await insertAudit(client, actorAdminId, "EVENT_UPDATED", id, {
+        waitlistCapacity: { from: locked.waitlist_capacity, to: waitlistCapacity },
+      });
+      return successful(eventRecord(updated.rows[0]!));
+    });
+  }
+
   async listAdminEvents(): Promise<DatabaseTimedResult<AdminEventSummary[]>> {
     const result = await this.pool.query<EventRow>(
       `WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS db_now)

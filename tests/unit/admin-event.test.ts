@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
+import {
+  changeWaitlistCapacitySchema,
+  createAdminEventSchema,
+  updateAdminEventSchema,
+} from "@/contracts/admin-event";
 import {
   formatUtcForElSalvador,
   localDateTimeToUtc,
@@ -105,6 +109,19 @@ describe("waitlist capacity contract", () => {
 
   it.each([-1, 51, 2.5, Number.NaN])("rejects %s queue places", (waitlistCapacity) => {
     expect(createAdminEventSchema.safeParse({ ...validCreate, waitlistCapacity }).success).toBe(
+      false,
+    );
+  });
+
+  it("applies the same bounds to the quick action input", () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: 0 }).success).toBe(true);
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: 50 }).success).toBe(true);
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: -1 }).success).toBe(
+      false,
+    );
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: 51 }).success).toBe(
       false,
     );
   });

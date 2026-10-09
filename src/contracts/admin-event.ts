@@ -123,5 +123,12 @@ export const updateAdminEventSchema = z
   })
   .strict();
 
+export const changeWaitlistCapacitySchema = z
+  .object({
+    id: z.string().uuid("El identificador no es válido."),
+    waitlistCapacity: eventFields.waitlistCapacity,
+  })
+  .strict();
+
 export type CreateAdminEventInput = z.output<typeof createAdminEventSchema>;
 export type UpdateAdminEventInput = z.output<typeof updateAdminEventSchema>;

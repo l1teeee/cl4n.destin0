@@ -498,6 +498,72 @@ describe("capacity changes", () => {
   });
 });
 
+describe("waitlist capacity changes", () => {
+  it("raises and lowers the limit and writes EVENT_UPDATED audit metadata", async () => {
+    const id = await insertEvent("DRAFT");
+    await pool.query("UPDATE events SET waitlist_capacity = 2 WHERE id = $1", [id]);
+
+    const raised = await repository.changeWaitlistCapacity(id, 5, adminId);
+    expect(raised.ok && raised.value.waitlistCapacity).toBe(5);
+    const lowered = await repository.changeWaitlistCapacity(id, 1, adminId);
+    expect(lowered.ok && lowered.value.waitlistCapacity).toBe(1);
+
+    const audits = await auditFor(id);
+    expect(audits.rows.map((row) => ({ action: row.action, metadata: row.metadata }))).toEqual([
+      {
+        action: "EVENT_UPDATED",
+        metadata: { waitlistCapacity: { from: 2, to: 5 } },
+      },
+      {
+        action: "EVENT_UPDATED",
+        metadata: { waitlistCapacity: { from: 5, to: 1 } },
+      },
+    ]);
+  });
+
+  it("rejects a limit below the number currently waiting", async () => {
+    const id = await insertEvent("SCHEDULED");
+    await pool.query(
+      "UPDATE events SET waitlist_capacity = 5, waitlisted_count = 2 WHERE id = $1",
+      [id],
+    );
+
+    expectError(
+      await repository.changeWaitlistCapacity(id, 1, adminId),
+      "WAITLIST_CAPACITY_BELOW_WAITING",
+    );
+    const stored = await pool.query<{ waitlist_capacity: number }>(
+      "SELECT waitlist_capacity FROM events WHERE id = $1",
+      [id],
+    );
+    expect(stored.rows[0]!.waitlist_capacity).toBe(5);
+  });
+
+  it.each(["COMPLETED", "CANCELLED"] as const)("rejects changes for %s events", async (status) => {
+    const id = await insertEvent(status);
+
+    expectError(await repository.changeWaitlistCapacity(id, 5, adminId), "INVALID_TRANSITION");
+  });
+
+  it("changes a full event to the WAITLIST phase after raising the queue limit", async () => {
+    const id = await insertEvent("SCHEDULED", {
+      capacity: 2,
+      maxPartySize: 1,
+      opensAt: new Date(Date.now() - 60_000),
+      closesAt: new Date(Date.now() + 60_000),
+    });
+    await pool.query(
+      "UPDATE events SET reserved_seats = capacity, waitlist_capacity = 0 WHERE id = $1",
+      [id],
+    );
+
+    const changed = await repository.changeWaitlistCapacity(id, 3, adminId);
+    expect(changed.ok).toBe(true);
+    const readModel = await repository.getAdminEvent(id);
+    expect(readModel.value?.phase).toBe("WAITLIST");
+  });
+});
+
 describe("event read models", () => {
   async function insertReservation(
     eventId: string,

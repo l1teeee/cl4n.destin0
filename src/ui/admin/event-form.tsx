@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
@@ -54,9 +54,14 @@ interface EventFormProps {
 
 export function EventForm({ action, values, mode, slugEditable = true }: EventFormProps) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => formAction(formData));
+  };
 
   return (
-    <form action={formAction} className="grid max-w-3xl gap-5 md:grid-cols-2">
+    <form onSubmit={handleSubmit} className="grid max-w-3xl gap-5 md:grid-cols-2">
       {mode === "edit" && values?.locationRevision !== undefined ? (
         <>
           <input type="hidden" name="locationRevision" value={values.locationRevision} />
