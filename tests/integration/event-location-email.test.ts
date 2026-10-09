@@ -4,11 +4,21 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deliverPendingEmails } from "@/application/notifications/deliver-pending-emails";
+import { createSubmitReservation } from "@/application/reservations/submit-reservation";
+import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
 import { PostgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
+import { PostgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import { PostgresOutboxEmailComposer } from "@/infrastructure/email/outbox/outbox-email-composer";
 import { PostgresEmailOutboxRepository } from "@/infrastructure/email/outbox/postgres-email-outbox-repository";
 
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
+import {
+  allowAllBotVerifier,
+  allowAllRateLimiter,
+  insertTestEvent,
+  reservationBody,
+} from "../helpers/reservation-test-data";
 
 let pool: Pool;
 let repository: PostgresEventLocationEmailRepository;
@@ -117,6 +127,69 @@ async function send(eventId: string) {
     { revision: row.location_revision, status: row.location_status as "PENDING" | "CONFIRMED" },
     actorId,
   );
+}
+
+function reservationSubmitter() {
+  return createSubmitReservation({
+    repository: new PostgresReservationAllocationRepository(pool),
+    rateLimiter: allowAllRateLimiter,
+    botVerifier: allowAllBotVerifier,
+    computeFingerprint: requestFingerprint,
+  });
+}
+
+async function submit(eventSlug: string, sequence: number, partySize = 1) {
+  return reservationSubmitter()({
+    idempotencyKey: randomUUID(),
+    body: reservationBody(eventSlug, sequence, { partySize }),
+    remoteIp: null,
+    rateLimitSubject: "unknown",
+  });
+}
+
+async function confirmLocation(eventId: string): Promise<void> {
+  await pool.query(
+    `UPDATE events
+        SET location_address = 'Calle revelada',
+            location_status = 'CONFIRMED',
+            location_confirmed_at = clock_timestamp()
+      WHERE id = $1`,
+    [eventId],
+  );
+}
+
+async function markAllOutboxSent(): Promise<void> {
+  await pool.query(
+    `UPDATE email_outbox
+        SET status = 'SENT',
+            sent_at = clock_timestamp()
+      WHERE status = 'PENDING'`,
+  );
+}
+
+async function promotedReservationIds(eventId: string): Promise<string[]> {
+  const result = await pool.query<{ promoted_reservation_id: string }>(
+    `SELECT promoted_reservation_id
+       FROM waitlist_entries
+      WHERE event_id = $1
+        AND status = 'PROMOTED'
+      ORDER BY waitlist_number`,
+    [eventId],
+  );
+  return result.rows.map((row) => row.promoted_reservation_id);
+}
+
+async function fullEventWithWaiting(sequence: number, waiting = 1) {
+  const event = await insertTestEvent(pool, {
+    capacity: 1,
+    maxPartySize: 1,
+    waitlistCapacity: waiting,
+  });
+  expect((await submit(event.slug, sequence)).status).toBe(201);
+  for (let index = 1; index <= waiting; index += 1) {
+    expect((await submit(event.slug, sequence + index)).status).toBe(202);
+  }
+  return event;
 }
 
 describe("event location email enqueue", () => {
@@ -298,6 +371,220 @@ describe("event location email resend and version binding", () => {
     ).resolves.toEqual({ ok: false, error: "LOCATION_CHANGED" });
     const rows = await pool.query("SELECT 1 FROM email_outbox");
     expect(rows.rowCount).toBe(0);
+  });
+});
+
+describe("released location email for late confirmations", () => {
+  it("queues a promoted guest once and drains location after the promotion notice", async () => {
+    const event = await fullEventWithWaiting(400);
+    await confirmLocation(event.id);
+    await send(event.id);
+    await markAllOutboxSent();
+
+    const eventRepository = new PostgresEventRepository(pool);
+    await expect(eventRepository.changeCapacity(event.id, 2, actorId)).resolves.toMatchObject({
+      ok: true,
+    });
+    const [promotedId] = await promotedReservationIds(event.id);
+    const location = await pool.query<{
+      reservation_id: string;
+      payload: { isUpdate: boolean };
+    }>(
+      `SELECT reservation_id, payload
+         FROM email_outbox
+        WHERE kind = 'EVENT_LOCATION'
+          AND reservation_id = $1`,
+      [promotedId],
+    );
+    expect(location.rows).toEqual([{ reservation_id: promotedId, payload: { isUpdate: false } }]);
+
+    const claimed = await new PostgresEmailOutboxRepository(pool).claimDue(10);
+    expect(
+      claimed.filter((row) => row.reservationId === promotedId).map((row) => row.kind),
+    ).toEqual(["WAITLIST_PROMOTED", "EVENT_LOCATION"]);
+  });
+
+  it("auto-queues the next FIFO guest when cancelling a blocking waitlist head", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 3,
+      maxPartySize: 2,
+      waitlistCapacity: 2,
+    });
+    for (let index = 0; index < 3; index += 1) {
+      expect((await submit(event.slug, 460 + index)).status).toBe(201);
+    }
+    expect((await submit(event.slug, 470, 2)).status).toBe(202);
+    expect((await submit(event.slug, 471)).status).toBe(202);
+    await confirmLocation(event.id);
+    await send(event.id);
+
+    const allocationRepository = new PostgresReservationAllocationRepository(pool);
+    const confirmed = await pool.query<{ id: string }>(
+      `SELECT id
+         FROM reservations
+        WHERE event_id = $1
+          AND status = 'CONFIRMED'
+        ORDER BY reservation_number
+        LIMIT 1`,
+      [event.id],
+    );
+    const waiting = await pool.query<{ id: string }>(
+      `SELECT id
+         FROM waitlist_entries
+        WHERE event_id = $1
+          AND status = 'WAITING'
+        ORDER BY waitlist_number`,
+      [event.id],
+    );
+    await expect(
+      allocationRepository.cancelReservation({
+        reservationId: confirmed.rows[0]!.id,
+        actorAdminId: actorId,
+      }),
+    ).resolves.toBe("CANCELLED");
+    await expect(
+      allocationRepository.cancelWaitlistEntry({
+        waitlistEntryId: waiting.rows[0]!.id,
+        actorAdminId: actorId,
+      }),
+    ).resolves.toBe("CANCELLED");
+
+    const promoted = await pool.query<{ promoted_reservation_id: string }>(
+      `SELECT promoted_reservation_id
+         FROM waitlist_entries
+        WHERE id = $1
+          AND status = 'PROMOTED'`,
+      [waiting.rows[1]!.id],
+    );
+    await expect(
+      pool.query(
+        `SELECT payload
+           FROM email_outbox
+          WHERE kind = 'EVENT_LOCATION'
+            AND reservation_id = $1`,
+        [promoted.rows[0]!.promoted_reservation_id],
+      ),
+    ).resolves.toMatchObject({ rows: [{ payload: { isUpdate: false } }] });
+  });
+
+  it("does not auto-queue promotions before release, after an edit, or after pending", async () => {
+    const eventRepository = new PostgresEventRepository(pool);
+
+    const neverReleased = await fullEventWithWaiting(410);
+    await confirmLocation(neverReleased.id);
+    await eventRepository.changeCapacity(neverReleased.id, 2, actorId);
+    const [neverReleasedPromotion] = await promotedReservationIds(neverReleased.id);
+
+    const staleRelease = await fullEventWithWaiting(420);
+    await confirmLocation(staleRelease.id);
+    await send(staleRelease.id);
+    await pool.query(
+      `UPDATE events
+          SET location_address = 'Calle editada',
+              location_revision = location_revision + 1
+        WHERE id = $1`,
+      [staleRelease.id],
+    );
+    await eventRepository.changeCapacity(staleRelease.id, 2, actorId);
+    const [stalePromotion] = await promotedReservationIds(staleRelease.id);
+
+    const pending = await fullEventWithWaiting(430);
+    await confirmLocation(pending.id);
+    await send(pending.id);
+    await expect(
+      eventRepository.setLocationStatus(
+        pending.id,
+        "PENDING",
+        { revision: 0, status: "CONFIRMED" },
+        actorId,
+      ),
+    ).resolves.toMatchObject({ ok: true });
+    await eventRepository.changeCapacity(pending.id, 2, actorId);
+    const [pendingPromotion] = await promotedReservationIds(pending.id);
+
+    const rows = await pool.query<{ reservation_id: string }>(
+      `SELECT reservation_id
+         FROM email_outbox
+        WHERE kind = 'EVENT_LOCATION'
+          AND reservation_id = ANY($1::uuid[])`,
+      [[neverReleasedPromotion, stalePromotion, pendingPromotion]],
+    );
+    expect(rows.rows).toHaveLength(0);
+    await expect(
+      pool.query("SELECT location_released_revision FROM events WHERE id = $1", [pending.id]),
+    ).resolves.toMatchObject({ rows: [{ location_released_revision: null }] });
+  });
+
+  it("auto-queues a direct confirmation but not a waitlisted reservation", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 1,
+      maxPartySize: 1,
+      waitlistCapacity: 1,
+    });
+    await confirmLocation(event.id);
+    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 0 });
+
+    expect((await submit(event.slug, 440)).status).toBe(201);
+    expect((await submit(event.slug, 441)).status).toBe(202);
+
+    const rows = await pool.query<{
+      status: string;
+      reservation_id: string;
+      payload: { isUpdate: boolean };
+    }>(
+      `SELECT r.status, o.reservation_id, o.payload
+         FROM email_outbox o
+         JOIN reservations r ON r.id = o.reservation_id
+        WHERE o.kind = 'EVENT_LOCATION'
+          AND r.event_id = $1`,
+      [event.id],
+    );
+    expect(rows.rows).toEqual([
+      {
+        status: "CONFIRMED",
+        reservation_id: expect.any(String),
+        payload: { isUpdate: false },
+      },
+    ]);
+  });
+
+  it("queues two capacity promotions and separates first-time from update sendable counts", async () => {
+    const event = await fullEventWithWaiting(450, 2);
+    await confirmLocation(event.id);
+    await send(event.id);
+    await markAllOutboxSent();
+
+    const eventRepository = new PostgresEventRepository(pool);
+    await expect(eventRepository.changeCapacity(event.id, 3, actorId)).resolves.toMatchObject({
+      ok: true,
+    });
+    const promotedIds = await promotedReservationIds(event.id);
+    expect(promotedIds).toHaveLength(2);
+    const autoQueued = await pool.query<{ reservation_id: string }>(
+      `SELECT reservation_id
+         FROM email_outbox
+        WHERE kind = 'EVENT_LOCATION'
+          AND reservation_id = ANY($1::uuid[])
+          AND location_revision = 0`,
+      [promotedIds],
+    );
+    expect(autoQueued.rows).toHaveLength(2);
+
+    await pool.query(
+      `UPDATE events
+          SET location_address = 'Calle actualizada',
+              location_revision = location_revision + 1
+        WHERE id = $1`,
+      [event.id],
+    );
+    await expect(repository.getSummary(event.id)).resolves.toMatchObject({
+      confirmedReservations: 3,
+      notYetQueued: 3,
+      firstTimeSendable: 2,
+      updateSendable: 1,
+      sendable: 3,
+      hasOlderSent: true,
+    });
   });
 });
 

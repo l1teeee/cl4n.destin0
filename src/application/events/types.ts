@@ -25,6 +25,8 @@ export interface EventLocation {
 
 export interface EventLocationRecord extends EventLocation {
   confirmedAt: Date | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface LoadedLocationVersion {
@@ -51,6 +53,7 @@ export interface EventRecord {
   status: EventLifecycleStatus;
   location: EventLocationRecord;
   locationRevision: number;
+  locationReleasedRevision: number | null;
 }
 
 export interface CreateEventCommand {
@@ -145,6 +148,12 @@ export interface EventRosterRow {
   emailStatus: RosterEmailStatus | null;
   emailSentAt: Date | null;
   emailLastError: string | null;
+  locationEmail: {
+    status: RosterEmailStatus;
+    isUpdate: boolean;
+    sentAt: Date | null;
+    current: boolean;
+  } | null;
 }
 
 export type EventRosterCounts = Record<RosterView, number>;

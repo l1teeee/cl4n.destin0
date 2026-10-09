@@ -24,6 +24,10 @@ interface RosterRecord extends QueryResultRow {
   email_status: RosterEmailStatus | null;
   email_sent_at: Date | null;
   email_last_error: string | null;
+  location_email_status: RosterEmailStatus | null;
+  location_email_is_update: boolean | null;
+  location_email_sent_at: Date | null;
+  location_email_current: boolean | null;
 }
 
 const statusesByView: Record<RosterView, RosterStatus[]> = {
@@ -104,6 +108,15 @@ function toRosterRow(record: RosterRecord): EventRosterRow {
     emailStatus: record.email_status,
     emailSentAt: record.email_sent_at,
     emailLastError: record.email_last_error,
+    locationEmail:
+      record.location_email_status === null
+        ? null
+        : {
+            status: record.location_email_status,
+            isUpdate: record.location_email_is_update ?? false,
+            sentAt: record.location_email_sent_at,
+            current: record.location_email_current ?? false,
+          },
   };
 }
 
@@ -117,8 +130,13 @@ export async function queryEventRoster(
      SELECT roster.*,
             mail.status AS email_status,
             mail.sent_at AS email_sent_at,
-            mail.last_error AS email_last_error
+            mail.last_error AS email_last_error,
+            location_mail.status AS location_email_status,
+            location_mail.is_update AS location_email_is_update,
+            location_mail.sent_at AS location_email_sent_at,
+            location_mail.current AS location_email_current
        FROM roster
+       JOIN events e ON e.id = $1
        LEFT JOIN LATERAL (
          SELECT o.status, o.sent_at, o.last_error
            FROM email_outbox o
@@ -127,8 +145,27 @@ export async function queryEventRoster(
               OR (roster.kind = 'WAITLIST_ENTRY' AND o.waitlist_entry_id = roster.id)
               OR (roster.status = 'PROMOTED' AND o.reservation_id = roster.promoted_reservation_id))
           ORDER BY o.created_at DESC, o.id DESC
-          LIMIT 1
+         LIMIT 1
        ) mail ON true
+       LEFT JOIN LATERAL (
+         SELECT o.status,
+                COALESCE((o.payload ->> 'isUpdate')::boolean, false) AS is_update,
+                o.sent_at,
+                o.location_revision = e.location_revision AS current
+           FROM email_outbox o
+          WHERE roster.kind = 'RESERVATION'
+            AND o.kind = 'EVENT_LOCATION'
+            AND o.reservation_id = roster.id
+            AND (
+              o.location_revision = e.location_revision
+              OR (o.status = 'SENT' AND o.location_revision < e.location_revision)
+            )
+          ORDER BY (o.location_revision = e.location_revision) DESC,
+                   o.location_revision DESC,
+                   o.created_at DESC,
+                   o.id DESC
+          LIMIT 1
+       ) location_mail ON true
       WHERE roster.status = ANY($2::text[])
       ORDER BY ${orderByView[view]}`,
     [eventId, statusesByView[view]],

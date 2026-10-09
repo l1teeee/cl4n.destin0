@@ -8,6 +8,8 @@ export interface EventLocationEmailSummary {
   notYetQueued: number;
   // Not yet queued plus FAILED rows of the current revision, which a new send revives.
   sendable: number;
+  firstTimeSendable: number;
+  updateSendable: number;
   hasOlderSent: boolean;
   lastSentAt: Date | null;
 }
