@@ -6,6 +6,7 @@ import type {
   AdminReservationQuery,
   AuditLogQuery,
   CreateEventCommand,
+  LoadedLocationVersion,
   RosterView,
   UpdateEventCommand,
 } from "./types";
@@ -30,9 +31,10 @@ export function setLocationStatus(
   repository: EventRepository,
   id: string,
   status: EventLocationStatus,
+  expectedLocation: LoadedLocationVersion,
   actorId: string,
 ) {
-  return repository.setLocationStatus(id, status, actorId);
+  return repository.setLocationStatus(id, status, expectedLocation, actorId);
 }
 
 export function publishEvent(repository: EventRepository, id: string, actorId: string) {

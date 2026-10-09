@@ -7,3 +7,13 @@ export class EmailDeliveryError extends Error {
     this.status = status;
   }
 }
+
+export class PermanentEmailCompositionError extends Error {
+  readonly code: string;
+
+  constructor(code: string) {
+    super(code);
+    this.name = "PermanentEmailCompositionError";
+    this.code = code;
+  }
+}

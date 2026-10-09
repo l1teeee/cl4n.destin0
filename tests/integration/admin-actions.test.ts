@@ -90,6 +90,8 @@ function updateForm(slug: string, name = "Cena actualizada"): FormData {
   form.set("closesAt", "2027-11-20T20:00");
   form.set("maxPartySize", "5");
   form.set("locationStatus", "PENDING");
+  form.set("locationRevision", "0");
+  form.set("locationStatusLoaded", "PENDING");
   return form;
 }
 
@@ -170,11 +172,23 @@ describe("admin event Server Actions", () => {
     const id = await insertEvent("DRAFT", "location-status-event");
     await pool.query("UPDATE events SET location_address = 'San Salvador' WHERE id = $1", [id]);
     expect(
-      await setEventLocationStatusAction(id, "CONFIRMED", initialState, new FormData()),
+      await setEventLocationStatusAction(
+        id,
+        "CONFIRMED",
+        { revision: 0, status: "PENDING" },
+        initialState,
+        new FormData(),
+      ),
     ).toMatchObject({ ok: false });
     await authorize();
     expect(
-      await setEventLocationStatusAction(id, "CONFIRMED", initialState, new FormData()),
+      await setEventLocationStatusAction(
+        id,
+        "CONFIRMED",
+        { revision: 0, status: "PENDING" },
+        initialState,
+        new FormData(),
+      ),
     ).toMatchObject({ ok: true });
     await expect(
       pool.query("SELECT location_status, location_confirmed_at FROM events WHERE id = $1", [id]),

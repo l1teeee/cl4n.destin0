@@ -6,13 +6,13 @@ import { drainEmailOutbox } from "./drain-email-outbox";
 const IMMEDIATE_DRAIN_LIMIT = 10;
 const IMMEDIATE_DRAIN_TIME_BUDGET_MS = 20_000;
 
-export function scheduleEmailDelivery(): void {
+export function scheduleEmailDelivery(input: { limit?: number; timeBudgetMs?: number } = {}): void {
   // after() keeps the serverless function alive to deliver without delaying the response.
   after(async () => {
     try {
       await drainEmailOutbox({
-        limit: IMMEDIATE_DRAIN_LIMIT,
-        timeBudgetMs: IMMEDIATE_DRAIN_TIME_BUDGET_MS,
+        limit: input.limit ?? IMMEDIATE_DRAIN_LIMIT,
+        timeBudgetMs: input.timeBudgetMs ?? IMMEDIATE_DRAIN_TIME_BUDGET_MS,
       });
     } catch {
       log("error", "email_outbox_drain_failed");

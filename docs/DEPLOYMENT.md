@@ -70,6 +70,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 - `db:seed` refuses non-local databases by design. Production has no demo data.
 - **Test deployment (2026-10-05):** the operator environment could not reach the TCP proxy, so migrations ran in a temporary Railway service `db-migrate` (`node:24-bookworm`). It clones the exact commit, runs `npm ci --omit=dev` and `node scripts/db-migrate.ts` over the private network with `${{Postgres.DATABASE_URL}}`, then exits. Point its start command at the new commit and redeploy it to apply later migrations, then remove it.
 - After applying migration 0003, verify the least-privilege role can use the new table with `SELECT has_table_privilege('clandestino_app', 'admin_action_codes', 'SELECT,INSERT,UPDATE');`. It must return true.
+- Migration 0007 rebuilds a unique index on `email_outbox`. Apply it outside an open reservation window because it takes a brief write lock on this small table. It adds no table and needs no new grants; the existing `email_outbox` privileges remain sufficient.
 - After the later migrations, verify the same role on the other new tables. Every query must return true:
   - `SELECT has_table_privilege('clandestino_app', 'waitlist_entries', 'SELECT,INSERT,UPDATE');`
   - `SELECT has_table_privilege('clandestino_app', 'admin_password_reset_tokens', 'SELECT,INSERT,UPDATE');`

@@ -12,7 +12,8 @@ export type EventOperationErrorCode =
   | "CAPACITY_BELOW_ALLOCATED"
   | "CAPACITY_BELOW_MAX_PARTY_SIZE"
   | "WAITLIST_CAPACITY_BELOW_WAITING"
-  | "LOCATION_CONFIRMATION_INCOMPLETE";
+  | "LOCATION_CONFIRMATION_INCOMPLETE"
+  | "LOCATION_CHANGED";
 
 export interface EventLocation {
   name: string | null;
@@ -24,6 +25,11 @@ export interface EventLocation {
 
 export interface EventLocationRecord extends EventLocation {
   confirmedAt: Date | null;
+}
+
+export interface LoadedLocationVersion {
+  revision: number;
+  status: EventLocationStatus;
 }
 
 export type EventOperationResult<T> =
@@ -72,6 +78,7 @@ export interface UpdateEventCommand {
   autoCloseOnFull: boolean;
   waitlistCapacity: number;
   location: EventLocation;
+  expectedLocation: LoadedLocationVersion;
 }
 
 export interface AdminEventSummary extends EventRecord {

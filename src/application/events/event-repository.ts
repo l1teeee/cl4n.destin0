@@ -10,6 +10,7 @@ import type {
   EventRosterRow,
   EventOperationResult,
   EventRecord,
+  LoadedLocationVersion,
   PaginatedAuditLog,
   PublicEvent,
   RosterView,
@@ -29,6 +30,7 @@ export interface EventRepository {
   setLocationStatus(
     id: string,
     status: EventLocationStatus,
+    expectedLocation: LoadedLocationVersion,
     actorAdminId: string,
   ): Promise<EventOperationResult<EventRecord>>;
   publish(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;

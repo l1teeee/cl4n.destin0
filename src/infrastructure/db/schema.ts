@@ -490,6 +490,7 @@ export const emailOutbox = pgTable(
     reservationId: uuid("reservation_id"),
     waitlistEntryId: uuid("waitlist_entry_id"),
     adminUserId: uuid("admin_user_id"),
+    locationRevision: integer("location_revision"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
     status: text("status").notNull().default("PENDING"),
     attempts: integer("attempts").notNull().default(0),
@@ -518,7 +519,7 @@ export const emailOutbox = pgTable(
     }).onDelete("no action"),
     check(
       "email_outbox_kind_chk",
-      sql`${table.kind} IN ('RESERVATION_CONFIRMED', 'RESERVATION_WAITLISTED', 'WAITLIST_PROMOTED', 'RESERVATION_CANCELLED', 'WAITLIST_CANCELLED', 'ADMIN_ADDED', 'ADMIN_SIGNED_IN', 'ADMIN_PASSWORD_RESET_BY_ADMIN', 'ADMIN_PASSWORD_CHANGED', 'ADMIN_PASSWORD_RESET_COMPLETED', 'ADMIN_DEACTIVATED', 'ADMIN_REACTIVATED', 'ADMIN_ROLE_CHANGED', 'ADMIN_DELETED', 'ADMIN_SESSIONS_REVOKED')`,
+      sql`${table.kind} IN ('RESERVATION_CONFIRMED', 'RESERVATION_WAITLISTED', 'WAITLIST_PROMOTED', 'RESERVATION_CANCELLED', 'WAITLIST_CANCELLED', 'EVENT_LOCATION', 'ADMIN_ADDED', 'ADMIN_SIGNED_IN', 'ADMIN_PASSWORD_RESET_BY_ADMIN', 'ADMIN_PASSWORD_CHANGED', 'ADMIN_PASSWORD_RESET_COMPLETED', 'ADMIN_DEACTIVATED', 'ADMIN_REACTIVATED', 'ADMIN_ROLE_CHANGED', 'ADMIN_DELETED', 'ADMIN_SESSIONS_REVOKED')`,
     ),
     check("email_outbox_status_chk", sql`${table.status} IN ('PENDING', 'SENT', 'FAILED')`),
     check("email_outbox_attempts_chk", sql`${table.attempts} >= 0`),
@@ -534,9 +535,16 @@ export const emailOutbox = pgTable(
       "email_outbox_sent_timestamp_chk",
       sql`${table.status} <> 'SENT' OR ${table.sentAt} IS NOT NULL`,
     ),
+    check(
+      "email_outbox_location_revision_chk",
+      sql`(${table.kind} = 'EVENT_LOCATION') = (${table.locationRevision} IS NOT NULL)`,
+    ),
     uniqueIndex("email_outbox_reservation_kind_uq")
       .on(table.kind, table.reservationId)
-      .where(sql`${table.reservationId} IS NOT NULL`),
+      .where(sql`${table.reservationId} IS NOT NULL AND ${table.kind} <> 'EVENT_LOCATION'`),
+    uniqueIndex("email_outbox_location_revision_uq")
+      .on(table.reservationId, table.locationRevision)
+      .where(sql`${table.kind} = 'EVENT_LOCATION'`),
     uniqueIndex("email_outbox_waitlist_kind_uq")
       .on(table.kind, table.waitlistEntryId)
       .where(sql`${table.waitlistEntryId} IS NOT NULL`),

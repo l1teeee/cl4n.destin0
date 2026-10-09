@@ -6,6 +6,7 @@ import { postgresEmailOutboxRepository } from "@/infrastructure/email/outbox/pos
 import { MutationForm } from "@/ui/admin/mutation-form";
 import {
   emailKindLabel,
+  emailErrorLabel,
   emailStatusBadgeVariant,
   emailStatusFilters,
   emailStatusLabel,
@@ -134,7 +135,7 @@ export default async function EmailsPage({
                 </TableCell>
                 <TableCell>{email.attempts}</TableCell>
                 <TableCell className={email.status === "FAILED" ? "text-destructive" : undefined}>
-                  {email.lastError ?? "-"}
+                  {emailErrorLabel(email.lastError)}
                 </TableCell>
                 <TableCell>{formatAdminDate(email.sentAt)}</TableCell>
                 <TableCell>

@@ -23,6 +23,14 @@ const slug = z
 const mapsUrlMessage =
   "Pega un enlace de Google Maps (https://maps.app.goo.gl/... o https://www.google.com/maps/...).";
 
+const pathPrefixedMapsHosts = new Set([
+  "goo.gl",
+  "google.com",
+  "www.google.com",
+  "google.com.sv",
+  "www.google.com.sv",
+]);
+
 export function isAllowedGoogleMapsUrl(value: string): boolean {
   let url: URL;
   try {
@@ -33,12 +41,8 @@ export function isAllowedGoogleMapsUrl(value: string): boolean {
   if (url.protocol !== "https:") return false;
 
   const host = url.hostname.toLowerCase();
-  if (host === "maps.app.goo.gl") return true;
-  if (host === "goo.gl") return url.pathname.startsWith("/maps");
-  if (host === "maps.google.com") return true;
-
-  const isGoogleHost = /^(?:(?:www|maps)\.)?google\.[a-z]{2,}(?:\.[a-z]{2,})?$/.test(host);
-  return isGoogleHost && url.pathname.startsWith("/maps");
+  if (host === "maps.app.goo.gl" || host === "maps.google.com") return true;
+  return pathPrefixedMapsHosts.has(host) && url.pathname.startsWith("/maps");
 }
 
 function nullableTrimmedText(max: number) {
@@ -112,6 +116,8 @@ export const updateAdminEventSchema = z
     autoCloseOnFull: eventFields.autoCloseOnFull,
     waitlistCapacity: eventFields.waitlistCapacity,
     ...locationFields,
+    locationRevision: z.string().regex(/^\d+$/).transform(Number),
+    locationStatusLoaded: z.enum(["PENDING", "CONFIRMED"]),
   })
   .strict();
 

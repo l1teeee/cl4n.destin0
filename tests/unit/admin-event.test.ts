@@ -44,8 +44,16 @@ describe("admin event contracts", () => {
       locationMapsUrl: validCreate.locationMapsUrl,
       locationNotes: validCreate.locationNotes,
       locationStatus: validCreate.locationStatus,
+      locationRevision: "3",
+      locationStatusLoaded: "PENDING",
     };
-    expect(updateAdminEventSchema.parse(update)).toEqual(update);
+    expect(updateAdminEventSchema.parse(update)).toEqual({ ...update, locationRevision: 3 });
+    expect(updateAdminEventSchema.safeParse({ ...update, locationRevision: "-1" }).success).toBe(
+      false,
+    );
+    const { locationRevision: _omitted, ...withoutRevision } = update;
+    void _omitted;
+    expect(updateAdminEventSchema.safeParse(withoutRevision).success).toBe(false);
   });
 
   it("trims location values and stores empty strings as null", () => {

@@ -21,7 +21,28 @@ import {
 import { Button } from "@/ui/primitives/button";
 
 const decodeError = "No se pudo leer la imagen. Usa una foto JPG, PNG o WebP.";
+const uploadErrorFallback = "No se pudo subir la imagen.";
 const initialDeleteState = { ok: false, message: "" };
+
+interface PendingUpload {
+  id: string;
+}
+
+export function createUploadId(): string {
+  return crypto.randomUUID();
+}
+
+export async function uploadErrorMessage(response: Response): Promise<string> {
+  if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+    return uploadErrorFallback;
+  }
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body.error === "string" ? body.error : uploadErrorFallback;
+  } catch {
+    return uploadErrorFallback;
+  }
+}
 
 function canvasBlob(
   canvas: HTMLCanvasElement,
@@ -109,7 +130,7 @@ export function EventImagesManager({
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState<string[]>([]);
+  const [uploading, setUploading] = useState<PendingUpload[]>([]);
   const [error, setError] = useState("");
   const freeSlots = MAX_EVENT_IMAGES - images.length;
 
@@ -118,7 +139,8 @@ export function EventImagesManager({
     const selected = Array.from(files).slice(0, freeSlots);
     setError("");
     for (const file of selected) {
-      setUploading((current) => [...current, file.name]);
+      const uploadId = createUploadId();
+      setUploading((current) => [...current, { id: uploadId }]);
       try {
         const blob = await prepareImage(file);
         const formData = new FormData();
@@ -127,15 +149,12 @@ export function EventImagesManager({
           method: "POST",
           body: formData,
         });
-        const body = (await response.json()) as { error?: string };
-        if (!response.ok) throw new Error(body.error ?? "No se pudo subir la imagen.");
+        if (!response.ok) throw new Error(await uploadErrorMessage(response));
         router.refresh();
       } catch (uploadError) {
-        setError(
-          uploadError instanceof Error ? uploadError.message : "No se pudo subir la imagen.",
-        );
+        setError(uploadError instanceof Error ? uploadError.message : uploadErrorFallback);
       } finally {
-        setUploading((current) => current.filter((name) => name !== file.name));
+        setUploading((current) => current.filter((upload) => upload.id !== uploadId));
       }
     }
     if (inputRef.current) inputRef.current.value = "";
@@ -161,9 +180,9 @@ export function EventImagesManager({
             </div>
           );
         })}
-        {uploading.map((name) => (
+        {uploading.map((upload) => (
           <div
-            key={name}
+            key={upload.id}
             className="grid aspect-square place-items-center border border-dashed border-border text-sm text-muted-foreground"
           >
             Subiendo...

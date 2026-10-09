@@ -542,6 +542,7 @@ describe("waitlist configuration", () => {
         notes: detail.location.notes,
         status: detail.location.status,
       },
+      expectedLocation: { revision: detail.locationRevision, status: detail.location.status },
     };
 
     expect(await eventRepository.update({ ...command, waitlistCapacity: 1 }, adminId)).toEqual({

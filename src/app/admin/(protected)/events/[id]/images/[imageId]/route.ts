@@ -20,7 +20,7 @@ export async function GET(
   if (!image) return Response.json({ error: "Imagen no encontrada." }, { status: 404 });
   return new Response(new Uint8Array(image.data), {
     headers: {
-      "Cache-Control": "private, max-age=3600",
+      "Cache-Control": "no-store",
       "Content-Disposition": "inline",
       "Content-Type": image.contentType,
     },

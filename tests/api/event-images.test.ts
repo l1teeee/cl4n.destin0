@@ -113,7 +113,7 @@ describe("admin event image routes", () => {
     });
     expect(served.status).toBe(200);
     expect(served.headers.get("content-type")).toBe("image/webp");
-    expect(served.headers.get("cache-control")).toBe("private, max-age=3600");
+    expect(served.headers.get("cache-control")).toBe("no-store");
     expect(served.headers.get("content-disposition")).toBe("inline");
     expect(new Uint8Array(await served.arrayBuffer())).toEqual(webp);
   });

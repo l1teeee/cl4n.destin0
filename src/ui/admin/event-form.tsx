@@ -42,6 +42,7 @@ export interface EventFormValues {
   locationMapsUrl: string | null;
   locationNotes: string | null;
   locationStatus: "PENDING" | "CONFIRMED";
+  locationRevision?: number;
 }
 
 interface EventFormProps {
@@ -56,6 +57,12 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
 
   return (
     <form action={formAction} className="grid max-w-3xl gap-5 md:grid-cols-2">
+      {mode === "edit" && values?.locationRevision !== undefined ? (
+        <>
+          <input type="hidden" name="locationRevision" value={values.locationRevision} />
+          <input type="hidden" name="locationStatusLoaded" value={values.locationStatus} />
+        </>
+      ) : null}
       <Label className="grid gap-2">
         <span>Nombre interno</span>
         <Input name="internalName" defaultValue={values?.internalName} maxLength={120} required />

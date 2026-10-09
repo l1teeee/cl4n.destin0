@@ -67,6 +67,14 @@ describe("event image repository", () => {
     expect((await repository.get(eventId, added.value.id))?.data).toEqual(
       Buffer.from([0x52, 0x49, 0x46, 0x46, 1, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]),
     );
+    const token = await pool.query<{ public_token: string }>(
+      "SELECT public_token FROM event_images WHERE id = $1",
+      [added.value.id],
+    );
+    expect(await repository.getByPublicToken(token.rows[0]!.public_token)).toMatchObject({
+      id: added.value.id,
+      data: Buffer.from([0x52, 0x49, 0x46, 0x46, 1, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]),
+    });
     expect(await repository.remove(eventId, added.value.id, adminId)).toBe(true);
     expect(await repository.get(eventId, added.value.id)).toBeNull();
     await expect(

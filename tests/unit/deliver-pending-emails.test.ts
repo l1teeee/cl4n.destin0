@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { deliverPendingEmails } from "@/application/notifications/deliver-pending-emails";
-import { EmailDeliveryError } from "@/application/notifications/email-delivery-error";
+import {
+  EmailDeliveryError,
+  PermanentEmailCompositionError,
+} from "@/application/notifications/email-delivery-error";
 import type {
   EmailOutboxRepository,
   EmailOutboxRow,
@@ -16,6 +19,7 @@ function outboxRow(overrides: Partial<EmailOutboxRow> = {}): EmailOutboxRow {
     reservationId: "reservation-1",
     waitlistEntryId: null,
     adminUserId: null,
+    locationRevision: null,
     payload: {},
     status: "PENDING",
     attempts: 1,
@@ -142,6 +146,22 @@ describe("deliverPendingEmails", () => {
       kind: "RESERVATION_CONFIRMED",
       errorCode: "SUBJECT_MISSING",
     });
+  });
+
+  it("fails permanent composition errors without retrying", async () => {
+    const test = setup([outboxRow({ kind: "EVENT_LOCATION", locationRevision: 1 })]);
+    test.composer.compose.mockRejectedValue(
+      new PermanentEmailCompositionError("LOCATION_SUPERSEDED"),
+    );
+
+    await expect(test.run()).resolves.toEqual({ delivered: 0, retried: 0, failed: 1 });
+
+    expect(test.repository.markFailed).toHaveBeenCalledWith(
+      "row-1",
+      expect.any(Date),
+      "LOCATION_SUPERSEDED",
+    );
+    expect(test.repository.scheduleRetry).not.toHaveBeenCalled();
   });
 
   it("keeps delivering the remaining rows after one fails", async () => {

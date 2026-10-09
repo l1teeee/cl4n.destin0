@@ -18,6 +18,7 @@ interface OutboxRecord extends QueryResultRow {
   reservation_id: string | null;
   waitlist_entry_id: string | null;
   admin_user_id: string | null;
+  location_revision: number | null;
   payload: Record<string, unknown>;
   status: EmailOutboxStatus;
   attempts: number;
@@ -47,6 +48,7 @@ function toRow(record: OutboxRecord): EmailOutboxRow {
     reservationId: record.reservation_id,
     waitlistEntryId: record.waitlist_entry_id,
     adminUserId: record.admin_user_id,
+    locationRevision: record.location_revision,
     payload: record.payload,
     status: record.status,
     attempts: record.attempts,
@@ -77,7 +79,8 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
            LIMIT $1
              FOR UPDATE SKIP LOCKED
         )
-    RETURNING id, kind, reservation_id, waitlist_entry_id, admin_user_id, payload, status,
+    RETURNING id, kind, reservation_id, waitlist_entry_id, admin_user_id, location_revision,
+              payload, status,
               attempts, next_attempt_at, locked_until, last_error, sent_at, created_at`,
       [limit],
     );

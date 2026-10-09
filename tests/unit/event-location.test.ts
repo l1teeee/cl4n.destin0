@@ -10,6 +10,8 @@ describe("Google Maps URL allowlist", () => {
     "https://www.google.com/maps/place/example",
     "https://www.google.com.sv/maps/place/example",
     "https://goo.gl/maps/abc",
+    "https://maps.google.com/?q=x",
+    "https://google.com/maps/place/x",
   ])("accepts %s", (url) => {
     expect(isAllowedGoogleMapsUrl(url)).toBe(true);
   });
@@ -20,6 +22,9 @@ describe("Google Maps URL allowlist", () => {
     "https://evil.com/maps",
     "https://www.google.com/search?q=x",
     "https://maps.app.goo.gl.evil.com/x",
+    "https://google.evil.com/maps/x",
+    "https://www.google.attacker.io/maps/x",
+    "https://goo.gl/other",
   ])("rejects %s", (url) => {
     expect(isAllowedGoogleMapsUrl(url)).toBe(false);
   });

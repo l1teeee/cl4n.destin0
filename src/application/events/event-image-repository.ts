@@ -24,5 +24,6 @@ export interface EventImageRepository {
   }): Promise<AddEventImageResult>;
   list(eventId: string): Promise<EventImageItem[]>;
   get(eventId: string, imageId: string): Promise<StoredEventImage | null>;
+  getByPublicToken(publicToken: string): Promise<StoredEventImage | null>;
   remove(eventId: string, imageId: string, actorId: string): Promise<boolean>;
 }
