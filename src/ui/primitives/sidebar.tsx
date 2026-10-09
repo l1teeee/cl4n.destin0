@@ -26,10 +26,27 @@ const SIDEBAR_WIDTH = "15rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "4rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+const SIDEBAR_PEEK_OPEN_DELAY_MS = 120;
+const SIDEBAR_PEEK_CLOSE_DELAY_MS = 2000;
+const SIDEBAR_PEEK_HOVER_QUERY = "(hover: hover) and (pointer: fine)";
+
+type SidebarPeekHandlers = Pick<
+  React.ComponentProps<"div">,
+  "onPointerEnter" | "onPointerLeave" | "onFocus" | "onBlur"
+>;
+
+function clearTimer(timer: React.RefObject<ReturnType<typeof setTimeout> | null>) {
+  if (timer.current !== null) {
+    clearTimeout(timer.current);
+    timer.current = null;
+  }
+}
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
   open: boolean;
+  peeking: boolean;
+  peekHandlers: SidebarPeekHandlers;
   setOpen: (open: boolean) => void;
   openMobile: boolean;
   setOpenMobile: (open: boolean) => void;
@@ -83,10 +100,90 @@ function SidebarProvider({
     [setOpenProp, open],
   );
 
-  // Helper to toggle the sidebar.
+  // The peek only exists while the sidebar is not pinned open.
+  const [peekRequested, setPeekRequested] = React.useState(false);
+  const peeking = peekRequested && !open && !isMobile;
+  const peekOpenTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const peekCloseTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerInsideSidebar = React.useRef(false);
+
+  React.useEffect(() => {
+    return () => {
+      clearTimer(peekOpenTimer);
+      clearTimer(peekCloseTimer);
+    };
+  }, []);
+
+  const schedulePeekClose = React.useCallback(() => {
+    clearTimer(peekCloseTimer);
+    peekCloseTimer.current = setTimeout(() => {
+      peekCloseTimer.current = null;
+      setPeekRequested(false);
+    }, SIDEBAR_PEEK_CLOSE_DELAY_MS);
+  }, []);
+
+  const peekHandlers = React.useMemo<SidebarPeekHandlers>(
+    () => ({
+      onPointerEnter: (event) => {
+        const canHover = window.matchMedia(SIDEBAR_PEEK_HOVER_QUERY).matches;
+        if (isMobile || open || event.pointerType !== "mouse" || !canHover) {
+          return;
+        }
+
+        pointerInsideSidebar.current = true;
+        clearTimer(peekCloseTimer);
+        clearTimer(peekOpenTimer);
+        peekOpenTimer.current = setTimeout(() => {
+          peekOpenTimer.current = null;
+          setPeekRequested(true);
+        }, SIDEBAR_PEEK_OPEN_DELAY_MS);
+      },
+      onPointerLeave: (event) => {
+        if (event.pointerType !== "mouse") {
+          return;
+        }
+
+        pointerInsideSidebar.current = false;
+        clearTimer(peekOpenTimer);
+        schedulePeekClose();
+      },
+      onFocus: (event) => {
+        if (isMobile || open || !event.target.matches(":focus-visible")) {
+          return;
+        }
+
+        clearTimer(peekCloseTimer);
+        setPeekRequested(true);
+      },
+      onBlur: (event) => {
+        const focusStaysInside = event.currentTarget.contains(event.relatedTarget as Node | null);
+        if (focusStaysInside || pointerInsideSidebar.current) {
+          return;
+        }
+
+        schedulePeekClose();
+      },
+    }),
+    [isMobile, open, schedulePeekClose],
+  );
+
+  // Helper to toggle the sidebar. Toggling while peeking pins the sidebar open.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-  }, [isMobile, setOpen, setOpenMobile]);
+    if (isMobile) {
+      setOpenMobile((open) => !open);
+      return;
+    }
+
+    if (peeking) {
+      clearTimer(peekOpenTimer);
+      clearTimer(peekCloseTimer);
+      setPeekRequested(false);
+      setOpen(true);
+      return;
+    }
+
+    setOpen((open) => !open);
+  }, [isMobile, peeking, setOpen, setOpenMobile]);
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
@@ -109,13 +206,25 @@ function SidebarProvider({
     () => ({
       state,
       open,
+      peeking,
+      peekHandlers,
       setOpen,
       isMobile,
       openMobile,
       setOpenMobile,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar],
+    [
+      state,
+      open,
+      peeking,
+      peekHandlers,
+      setOpen,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+    ],
   );
 
   return (
@@ -155,7 +264,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { isMobile, state, peeking, peekHandlers, openMobile, setOpenMobile } = useSidebar();
 
   if (collapsible === "none") {
     return (
@@ -197,11 +306,18 @@ function Sidebar({
     );
   }
 
+  // While peeking, the sidebar looks expanded but the page content keeps the icon-width gap.
+  const visualState = peeking ? "expanded" : state;
+  const iconWidthGap =
+    variant === "floating" || variant === "inset"
+      ? "w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
+      : "w-(--sidebar-width-icon)";
+
   return (
     <div
       className="group peer hidden text-sidebar-foreground md:block"
-      data-state={state}
-      data-collapsible={state === "collapsed" ? collapsible : ""}
+      data-state={visualState}
+      data-collapsible={visualState === "collapsed" ? collapsible : ""}
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
@@ -216,6 +332,7 @@ function Sidebar({
           variant === "floating" || variant === "inset"
             ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
+          peeking && iconWidthGap,
         )}
       />
       <div
@@ -231,12 +348,16 @@ function Sidebar({
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
           className,
         )}
+        {...peekHandlers}
         {...props}
       >
         <div
           data-sidebar="sidebar"
           data-slot="sidebar-inner"
-          className="flex h-full w-full flex-col bg-sidebar"
+          className={cn(
+            "flex h-full w-full flex-col bg-sidebar",
+            peeking && "border-r border-[#fffbf41a]",
+          )}
         >
           {children}
         </div>
@@ -487,7 +608,7 @@ function SidebarMenuButton({
   tooltip?: string | React.ComponentProps<typeof TooltipContent>;
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? Slot.Root : "button";
-  const { isMobile, state } = useSidebar();
+  const { isMobile, state, peeking } = useSidebar();
 
   const button = (
     <Comp
@@ -516,7 +637,7 @@ function SidebarMenuButton({
       <TooltipContent
         side="right"
         align="center"
-        hidden={state !== "collapsed" || isMobile}
+        hidden={state !== "collapsed" || isMobile || peeking}
         {...tooltip}
       />
     </Tooltip>

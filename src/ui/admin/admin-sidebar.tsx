@@ -53,10 +53,10 @@ const navItems: AdminNavItem[] = [
 ];
 
 const menuButtonClassName =
-  "relative h-11 gap-3 rounded-full px-3 text-[#8d8b85] transition-colors duration-200 hover:bg-transparent hover:text-[#fffbf4] active:bg-transparent active:text-[#fffbf4] group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:p-0! [&>svg]:size-[1.125rem] [&>svg]:stroke-[1.75]";
+  "relative h-11 gap-3 rounded-full px-3 text-[#8d8b85] transition-colors duration-200 hover:bg-transparent hover:text-[#fffbf4] active:bg-transparent active:text-[#fffbf4] group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0! [&>svg]:size-[1.125rem] [&>svg]:stroke-[1.75]";
 
 const menuLabelClassName =
-  "relative z-10 overflow-hidden text-[0.72rem] tracking-[0.2em] whitespace-nowrap uppercase opacity-100 transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0";
+  "relative z-10 overflow-hidden text-[0.72rem] tracking-[0.2em] whitespace-nowrap uppercase opacity-100 transition-opacity duration-200 group-data-[collapsible=icon]:w-0 group-data-[collapsible=icon]:opacity-0";
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/admin") {
@@ -79,7 +79,8 @@ function ActivePill({ reduceMotion }: { reduceMotion: boolean }) {
 export function AdminSidebar({ displayName, showUsersLink, signOutAction }: AdminSidebarProps) {
   const pathname = usePathname();
   const reduceMotion = useReducedMotion() ?? false;
-  const { isMobile, setOpenMobile, state, toggleSidebar } = useSidebar();
+  const { isMobile, peeking, setOpenMobile, state, toggleSidebar } = useSidebar();
+  const labelsHidden = !isMobile && state === "collapsed" && !peeking;
   const visibleItems = navItems.filter((item) => !item.requiresAdminManagement || showUsersLink);
   const closeMobileSidebar = () => setOpenMobile(false);
 
@@ -139,7 +140,7 @@ export function AdminSidebar({ displayName, showUsersLink, signOutAction }: Admi
       <SidebarFooter className="p-2.5">
         <span
           className="max-w-full overflow-hidden px-3 text-[0.8rem] text-[#8d8b85] text-ellipsis whitespace-nowrap opacity-100 transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0"
-          aria-hidden={!isMobile && state === "collapsed"}
+          aria-hidden={labelsHidden}
         >
           {displayName}
         </span>
@@ -166,7 +167,9 @@ export function AdminSidebar({ displayName, showUsersLink, signOutAction }: Admi
                 onClick={toggleSidebar}
               >
                 <PanelLeft className="relative z-10" />
-                <span className={menuLabelClassName}>Contraer menú</span>
+                <span className={menuLabelClassName}>
+                  {state === "collapsed" ? "Expandir menú" : "Contraer menú"}
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}
