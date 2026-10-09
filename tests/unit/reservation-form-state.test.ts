@@ -43,7 +43,17 @@ describe("toFormState", () => {
   });
 
   it("maps EVENT_FULL to the terminal full outcome", () => {
-    expect(toFormState({ status: 409, body: errorBody("EVENT_FULL") })).toEqual({ kind: "full" });
+    expect(toFormState({ status: 409, body: errorBody("EVENT_FULL") })).toEqual({
+      kind: "full",
+      reason: "event-full",
+    });
+  });
+
+  it("keeps the stored full rejection outcome distinct", () => {
+    expect(toFormState({ status: 201, body: { status: "FULL_REJECTED" } })).toEqual({
+      kind: "full",
+      reason: "full-rejected",
+    });
   });
 
   it("maps DUPLICATE_RESERVATION", () => {
@@ -52,11 +62,14 @@ describe("toFormState", () => {
     });
   });
 
-  it.each([
-    [409, "EVENT_NOT_OPEN"],
-    [404, "EVENT_NOT_FOUND"],
-  ])("maps closed response %s %s", (status, code) => {
-    expect(toFormState({ status, body: errorBody(code) })).toMatchObject({
+  it("maps EVENT_NOT_OPEN to the terminal closed outcome", () => {
+    expect(toFormState({ status: 409, body: errorBody("EVENT_NOT_OPEN") })).toEqual({
+      kind: "closed",
+    });
+  });
+
+  it("keeps EVENT_NOT_FOUND as a retryable form error", () => {
+    expect(toFormState({ status: 404, body: errorBody("EVENT_NOT_FOUND") })).toMatchObject({
       message: "El clan está cerrado en este momento.",
     });
   });

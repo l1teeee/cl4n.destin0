@@ -35,7 +35,7 @@ interface ReservationFormProps {
 
 type ConfirmedReservationState = Extract<
   ReservationFormState,
-  { kind: "success" | "waitlisted" | "full" }
+  { kind: "success" | "waitlisted" | "full" | "closed" }
 >;
 
 const inputClassName = "reservation-input";
@@ -48,12 +48,16 @@ function formatPartySize(partySize: number): string {
   return partySize === 1 ? "1 persona" : `${partySize} personas`;
 }
 
-function FieldError({ message, id }: { message?: string; id?: string }) {
-  return message ? (
-    <p id={id} className="text-sm text-red-300">
-      {message}
+export function FieldError({ message, id }: { message?: string; id?: string }) {
+  return (
+    <p
+      id={id}
+      className="reservation-field-error mt-1 min-h-5 text-sm leading-5 text-red-300"
+      aria-live="polite"
+    >
+      {message ?? ""}
     </p>
-  ) : null;
+  );
 }
 
 export function ReservationForm({
@@ -82,7 +86,7 @@ export function ReservationForm({
     control,
     formState: { errors, isSubmitting, isValid },
   } = useForm<ReservationFormInput, unknown, ReservationFormValues>({
-    resolver: zodResolver(reservationFormSchema),
+    resolver: zodResolver(reservationFormSchema(maxPartySize)),
     defaultValues: { partySize: 1 },
     mode: "onTouched",
   });
@@ -194,7 +198,8 @@ export function ReservationForm({
     if (
       nextState.kind === "success" ||
       nextState.kind === "waitlisted" ||
-      nextState.kind === "full"
+      nextState.kind === "full" ||
+      nextState.kind === "closed"
     ) {
       setConfirmedState(nextState);
     }
@@ -291,12 +296,44 @@ export function ReservationForm({
     );
   }
 
-  if (showConfirmation && confirmedState?.kind === "full") {
+  if (
+    showConfirmation &&
+    confirmedState?.kind === "full" &&
+    confirmedState.reason === "full-rejected"
+  ) {
     return (
       <section className="reservation-success" aria-live="polite">
         <h2>SIN LUGARES DISPONIBLES</h2>
         <p className="reservation-success-lead">
           Registramos tu solicitud, pero ya no hay lugares disponibles para tu grupo.
+        </p>
+        <p>Mantente atento a la próxima apertura del clan.</p>
+      </section>
+    );
+  }
+
+  if (showConfirmation && confirmedState?.kind === "closed") {
+    return (
+      <section className="reservation-success" aria-live="polite">
+        <h2>EL CLAN SE CERRÓ</h2>
+        <p className="reservation-success-lead">
+          Las solicitudes se cerraron mientras llenabas el formulario.
+        </p>
+        <p>Mantente atento a la próxima apertura del clan.</p>
+      </section>
+    );
+  }
+
+  if (
+    showConfirmation &&
+    confirmedState?.kind === "full" &&
+    confirmedState.reason === "event-full"
+  ) {
+    return (
+      <section className="reservation-success" aria-live="polite">
+        <h2>SIN LUGARES DISPONIBLES</h2>
+        <p className="reservation-success-lead">
+          Los lugares y la cola se llenaron mientras llenabas el formulario.
         </p>
         <p>Mantente atento a la próxima apertura del clan.</p>
       </section>

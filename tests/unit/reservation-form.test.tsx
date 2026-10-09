@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReservationForm } from "@/ui/public/reservation-form";
+import { FieldError, ReservationForm } from "@/ui/public/reservation-form";
 
 const turnstileMethods = vi.hoisted(() => ({
   reset: vi.fn(),
@@ -169,6 +169,30 @@ describe("ReservationForm", () => {
 
     const errorOutput = consoleError.mock.calls.flat().join(" ");
     expect(errorOutput).not.toContain("Maximum update depth exceeded");
+  });
+
+  it("stays disabled with an invalid phone", async () => {
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    fillValidFields();
+    fireEvent.change(screen.getByLabelText(/Tel.fono/), { target: { value: "12" } });
+    fireEvent.blur(screen.getByLabelText(/Tel.fono/));
+
+    expect(await screen.findByText("Ingresa un teléfono válido.")).toBeDefined();
+    expect(
+      screen.getByRole("slider", { name: "COMPLETA EL FORMULARIO" }).getAttribute("aria-disabled"),
+    ).toBe("true");
+  });
+
+  it("reserves one error line even without a message", () => {
+    const { container } = render(<FieldError />);
+    const errorLine = container.querySelector(".reservation-field-error");
+
+    expect(errorLine).not.toBeNull();
+    expect(errorLine?.getAttribute("aria-live")).toBe("polite");
+    expect(errorLine?.textContent).toBe("");
+    expect(errorLine?.classList.contains("min-h-5")).toBe(true);
   });
 
   it("sends one request when End is pressed twice in the same tick", async () => {
@@ -448,7 +472,7 @@ describe("ReservationForm", () => {
     expect(screen.getByText("2 personas · Sabado")).toBeDefined();
   });
 
-  it("shows the full screen without a reservation number when no spots are left", async () => {
+  it("replaces the form when the event and waitlist fill during entry", async () => {
     const response = new Response(
       JSON.stringify({
         error: { code: "EVENT_FULL", message: "Los cupos para esta experiencia se agotaron." },
@@ -458,13 +482,43 @@ describe("ReservationForm", () => {
     await submitAndWaitForHeading(response, "SIN LUGARES DISPONIBLES");
 
     expect(
+      screen.getByText("Los lugares y la cola se llenaron mientras llenabas el formulario."),
+    ).toBeDefined();
+    expect(screen.getByText("Mantente atento a la próxima apertura del clan.")).toBeDefined();
+    expect(screen.queryByText(/Registramos tu solicitud/)).toBeNull();
+    expect(screen.queryByText(/#\d/)).toBeNull();
+    expect(screen.queryByText(/personas/)).toBeNull();
+  });
+
+  it("keeps the stored full rejection panel copy", async () => {
+    const response = new Response(JSON.stringify({ status: "FULL_REJECTED" }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+    await submitAndWaitForHeading(response, "SIN LUGARES DISPONIBLES");
+
+    expect(
       screen.getByText(
         "Registramos tu solicitud, pero ya no hay lugares disponibles para tu grupo.",
       ),
     ).toBeDefined();
     expect(screen.getByText("Mantente atento a la próxima apertura del clan.")).toBeDefined();
-    expect(screen.queryByText(/#\d/)).toBeNull();
-    expect(screen.queryByText(/personas/)).toBeNull();
+  });
+
+  it("replaces the form when the event closes during entry", async () => {
+    const response = new Response(
+      JSON.stringify({
+        error: { code: "EVENT_NOT_OPEN", message: "El clan está cerrado." },
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+    await submitAndWaitForHeading(response, "EL CLAN SE CERRÓ");
+
+    expect(
+      screen.getByText("Las solicitudes se cerraron mientras llenabas el formulario."),
+    ).toBeDefined();
+    expect(screen.getByText("Mantente atento a la próxima apertura del clan.")).toBeDefined();
+    expect(screen.queryByText(/Registramos tu solicitud/)).toBeNull();
   });
 
   it("shows server field errors and returns the slider home after an error", async () => {

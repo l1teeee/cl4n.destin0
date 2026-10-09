@@ -750,9 +750,14 @@ describe("event read models", () => {
     expect(detail.value).toMatchObject({ id: open, phase: "OPEN" });
 
     const home = await repository.getPublicHomeEvents();
-    expect(home.value.map((event) => event.slug).sort()).toEqual(["full-event", "open-event"]);
+    expect(home.value.map((event) => event.slug).sort()).toEqual([
+      "full-event",
+      "open-event",
+      "scheduled-event",
+    ]);
     expect(Object.keys(home.value[0]!).sort()).toEqual([
       "maxPartySize",
+      "opensAt",
       "phase",
       "slug",
       "startsAt",
@@ -760,6 +765,7 @@ describe("event read models", () => {
     const publicDetail = await repository.getPublicEventBySlug("open-event");
     expect(Object.keys(publicDetail.value!).sort()).toEqual([
       "maxPartySize",
+      "opensAt",
       "phase",
       "slug",
       "startsAt",
