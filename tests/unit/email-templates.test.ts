@@ -47,6 +47,13 @@ describe("reservationConfirmationEmail", () => {
     }
   });
 
+  it("tells the guest the location will arrive by email", () => {
+    const sentence =
+      "Te enviaremos la ubicación por correo antes de la experiencia. No le digas a nadie.";
+    expect(email.text).toContain(sentence);
+    expect(email.html).toContain(sentence);
+  });
+
   it("pads the reservation number to 3 digits", () => {
     expect(email.text).toContain("Reserva: #007");
   });

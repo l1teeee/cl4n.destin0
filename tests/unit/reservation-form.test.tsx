@@ -72,13 +72,13 @@ function fillValidFields(partySize = "2") {
   fireEvent.click(screen.getByRole("checkbox"));
 }
 
-function successResponse() {
+function successResponse(partySize = 2) {
   return new Response(
     JSON.stringify({
       status: "CONFIRMED",
       reservation: {
         number: 7,
-        partySize: 2,
+        partySize,
         eventStartsAt: "2026-10-10T01:00:00.000Z",
       },
     }),
@@ -218,9 +218,9 @@ describe("ReservationForm", () => {
     const slideCommit = slider.closest(".slide-commit");
     expect(slideCommit).not.toBeNull();
     await waitFor(() => expect(slideCommit?.getAttribute("data-phase")).toBe("done"));
-    expect(screen.queryByRole("heading", { name: "SOLICITUD CONFIRMADA" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "REGISTRO COMPLETADO" })).toBeNull();
     expect(
-      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+      await screen.findByRole("heading", { name: "REGISTRO COMPLETADO" }, { timeout: 2500 }),
     ).toBeDefined();
   });
 
@@ -263,7 +263,7 @@ describe("ReservationForm", () => {
 
     resolveFetch(successResponse());
     expect(
-      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+      await screen.findByRole("heading", { name: "REGISTRO COMPLETADO" }, { timeout: 2500 }),
     ).toBeDefined();
   });
 
@@ -286,9 +286,9 @@ describe("ReservationForm", () => {
     await waitFor(() => expect(turnstileMethods.reset).toHaveBeenCalledTimes(1));
 
     expect(
-      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+      await screen.findByRole("heading", { name: "REGISTRO COMPLETADO" }, { timeout: 2500 }),
     ).toBeDefined();
-    expect(screen.getByText("#007")).toBeDefined();
+    expect(screen.getByText("#007 · 2 personas · Sabado")).toBeDefined();
   });
 
   it("shows confirmation when rotating the attempt key cannot write to storage", async () => {
@@ -311,9 +311,9 @@ describe("ReservationForm", () => {
     fireEvent.keyDown(slider, { key: "End" });
 
     expect(
-      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+      await screen.findByRole("heading", { name: "REGISTRO COMPLETADO" }, { timeout: 2500 }),
     ).toBeDefined();
-    expect(screen.getByText("#007")).toBeDefined();
+    expect(screen.getByText("#007 · 2 personas · Sabado")).toBeDefined();
     expect(sentryMethods.captureException).toHaveBeenCalledOnce();
     expect(sentryMethods.captureException).toHaveBeenCalledWith(storageError);
   });
@@ -391,8 +391,80 @@ describe("ReservationForm", () => {
     expect(JSON.parse(String(firstRequest?.body)).turnstileToken).toBe("test-token");
     expect(JSON.parse(String(secondRequest?.body)).turnstileToken).toBe("fresh-token");
     expect(
-      await screen.findByRole("heading", { name: "SOLICITUD CONFIRMADA" }, { timeout: 2500 }),
+      await screen.findByRole("heading", { name: "REGISTRO COMPLETADO" }, { timeout: 2500 }),
     ).toBeDefined();
+  });
+
+  async function submitAndWaitForHeading(response: Response, heading: string, partySize = "2") {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(response));
+
+    render(<ReservationForm eventSlug="cena-demo" maxPartySize={2} formattedDate="Sabado" />);
+
+    await screen.findByTestId("turnstile");
+    fillValidFields(partySize);
+    const slider = await screen.findByRole("slider", {
+      name: "DESLIZA PARA SOLICITAR ACCESO",
+    });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+    fireEvent.keyDown(slider, { key: "End" });
+
+    await screen.findByRole("heading", { name: heading }, { timeout: 2500 });
+  }
+
+  it("shows the confirmed screen with the details line and the location notice", async () => {
+    await submitAndWaitForHeading(successResponse(), "REGISTRO COMPLETADO");
+
+    expect(screen.getByText("Confirmamos tu reserva. No le digas a nadie.")).toBeDefined();
+    expect(
+      screen.getByText("La ubicación llegará a tu correo cuando el clan la revele."),
+    ).toBeDefined();
+    expect(screen.getByText("#007 · 2 personas · Sabado")).toBeDefined();
+  });
+
+  it("uses the singular for a party of one", async () => {
+    await submitAndWaitForHeading(successResponse(1), "REGISTRO COMPLETADO", "1");
+
+    expect(screen.getByText("#007 · 1 persona · Sabado")).toBeDefined();
+  });
+
+  it("shows the queue screen when the guest is waitlisted", async () => {
+    const response = new Response(
+      JSON.stringify({
+        status: "WAITLISTED",
+        waitlist: { position: 3, partySize: 2, eventStartsAt: "2026-10-10T01:00:00.000Z" },
+      }),
+      { status: 202, headers: { "Content-Type": "application/json" } },
+    );
+    await submitAndWaitForHeading(response, "ESTÁS EN LA COLA");
+
+    expect(
+      screen.getByText(
+        "Registramos tu solicitud, pero los lugares ya se llenaron. Quedaste en la posición #3 de la cola.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.getByText("Si se libera un lugar te escribiremos. No le digas a nadie."),
+    ).toBeDefined();
+    expect(screen.getByText("2 personas · Sabado")).toBeDefined();
+  });
+
+  it("shows the full screen without a reservation number when no spots are left", async () => {
+    const response = new Response(
+      JSON.stringify({
+        error: { code: "EVENT_FULL", message: "Los cupos para esta experiencia se agotaron." },
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+    await submitAndWaitForHeading(response, "SIN LUGARES DISPONIBLES");
+
+    expect(
+      screen.getByText(
+        "Registramos tu solicitud, pero ya no hay lugares disponibles para tu grupo.",
+      ),
+    ).toBeDefined();
+    expect(screen.getByText("Mantente atento a la próxima apertura del clan.")).toBeDefined();
+    expect(screen.queryByText(/#\d/)).toBeNull();
+    expect(screen.queryByText(/personas/)).toBeNull();
   });
 
   it("shows server field errors and returns the slider home after an error", async () => {
