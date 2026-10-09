@@ -19,8 +19,10 @@ const baseInput = {
 describe("eventLocationEmail", () => {
   it("uses the first-send subject and heading", () => {
     const email = eventLocationEmail(baseInput);
-    expect(email.subject).toBe("El clan revela el lugar");
-    expect(email.html).toContain("Este es el lugar");
+    expect(email.subject).toBe("El lugar ha sido verificado");
+    expect(email.html).toContain("El lugar ha sido verificado");
+    expect(email.html).toContain("esta es la ubicación. El clan te espera.");
+    expect(email.text).toContain("esta es la ubicación. El clan te espera.");
     expect(email.text).not.toContain("Esta ubicación reemplaza");
   });
 
@@ -29,6 +31,29 @@ describe("eventLocationEmail", () => {
     expect(email.subject).toBe("Cambio de lugar: nueva ubicación");
     expect(email.html).toContain("El lugar cambió");
     expect(email.text).toContain("Esta ubicación reemplaza la que te enviamos antes.");
+  });
+
+  it("keeps the update variant subject and heading", () => {
+    const email = eventLocationEmail({ ...baseInput, isUpdate: true });
+    expect(email.subject).toBe("Cambio de lugar: nueva ubicación");
+    expect(email.html).toContain("El lugar cambió");
+    expect(email.html).not.toContain("El lugar ha sido verificado");
+  });
+
+  it("shows the maps URL as visible link text in a Google Maps row", () => {
+    const url = "https://maps.google.com/?q=casa&z=1";
+    const email = eventLocationEmail({ ...baseInput, locationMapsUrl: url });
+    const escaped = url.replace("&", "&amp;");
+    expect(email.html).toContain("Google Maps</div>");
+    expect(email.html).toContain(
+      `<a href="${escaped}" style="color:#fffbf4;text-decoration:underline;word-break:break-all;">${escaped}</a>`,
+    );
+  });
+
+  it("shows the photos label only when there are images", () => {
+    expect(eventLocationEmail(baseInput).html).toContain("Fotos del lugar");
+    const email = eventLocationEmail({ ...baseInput, imageTokens: [] });
+    expect(email.html).not.toContain("Fotos del lugar");
   });
 
   it("escapes names, addresses and multiline directions in html", () => {
