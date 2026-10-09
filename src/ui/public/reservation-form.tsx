@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
+import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
@@ -81,7 +82,14 @@ export function ReservationForm({
   const hasAllergies = useWatch({ control, name: "hasAllergies" });
 
   useEffect(() => {
-    const key = getOrCreateAttemptKey(sessionStorage, eventSlug, () => crypto.randomUUID());
+    let key: string;
+    try {
+      key = getOrCreateAttemptKey(sessionStorage, eventSlug, () => crypto.randomUUID());
+    } catch (error) {
+      Sentry.captureException(error);
+      // Storage can be full or blocked; an in-memory key keeps in-page retries idempotent and the server's duplicate policy still guards reloads, so the outcome is never hidden.
+      key = crypto.randomUUID();
+    }
     const timeout = window.setTimeout(() => setIdempotencyKey(key), 0);
     return () => window.clearTimeout(timeout);
   }, [eventSlug]);
@@ -100,7 +108,13 @@ export function ReservationForm({
   );
 
   function rotateKey() {
-    const nextKey = rotateAttemptKey(sessionStorage, eventSlug, () => crypto.randomUUID());
+    let nextKey: string;
+    try {
+      nextKey = rotateAttemptKey(sessionStorage, eventSlug, () => crypto.randomUUID());
+    } catch (error) {
+      Sentry.captureException(error);
+      nextKey = crypto.randomUUID();
+    }
     setIdempotencyKey(nextKey);
     setTurnstileToken(null);
   }
