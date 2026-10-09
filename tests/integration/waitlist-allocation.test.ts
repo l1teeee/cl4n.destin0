@@ -535,6 +535,13 @@ describe("waitlist configuration", () => {
       opensAt: detail.opensAt,
       closesAt: detail.closesAt,
       autoCloseOnFull: detail.autoCloseOnFull,
+      location: {
+        name: detail.location.name,
+        address: detail.location.address,
+        mapsUrl: detail.location.mapsUrl,
+        notes: detail.location.notes,
+        status: detail.location.status,
+      },
     };
 
     expect(await eventRepository.update({ ...command, waitlistCapacity: 1 }, adminId)).toEqual({

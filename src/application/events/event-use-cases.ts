@@ -1,4 +1,5 @@
 import type { EventLifecycleStatus } from "@/domain/event/event-phase";
+import type { EventLocationStatus } from "@/domain/event/event-location";
 
 import type { EventRepository } from "./event-repository";
 import type {
@@ -23,6 +24,15 @@ export function updateEvent(
   actorId: string,
 ) {
   return repository.update(command, actorId);
+}
+
+export function setLocationStatus(
+  repository: EventRepository,
+  id: string,
+  status: EventLocationStatus,
+  actorId: string,
+) {
+  return repository.setLocationStatus(id, status, actorId);
 }
 
 export function publishEvent(repository: EventRepository, id: string, actorId: string) {

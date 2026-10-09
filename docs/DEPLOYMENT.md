@@ -74,6 +74,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
   - `SELECT has_table_privilege('clandestino_app', 'waitlist_entries', 'SELECT,INSERT,UPDATE');`
   - `SELECT has_table_privilege('clandestino_app', 'admin_password_reset_tokens', 'SELECT,INSERT,UPDATE');`
   - `SELECT has_table_privilege('clandestino_app', 'email_outbox', 'SELECT,INSERT,UPDATE,DELETE');`
+  - `SELECT has_table_privilege('clandestino_app', 'event_images', 'SELECT,INSERT,DELETE');`
 - **Deploy order:**
   1. Set the Vercel env vars.
   2. Migrate production BEFORE pushing `main`, because the push auto-deploys code that expects the new schema.

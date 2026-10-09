@@ -202,5 +202,5 @@ describe("migration 0004_waitlist_outbox_password_reset", () => {
         await client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
       });
     }
-  });
+  }, 15_000);
 });

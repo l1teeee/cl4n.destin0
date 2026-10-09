@@ -8,7 +8,7 @@ import {
   TableRow,
 } from "@/ui/primitives/table";
 
-import { formatAdminDate } from "./view-model";
+import { formatAdminDate, formatAuditMetadata } from "./view-model";
 
 const actorLabels: Record<AuditLogItem["actorType"], string> = {
   ADMIN: "Administrador",
@@ -76,7 +76,7 @@ export function AuditLogTable({ items }: { items: AuditLogItem[] }) {
             <TableCell>{entityLabels[item.entityType]}</TableCell>
             <TableCell className="font-mono text-xs">{item.entityId}</TableCell>
             <TableCell className="max-w-sm font-mono text-xs">
-              {JSON.stringify(item.metadata)}
+              {formatAuditMetadata(item.metadata)}
             </TableCell>
           </TableRow>
         ))}

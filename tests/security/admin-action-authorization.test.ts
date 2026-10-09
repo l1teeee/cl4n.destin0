@@ -149,4 +149,22 @@ describe("admin Server Action authorization", () => {
       ["revokeAdminSessionsAction", "requireSuperAdmin"],
     ]);
   });
+
+  it("guards location status and image deletion actions with requireAdmin", () => {
+    const file = path.join(adminDirectory, "(protected)", "events", "actions.ts");
+    const sourceFile = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const guards = new Map(
+      exportedAsyncFunctions(sourceFile).map((action) => [
+        action.name,
+        firstAwaitedCallName(action.body),
+      ]),
+    );
+    expect(guards.get("setEventLocationStatusAction")).toBe("requireAdmin");
+    expect(guards.get("deleteEventImageAction")).toBe("requireAdmin");
+  });
 });

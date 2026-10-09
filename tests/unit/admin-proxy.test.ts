@@ -26,6 +26,22 @@ describe("content security policy", () => {
     expect(local).toContain("'unsafe-eval'");
     expect(preview).not.toContain("'unsafe-eval'");
   });
+
+  it("allows Google Maps frames only for admin policies", () => {
+    const publicPolicy = buildContentSecurityPolicy({
+      appEnvironment: "production",
+      nonce: "public",
+    });
+    const adminPolicy = buildContentSecurityPolicy({
+      appEnvironment: "production",
+      nonce: "admin",
+      allowAdminMaps: true,
+    });
+    expect(publicPolicy).not.toContain("https://www.google.com");
+    expect(adminPolicy).toContain(
+      "frame-src https://challenges.cloudflare.com https://www.google.com",
+    );
+  });
 });
 
 describe("admin proxy", () => {

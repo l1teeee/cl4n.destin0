@@ -11,6 +11,7 @@ import {
   createEvent,
   openEventNow,
   publishEvent,
+  setLocationStatus,
   updateEvent,
 } from "@/application/events/event-use-cases";
 import type { EventOperationErrorCode } from "@/application/events/types";
@@ -19,6 +20,7 @@ import { createCancelWaitlistEntry } from "@/application/reservations/cancel-wai
 import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import {
@@ -53,6 +55,12 @@ const capacitySchema = z
       .positive("La capacidad debe ser mayor que cero."),
   })
   .strict();
+const locationStatusSchema = z
+  .object({ id: z.string().uuid(), status: z.enum(["PENDING", "CONFIRMED"]) })
+  .strict();
+const imageActionSchema = z
+  .object({ eventId: z.string().uuid(), imageId: z.string().uuid() })
+  .strict();
 
 const operationMessages: Record<EventOperationErrorCode, string> = {
   EVENT_NOT_FOUND: "No se encontró la experiencia.",
@@ -65,6 +73,8 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
   CAPACITY_BELOW_ALLOCATED: "La capacidad no puede ser menor que los cupos reservados.",
   CAPACITY_BELOW_MAX_PARTY_SIZE: "La capacidad no puede ser menor que el tamaño máximo del grupo.",
   WAITLIST_CAPACITY_BELOW_WAITING: "No puedes dejar menos lugares en cola que personas esperando.",
+  LOCATION_CONFIRMATION_INCOMPLETE:
+    "Para confirmar la ubicación agrega la dirección o el enlace de Google Maps.",
 };
 
 function unauthorized(): AdminActionState {
@@ -113,6 +123,11 @@ export async function createEventAction(
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
     waitlistCapacity: Number(formData.get("waitlistCapacity")),
     status: formData.get("status"),
+    locationName: formData.get("locationName"),
+    locationAddress: formData.get("locationAddress"),
+    locationMapsUrl: formData.get("locationMapsUrl"),
+    locationNotes: formData.get("locationNotes"),
+    locationStatus: formData.get("locationStatus"),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
 
@@ -129,7 +144,19 @@ export async function createEventAction(
 
   const result = await createEvent(
     postgresEventRepository,
-    { ...parsed.data, startsAt, opensAt, closesAt },
+    {
+      ...parsed.data,
+      startsAt,
+      opensAt,
+      closesAt,
+      location: {
+        name: parsed.data.locationName,
+        address: parsed.data.locationAddress,
+        mapsUrl: parsed.data.locationMapsUrl,
+        notes: parsed.data.locationNotes,
+        status: parsed.data.locationStatus,
+      },
+    },
     authorization.session.admin.id,
   );
   if (!result.ok) return operationError(result.error);
@@ -158,6 +185,11 @@ export async function updateEventAction(
     maxPartySize: Number(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
     waitlistCapacity: Number(formData.get("waitlistCapacity")),
+    locationName: formData.get("locationName"),
+    locationAddress: formData.get("locationAddress"),
+    locationMapsUrl: formData.get("locationMapsUrl"),
+    locationNotes: formData.get("locationNotes"),
+    locationStatus: formData.get("locationStatus"),
   });
   if (!parsed.success) return firstValidationError(parsed.error);
 
@@ -174,13 +206,71 @@ export async function updateEventAction(
 
   const result = await updateEvent(
     postgresEventRepository,
-    { id: parsedId.data.id, ...parsed.data, startsAt, opensAt, closesAt },
+    {
+      id: parsedId.data.id,
+      ...parsed.data,
+      startsAt,
+      opensAt,
+      closesAt,
+      location: {
+        name: parsed.data.locationName,
+        address: parsed.data.locationAddress,
+        mapsUrl: parsed.data.locationMapsUrl,
+        notes: parsed.data.locationNotes,
+        status: parsed.data.locationStatus,
+      },
+    },
     authorization.session.admin.id,
   );
   if (!result.ok) return operationError(result.error);
 
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Experiencia actualizada correctamente." };
+}
+
+export async function setEventLocationStatusAction(
+  id: string,
+  status: "PENDING" | "CONFIRMED",
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = locationStatusSchema.safeParse({ id, status });
+  if (!parsed.success) return firstValidationError(parsed.error);
+  const result = await setLocationStatus(
+    postgresEventRepository,
+    parsed.data.id,
+    parsed.data.status,
+    authorization.session.admin.id,
+  );
+  if (!result.ok) return operationError(result.error);
+  revalidateEventPaths(result.value.id, result.value.slug);
+  return { ok: true, message: "Estado de la ubicación actualizado." };
+}
+
+export async function deleteEventImageAction(
+  eventId: string,
+  imageId: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = imageActionSchema.safeParse({ eventId, imageId });
+  if (!parsed.success) return firstValidationError(parsed.error);
+  const removed = await postgresEventImageRepository.remove(
+    parsed.data.eventId,
+    parsed.data.imageId,
+    authorization.session.admin.id,
+  );
+  if (!removed) return invalid("No se encontró la imagen.");
+  revalidateEventPaths(parsed.data.eventId);
+  return { ok: true, message: "Imagen eliminada." };
 }
 
 export async function publishEventAction(

@@ -24,6 +24,13 @@ const baseCommand: CreateEventCommand = {
   autoCloseOnFull: false,
   waitlistCapacity: 5,
   status: "DRAFT",
+  location: {
+    name: null,
+    address: null,
+    mapsUrl: null,
+    notes: null,
+    status: "PENDING",
+  },
 };
 
 beforeAll(async () => {
@@ -133,6 +140,94 @@ describe("event mutations", () => {
     expectError(await repository.create(baseCommand, adminId), "SLUG_TAKEN");
   });
 
+  it("persists location, tracks revisions, and preserves confirmation timestamps", async () => {
+    const created = await repository.create(
+      {
+        ...baseCommand,
+        location: {
+          name: "Casa 503",
+          address: "San Salvador",
+          mapsUrl: null,
+          notes: "Entrada lateral",
+          status: "CONFIRMED",
+        },
+      },
+      adminId,
+    );
+    if (!created.ok) throw new Error(created.error);
+    expect(created.value.location).toMatchObject({
+      name: "Casa 503",
+      status: "CONFIRMED",
+      confirmedAt: expect.any(Date),
+    });
+    const confirmedAt = created.value.location.confirmedAt!.getTime();
+
+    const command = {
+      id: created.value.id,
+      internalName: created.value.internalName,
+      slug: created.value.slug,
+      startsAt: created.value.startsAt,
+      maxPartySize: created.value.maxPartySize,
+      opensAt: created.value.opensAt,
+      closesAt: created.value.closesAt,
+      autoCloseOnFull: created.value.autoCloseOnFull,
+      waitlistCapacity: created.value.waitlistCapacity,
+      location: {
+        name: created.value.location.name,
+        address: created.value.location.address,
+        mapsUrl: created.value.location.mapsUrl,
+        notes: created.value.location.notes,
+        status: created.value.location.status,
+      },
+    };
+    const unchanged = await repository.update(command, adminId);
+    expect(unchanged.ok && unchanged.value.location.confirmedAt?.getTime()).toBe(confirmedAt);
+    expect(unchanged.ok && unchanged.value.locationRevision).toBe(0);
+
+    const changed = await repository.update(
+      { ...command, location: { ...command.location, notes: "Nueva entrada" } },
+      adminId,
+    );
+    expect(changed.ok && changed.value.locationRevision).toBe(1);
+    const pending = await repository.setLocationStatus(created.value.id, "PENDING", adminId);
+    expect(pending.ok && pending.value.location.confirmedAt).toBeNull();
+    expect(pending.ok && pending.value.locationRevision).toBe(1);
+    const reconfirmed = await repository.setLocationStatus(created.value.id, "CONFIRMED", adminId);
+    expect(reconfirmed.ok && reconfirmed.value.location.confirmedAt).toBeInstanceOf(Date);
+    const audits = await auditFor(created.value.id);
+    expect(
+      audits.rows.some(
+        (row) =>
+          row.action === "EVENT_UPDATED" &&
+          Array.isArray(row.metadata.changedFields) &&
+          row.metadata.changedFields.includes("locationNotes"),
+      ),
+    ).toBe(true);
+    expect(audits.rows.at(-1)?.metadata).toMatchObject({
+      changedFields: expect.arrayContaining(["locationStatus", "locationConfirmedAt"]),
+    });
+  });
+
+  it("rejects incomplete confirmed locations in the domain and database", async () => {
+    expectError(
+      await repository.create(
+        { ...baseCommand, location: { ...baseCommand.location, status: "CONFIRMED" } },
+        adminId,
+      ),
+      "LOCATION_CONFIRMATION_INCOMPLETE",
+    );
+    const created = await repository.create({ ...baseCommand, slug: "db-location-check" }, adminId);
+    if (!created.ok) throw new Error(created.error);
+    await expect(
+      pool.query(
+        `UPDATE events
+            SET location_status = 'CONFIRMED', location_confirmed_at = clock_timestamp()
+          WHERE id = $1`,
+        [created.value.id],
+      ),
+    ).rejects.toMatchObject({ constraint: "events_location_confirmation_complete_chk" });
+  });
+
   it("updates allowed fields, audits before/after, and locks slug after DRAFT", async () => {
     const created = await repository.create(baseCommand, adminId);
     if (!created.ok) throw new Error(created.error);
@@ -146,6 +241,7 @@ describe("event mutations", () => {
       closesAt: baseCommand.closesAt,
       autoCloseOnFull: true,
       waitlistCapacity: 3,
+      location: baseCommand.location,
     };
 
     const updated = await repository.update(update, adminId);
@@ -355,7 +451,16 @@ describe("event read models", () => {
     });
     await insertReservation(open, "Confirmed Guest", new Date(), "CONFIRMED");
     await insertReservation(open, "Rejected Guest", new Date(), "FULL_REJECTED");
-    await pool.query("UPDATE events SET reserved_seats = 1 WHERE id = $1", [open]);
+    await pool.query(
+      `UPDATE events
+          SET reserved_seats = 1,
+              location_name = 'Private venue',
+              location_address = 'Private address',
+              location_maps_url = 'https://maps.app.goo.gl/private',
+              location_notes = 'Private notes'
+        WHERE id = $1`,
+      [open],
+    );
     const full = await insertEvent("SCHEDULED", {
       slug: "full-event",
       opensAt: new Date(Date.now() - 3_600_000),
@@ -394,6 +499,13 @@ describe("event read models", () => {
     const home = await repository.getPublicHomeEvents();
     expect(home.value.map((event) => event.slug).sort()).toEqual(["full-event", "open-event"]);
     expect(Object.keys(home.value[0]!).sort()).toEqual([
+      "maxPartySize",
+      "phase",
+      "slug",
+      "startsAt",
+    ]);
+    const publicDetail = await repository.getPublicEventBySlug("open-event");
+    expect(Object.keys(publicDetail.value!).sort()).toEqual([
       "maxPartySize",
       "phase",
       "slug",

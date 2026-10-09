@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -24,6 +25,14 @@ export const eventStatus = pgEnum("event_status", [
   "COMPLETED",
   "CANCELLED",
 ]);
+
+export const eventLocationStatus = pgEnum("event_location_status", ["PENDING", "CONFIRMED"]);
+
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const reservationStatus = pgEnum("reservation_status", [
   "SUBMITTED",
@@ -186,6 +195,13 @@ export const events = pgTable(
     closesAt: timestamp("closes_at", { withTimezone: true }).notNull(),
     autoCloseOnFull: boolean("auto_close_on_full").notNull().default(false),
     status: eventStatus("status").notNull().default("DRAFT"),
+    locationName: text("location_name"),
+    locationAddress: text("location_address"),
+    locationMapsUrl: text("location_maps_url"),
+    locationNotes: text("location_notes"),
+    locationStatus: eventLocationStatus("location_status").notNull().default("PENDING"),
+    locationConfirmedAt: timestamp("location_confirmed_at", { withTimezone: true }),
+    locationRevision: integer("location_revision").notNull().default(0),
     lastReservationNumber: integer("last_reservation_number").notNull().default(0),
     waitlistCapacity: integer("waitlist_capacity").notNull().default(5),
     waitlistedCount: integer("waitlisted_count").notNull().default(0),
@@ -219,7 +235,68 @@ export const events = pgTable(
       sql`${table.waitlistedCount} >= 0 AND ${table.waitlistedCount} <= ${table.waitlistCapacity}`,
     ),
     check("events_waitlist_number_nonnegative_chk", sql`${table.lastWaitlistNumber} >= 0`),
+    check(
+      "events_location_name_length_chk",
+      sql`${table.locationName} IS NULL OR char_length(${table.locationName}) BETWEEN 1 AND 120`,
+    ),
+    check(
+      "events_location_address_length_chk",
+      sql`${table.locationAddress} IS NULL OR char_length(${table.locationAddress}) BETWEEN 1 AND 300`,
+    ),
+    check(
+      "events_location_maps_url_chk",
+      sql`${table.locationMapsUrl} IS NULL OR (char_length(${table.locationMapsUrl}) BETWEEN 1 AND 2048 AND ${table.locationMapsUrl} LIKE 'https://%')`,
+    ),
+    check(
+      "events_location_notes_length_chk",
+      sql`${table.locationNotes} IS NULL OR char_length(${table.locationNotes}) BETWEEN 1 AND 1000`,
+    ),
+    check(
+      "events_location_confirmation_timestamp_chk",
+      sql`(${table.locationStatus} = 'CONFIRMED') = (${table.locationConfirmedAt} IS NOT NULL)`,
+    ),
+    check(
+      "events_location_confirmation_complete_chk",
+      sql`${table.locationStatus} <> 'CONFIRMED' OR ${table.locationAddress} IS NOT NULL OR ${table.locationMapsUrl} IS NOT NULL`,
+    ),
+    check("events_location_revision_nonnegative_chk", sql`${table.locationRevision} >= 0`),
     index("events_status_opens_at_idx").on(table.status, table.opensAt),
+  ],
+);
+
+export const eventImages = pgTable(
+  "event_images",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    eventId: uuid("event_id").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    data: bytea("data").notNull(),
+    publicToken: text("public_token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "event_images_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "event_images_event_fk",
+      columns: [table.eventId],
+      foreignColumns: [events.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "event_images_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    unique("event_images_public_token_uq").on(table.publicToken),
+    check(
+      "event_images_content_type_chk",
+      sql`${table.contentType} IN ('image/jpeg', 'image/png', 'image/webp')`,
+    ),
+    check("event_images_byte_size_chk", sql`${table.byteSize} BETWEEN 1 AND 2097152`),
+    check("event_images_data_size_chk", sql`octet_length(${table.data}) = ${table.byteSize}`),
+    check("event_images_public_token_length_chk", sql`char_length(${table.publicToken}) = 43`),
+    index("event_images_event_created_at_idx").on(table.eventId, table.createdAt),
   ],
 );
 

@@ -11,18 +11,20 @@ interface ContentSecurityPolicyOptions {
   appEnvironment: ServerEnv["APP_ENV"];
   nonce: string;
   sentryDsn?: string;
+  allowAdminMaps?: boolean;
 }
 
 export function buildContentSecurityPolicy(options: ContentSecurityPolicyOptions): string {
   const sentryOrigin = options.sentryDsn ? new URL(options.sentryDsn).origin : undefined;
   const localScriptSource = options.appEnvironment === "local" ? " 'unsafe-eval'" : "";
   const sentryConnectSource = sentryOrigin ? ` ${sentryOrigin}` : "";
+  const mapsFrameSource = options.allowAdminMaps ? " https://www.google.com" : "";
 
   // WHY: the Turnstile component sets inline container dimensions through React style props.
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${options.nonce}' 'strict-dynamic' https://challenges.cloudflare.com${localScriptSource}`,
-    "frame-src https://challenges.cloudflare.com",
+    `frame-src https://challenges.cloudflare.com${mapsFrameSource}`,
     `connect-src 'self'${sentryConnectSource}`,
     "img-src 'self' data:",
     "style-src 'self' 'unsafe-inline'",
@@ -51,6 +53,7 @@ export function proxy(request: NextRequest) {
   const contentSecurityPolicy = buildContentSecurityPolicy({
     appEnvironment: env.APP_ENV,
     nonce,
+    allowAdminMaps: request.nextUrl.pathname.startsWith("/admin"),
     ...(browserSentryDsn ? { sentryDsn: browserSentryDsn } : {}),
   });
   const requestHeaders = new Headers(request.headers);

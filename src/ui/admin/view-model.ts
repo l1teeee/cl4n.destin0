@@ -108,6 +108,16 @@ export function formatCount(value: number): string {
   return new Intl.NumberFormat("es-SV").format(value);
 }
 
+export function formatAuditMetadata(metadata: Record<string, unknown>): string {
+  if (typeof metadata.imageAdded === "string") {
+    return `Imagen agregada: ${metadata.imageAdded} (${String(metadata.contentType)}, ${String(metadata.byteSize)} bytes)`;
+  }
+  if (typeof metadata.imageRemoved === "string") {
+    return `Imagen eliminada: ${metadata.imageRemoved}`;
+  }
+  return JSON.stringify(metadata);
+}
+
 export function adminRoleLabel(role: AdminRole): string {
   return role === "SUPER_ADMIN" ? "Superadministrador" : "Administrador";
 }
