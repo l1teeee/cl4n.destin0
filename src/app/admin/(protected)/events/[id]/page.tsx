@@ -9,11 +9,13 @@ import {
 } from "@/application/events/event-use-cases";
 import { getEventLocationEmailSummary } from "@/application/events/event-location-email";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { env } from "@/infrastructure/config/env";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { MutationForm } from "@/ui/admin/mutation-form";
+import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import {
   emailStatusLabel,
@@ -22,6 +24,8 @@ import {
   formatReservationNumber,
   lifecycleActions,
   parseRosterView,
+  publicEventUrl,
+  publicLinkHint,
   rosterEmailLabel,
   rosterStatusBadgeVariant,
   rosterStatusLabel,
@@ -110,6 +114,14 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           { label: "Cierra", value: formatAdminDate(event.closesAt) },
         ]}
       />
+
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Enlace público</h2>
+        <PublicLinkPanel
+          url={publicEventUrl(env.APP_BASE_URL, event.slug)}
+          hint={publicLinkHint(event.phase)}
+        />
+      </section>
 
       <section className="admin-section space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
