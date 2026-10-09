@@ -4,6 +4,7 @@ import {
   emailDetailRow,
   emailHeading,
   emailImage,
+  emailLinkRow,
   emailMultilineDetailRow,
   emailOutlinedButton,
   emailParagraph,
@@ -31,9 +32,11 @@ function mapsUrl(input: EventLocationEmailInput): string {
 }
 
 export function eventLocationEmail(input: EventLocationEmailInput): RenderedEmail {
-  const subject = input.isUpdate ? "Cambio de lugar: nueva ubicación" : "El clan revela el lugar";
-  const heading = input.isUpdate ? "El lugar cambió" : "Este es el lugar";
-  const greeting = `${input.fullName}, el clan te espera.`;
+  const subject = input.isUpdate
+    ? "Cambio de lugar: nueva ubicación"
+    : "El lugar ha sido verificado";
+  const heading = input.isUpdate ? "El lugar cambió" : "El lugar ha sido verificado";
+  const greeting = `${input.fullName}, esta es la ubicación. El clan te espera.`;
   const updateNotice = "Esta ubicación reemplaza la que te enviamos antes.";
   const reservationNumber = `#${String(input.reservationNumber).padStart(3, "0")}`;
   const eventDate = formatPublicEventDate(input.eventStartsAt);
@@ -56,6 +59,8 @@ export function eventLocationEmail(input: EventLocationEmailInput): RenderedEmai
     ...(input.locationAddress ? [emailDetailRow("Dirección", input.locationAddress)] : []),
     ...(input.locationNotes ? [emailMultilineDetailRow("Indicaciones", input.locationNotes)] : []),
     emailOutlinedButton("Abrir en Google Maps", locationUrl),
+    emailLinkRow("Google Maps", locationUrl),
+    ...(imageUrls.length > 0 ? [emailParagraph("Fotos del lugar")] : []),
     ...imageUrls.map((url) => emailImage(url, "Foto del lugar")),
     emailParagraph(closing),
   ].join("\n");
@@ -76,7 +81,7 @@ export function eventLocationEmail(input: EventLocationEmailInput): RenderedEmai
 
   return {
     subject,
-    html: renderEmailLayout({ preheader: `${heading}.`, bodyHtml }),
+    html: renderEmailLayout({ preheader: `${heading}. Esta es la ubicación.`, bodyHtml }),
     text,
   };
 }

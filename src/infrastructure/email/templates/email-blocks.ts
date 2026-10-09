@@ -23,6 +23,15 @@ export function emailDetailRow(label: string, value: string): string {
 </tr>`;
 }
 
+export function emailLinkRow(label: string, href: string): string {
+  return `<tr>
+<td style="padding-top:16px;">
+<div style="font-family:${emailFontFamily};font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#8d8b85;">${escapeHtml(label)}</div>
+<div style="font-family:${emailFontFamily};font-size:15px;color:#fffbf4;padding-top:4px;"><a href="${escapeHtml(href)}" style="color:#fffbf4;text-decoration:underline;word-break:break-all;">${escapeHtml(href)}</a></div>
+</td>
+</tr>`;
+}
+
 export function emailMultilineDetailRow(label: string, value: string): string {
   const escapedValue = escapeHtml(value).replace(/\r?\n/g, "<br>");
   return `<tr>
