@@ -7,7 +7,13 @@ import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { parseAuditSearchParams } from "@/ui/admin/view-model";
 import { Button } from "@/ui/primitives/button";
 import { Label } from "@/ui/primitives/label";
-import { NativeSelect } from "@/ui/primitives/native-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/ui/primitives/select";
 
 export default async function AuditPage({
   searchParams,
@@ -30,12 +36,17 @@ export default async function AuditPage({
       <form className="flex items-end gap-3" method="get">
         <Label className="grid gap-2">
           <span>Tipo de entidad</span>
-          <NativeSelect name="entityType" defaultValue={query.entityType ?? ""}>
-            <option value="">Todas</option>
-            <option value="EVENT">Experiencia</option>
-            <option value="RESERVATION">Reservación</option>
-            <option value="ADMIN_USER">Administrador</option>
-          </NativeSelect>
+          <Select name="entityType" defaultValue={query.entityType ?? "todos"}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todas</SelectItem>
+              <SelectItem value="EVENT">Experiencia</SelectItem>
+              <SelectItem value="RESERVATION">Reservación</SelectItem>
+              <SelectItem value="ADMIN_USER">Administrador</SelectItem>
+            </SelectContent>
+          </Select>
         </Label>
         <Button variant="outline" type="submit">
           Filtrar

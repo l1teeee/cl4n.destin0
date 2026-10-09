@@ -2,13 +2,17 @@ import { z } from "zod";
 
 const localDate = z
   .string({ error: "La fecha es obligatoria." })
+  .min(1, "La fecha del evento es obligatoria.")
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Usa el formato AAAA-MM-DD.");
 const localTime = z
   .string({ error: "La hora es obligatoria." })
+  .min(1, "La hora del evento es obligatoria.")
   .regex(/^\d{2}:\d{2}$/, "Usa el formato HH:mm.");
-const localDateTime = z
-  .string({ error: "La fecha y hora es obligatoria." })
-  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Usa el formato AAAA-MM-DDTHH:mm.");
+const localDateTime = (requiredMessage: string) =>
+  z
+    .string({ error: requiredMessage })
+    .min(1, requiredMessage)
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Usa el formato AAAA-MM-DDTHH:mm.");
 const slug = z
   .string({ error: "El slug es obligatorio." })
   .trim()
@@ -25,8 +29,8 @@ const eventFields = {
   slug,
   eventDate: localDate,
   eventTime: localTime,
-  opensAt: localDateTime,
-  closesAt: localDateTime,
+  opensAt: localDateTime("La fecha de apertura es obligatoria."),
+  closesAt: localDateTime("La fecha de cierre es obligatoria."),
   capacity: z
     .number({ error: "La capacidad debe ser un número." })
     .int("La capacidad debe ser un número entero.")
