@@ -5,14 +5,19 @@ import { updateEventAction } from "@/app/admin/(protected)/events/actions";
 import { getAdminEventDetail } from "@/application/events/event-use-cases";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import { EventForm } from "@/ui/admin/event-form";
+import { EventImagesManager } from "@/ui/admin/event-images-manager";
 import { Button } from "@/ui/primitives/button";
 
 export default async function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin("page");
   const { id } = await params;
-  const result = await getAdminEventDetail(postgresEventRepository, id);
+  const [result, images] = await Promise.all([
+    getAdminEventDetail(postgresEventRepository, id),
+    postgresEventImageRepository.list(id),
+  ]);
   const event = result.value;
   if (!event) notFound();
 
@@ -42,8 +47,17 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
           maxPartySize: event.maxPartySize,
           autoCloseOnFull: event.autoCloseOnFull,
           waitlistCapacity: event.waitlistCapacity,
+          locationName: event.location.name,
+          locationAddress: event.location.address,
+          locationMapsUrl: event.location.mapsUrl,
+          locationNotes: event.location.notes,
+          locationStatus: event.location.status,
         }}
       />
+      <section className="admin-section max-w-3xl space-y-4">
+        <h2 className="admin-section-title">Imágenes del lugar</h2>
+        <EventImagesManager eventId={id} images={images} />
+      </section>
     </main>
   );
 }

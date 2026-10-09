@@ -9,6 +9,7 @@ import {
 } from "@/application/events/event-use-cases";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { StatGrid } from "@/ui/admin/stat-grid";
@@ -46,6 +47,7 @@ import {
   completeEventAction,
   openEventNowAction,
   publishEventAction,
+  setEventLocationStatusAction,
 } from "../actions";
 
 interface EventDetailPageProps {
@@ -61,10 +63,11 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   if (!event) notFound();
 
   const view = parseRosterView((await searchParams).vista, "confirmadas");
-  const [roster, rosterCounts, audit] = await Promise.all([
+  const [roster, rosterCounts, audit, images] = await Promise.all([
     getEventRoster(postgresEventRepository, id, view),
     getEventRosterCounts(postgresEventRepository, id),
     getAdminAuditLog(postgresEventRepository, { eventId: id, pageSize: 100 }),
+    postgresEventImageRepository.list(id),
   ]);
   const controls = lifecycleActions(event, eventResult.databaseTime);
 
@@ -98,6 +101,93 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           { label: "Cierra", value: formatAdminDate(event.closesAt) },
         ]}
       />
+
+      <section className="admin-section space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="admin-section-title">Ubicación</h2>
+          <Button variant="outline" asChild>
+            <Link href={`/admin/events/${id}/edit`}>Editar ubicación</Link>
+          </Button>
+        </div>
+        <Badge variant={event.location.status === "CONFIRMED" ? "confirmed" : "draft"}>
+          {event.location.status === "CONFIRMED" ? "Confirmada" : "Por confirmar"}
+        </Badge>
+        {event.location.name ||
+        event.location.address ||
+        event.location.mapsUrl ||
+        event.location.notes ? (
+          <div className="space-y-3">
+            {event.location.name ? (
+              <p className="text-lg font-semibold">{event.location.name}</p>
+            ) : null}
+            {event.location.address ? (
+              <p className="whitespace-pre-line">{event.location.address}</p>
+            ) : null}
+            {event.location.notes ? (
+              <p className="admin-muted whitespace-pre-line">{event.location.notes}</p>
+            ) : null}
+            {event.location.mapsUrl ? (
+              <Button variant="link" asChild>
+                <a href={event.location.mapsUrl} target="_blank" rel="noopener noreferrer">
+                  Abrir en Google Maps
+                </a>
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <p className="admin-empty">Sin ubicación todavía.</p>
+        )}
+        {event.location.address ? (
+          <iframe
+            className="aspect-video w-full border border-border grayscale"
+            src={`https://www.google.com/maps?q=${encodeURIComponent(
+              event.location.name
+                ? `${event.location.name}, ${event.location.address}`
+                : event.location.address,
+            )}&output=embed`}
+            title="Mapa de la ubicación"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+        ) : null}
+        {images.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
+            {images.map((image) => {
+              const href = `/admin/events/${id}/images/${image.id}`;
+              return (
+                <a
+                  key={image.id}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="aspect-square border border-border"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={href}
+                    alt="Lugar de la experiencia"
+                    className="size-full object-cover"
+                  />
+                </a>
+              );
+            })}
+          </div>
+        ) : null}
+        {event.location.confirmedAt ? (
+          <p className="admin-muted">Confirmada el {formatAdminDate(event.location.confirmedAt)}</p>
+        ) : null}
+        {event.location.status === "CONFIRMED" ? (
+          <MutationForm
+            action={setEventLocationStatusAction.bind(null, id, "PENDING")}
+            label="Marcar por confirmar"
+          />
+        ) : event.location.address || event.location.mapsUrl ? (
+          <MutationForm
+            action={setEventLocationStatusAction.bind(null, id, "CONFIRMED")}
+            label="Confirmar ubicación"
+          />
+        ) : null}
+      </section>
 
       <section className="admin-section space-y-4">
         <h2 className="admin-section-title">Ciclo de vida</h2>

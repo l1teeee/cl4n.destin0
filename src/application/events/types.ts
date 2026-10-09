@@ -1,4 +1,5 @@
 import type { EventLifecycleStatus, EventPhase } from "@/domain/event/event-phase";
+import type { EventLocationStatus } from "@/domain/event/event-location";
 
 export type EventOperationErrorCode =
   | "EVENT_NOT_FOUND"
@@ -10,7 +11,20 @@ export type EventOperationErrorCode =
   | "CLOSES_AT_IN_PAST"
   | "CAPACITY_BELOW_ALLOCATED"
   | "CAPACITY_BELOW_MAX_PARTY_SIZE"
-  | "WAITLIST_CAPACITY_BELOW_WAITING";
+  | "WAITLIST_CAPACITY_BELOW_WAITING"
+  | "LOCATION_CONFIRMATION_INCOMPLETE";
+
+export interface EventLocation {
+  name: string | null;
+  address: string | null;
+  mapsUrl: string | null;
+  notes: string | null;
+  status: EventLocationStatus;
+}
+
+export interface EventLocationRecord extends EventLocation {
+  confirmedAt: Date | null;
+}
 
 export type EventOperationResult<T> =
   { ok: true; value: T } | { ok: false; error: EventOperationErrorCode };
@@ -29,6 +43,8 @@ export interface EventRecord {
   waitlistCapacity: number;
   waitlistedCount: number;
   status: EventLifecycleStatus;
+  location: EventLocationRecord;
+  locationRevision: number;
 }
 
 export interface CreateEventCommand {
@@ -42,6 +58,7 @@ export interface CreateEventCommand {
   autoCloseOnFull: boolean;
   waitlistCapacity: number;
   status: "DRAFT" | "SCHEDULED";
+  location: EventLocation;
 }
 
 export interface UpdateEventCommand {
@@ -54,6 +71,7 @@ export interface UpdateEventCommand {
   closesAt: Date;
   autoCloseOnFull: boolean;
   waitlistCapacity: number;
+  location: EventLocation;
 }
 
 export interface AdminEventSummary extends EventRecord {

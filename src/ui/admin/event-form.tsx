@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/ui/primitives/select";
 import { Switch } from "@/ui/primitives/switch";
+import { Textarea } from "@/ui/primitives/textarea";
+import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmented-control";
 import { TimePicker } from "@/ui/primitives/time-picker";
 
 const initialState: AdminActionState = { ok: false, message: "" };
@@ -35,6 +37,11 @@ export interface EventFormValues {
   autoCloseOnFull: boolean;
   waitlistCapacity?: number;
   status?: "DRAFT" | "SCHEDULED";
+  locationName: string | null;
+  locationAddress: string | null;
+  locationMapsUrl: string | null;
+  locationNotes: string | null;
+  locationStatus: "PENDING" | "CONFIRMED";
 }
 
 interface EventFormProps {
@@ -138,6 +145,71 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
         />
         <Label htmlFor="autoCloseOnFull">Cerrar automáticamente al alcanzar la capacidad</Label>
       </div>
+      <section className="grid gap-5 border-t border-border pt-5 md:col-span-2 md:grid-cols-2">
+        <h2 className="text-xs font-bold tracking-[0.2em] uppercase md:col-span-2">Ubicación</h2>
+        <div className="grid gap-2">
+          <Label htmlFor="locationName">Nombre del lugar</Label>
+          <Input
+            id="locationName"
+            name="locationName"
+            defaultValue={values?.locationName ?? ""}
+            maxLength={120}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="locationAddress">Dirección</Label>
+          <Textarea
+            id="locationAddress"
+            name="locationAddress"
+            defaultValue={values?.locationAddress ?? ""}
+            maxLength={300}
+          />
+        </div>
+        <div className="grid gap-2 md:col-span-2">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="locationMapsUrl">Enlace de Google Maps</Label>
+            <FieldHint label="Cómo obtener el enlace">
+              En Google Maps abre el lugar, toca Compartir y copia el enlace.
+            </FieldHint>
+          </div>
+          <Input
+            id="locationMapsUrl"
+            name="locationMapsUrl"
+            type="url"
+            defaultValue={values?.locationMapsUrl ?? ""}
+            maxLength={2048}
+          />
+        </div>
+        <div className="grid gap-2 md:col-span-2">
+          <Label htmlFor="locationNotes">Indicaciones</Label>
+          <Textarea
+            id="locationNotes"
+            name="locationNotes"
+            defaultValue={values?.locationNotes ?? ""}
+            maxLength={1000}
+            placeholder="Cómo llegar o entrar, por ejemplo el timbre o el código de la puerta."
+          />
+        </div>
+        <div className="grid gap-2 md:col-span-2">
+          <span className="text-sm font-medium">Estado de la ubicación</span>
+          <SegmentedControl
+            name="locationStatus"
+            defaultValue={values?.locationStatus ?? "PENDING"}
+            aria-label="Estado de la ubicación"
+          >
+            <SegmentedControlItem value="PENDING">Por confirmar</SegmentedControlItem>
+            <SegmentedControlItem value="CONFIRMED">Confirmada</SegmentedControlItem>
+          </SegmentedControl>
+          <p className="admin-muted">
+            Márcala como confirmada cuando el lugar sea definitivo. Puedes cambiarla después.
+          </p>
+          {mode === "create" ? (
+            <p className="admin-muted">
+              Las imágenes del lugar se agregan después de crear la experiencia, desde Editar.
+            </p>
+          ) : null}
+        </div>
+      </section>
       <div className="space-y-2 md:col-span-2">
         <Button type="submit" disabled={pending}>
           {pending ? <Loader2 className="size-4 animate-spin" /> : null}

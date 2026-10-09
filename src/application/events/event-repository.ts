@@ -15,6 +15,7 @@ import type {
   RosterView,
   UpdateEventCommand,
 } from "./types";
+import type { EventLocationStatus } from "@/domain/event/event-location";
 
 export interface EventRepository {
   create(
@@ -23,6 +24,11 @@ export interface EventRepository {
   ): Promise<EventOperationResult<EventRecord>>;
   update(
     command: UpdateEventCommand,
+    actorAdminId: string,
+  ): Promise<EventOperationResult<EventRecord>>;
+  setLocationStatus(
+    id: string,
+    status: EventLocationStatus,
     actorAdminId: string,
   ): Promise<EventOperationResult<EventRecord>>;
   publish(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;

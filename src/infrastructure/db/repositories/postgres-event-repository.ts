@@ -23,6 +23,10 @@ import type {
   UpdateEventCommand,
 } from "@/application/events/types";
 import { canTransition } from "@/domain/event/event-lifecycle";
+import {
+  isEventLocationConfirmationValid,
+  type EventLocationStatus,
+} from "@/domain/event/event-location";
 import { availableSeats, derivePhase, type EventLifecycleStatus } from "@/domain/event/event-phase";
 
 import { pool as applicationPool } from "../client";
@@ -44,6 +48,13 @@ interface EventRow extends QueryResultRow {
   waitlist_capacity: number;
   waitlisted_count: number;
   status: EventLifecycleStatus;
+  location_name: string | null;
+  location_address: string | null;
+  location_maps_url: string | null;
+  location_notes: string | null;
+  location_status: EventLocationStatus;
+  location_confirmed_at: Date | null;
+  location_revision: number;
   created_at?: Date;
   updated_at?: Date;
   confirmed_reservation_count?: string;
@@ -62,6 +73,20 @@ interface ReservationRow extends QueryResultRow {
   submitted_at: Date;
   accepted_at: Date | null;
   notes: string | null;
+  db_now: Date;
+}
+
+interface PublicEventRow extends QueryResultRow {
+  slug: string;
+  starts_at: Date;
+  max_party_size: number;
+  status: EventLifecycleStatus;
+  opens_at: Date;
+  closes_at: Date;
+  capacity: number;
+  reserved_seats: number;
+  waitlist_capacity: number;
+  waitlisted_count: number;
   db_now: Date;
 }
 
@@ -91,7 +116,14 @@ const eventColumns = `
   auto_close_on_full,
   waitlist_capacity,
   waitlisted_count,
-  status`;
+  status,
+  location_name,
+  location_address,
+  location_maps_url,
+  location_notes,
+  location_status,
+  location_confirmed_at,
+  location_revision`;
 
 function eventRecord(row: EventRow): EventRecord {
   return {
@@ -108,6 +140,15 @@ function eventRecord(row: EventRow): EventRecord {
     waitlistCapacity: row.waitlist_capacity,
     waitlistedCount: row.waitlisted_count,
     status: row.status,
+    location: {
+      name: row.location_name,
+      address: row.location_address,
+      mapsUrl: row.location_maps_url,
+      notes: row.location_notes,
+      status: row.location_status,
+      confirmedAt: row.location_confirmed_at,
+    },
+    locationRevision: row.location_revision,
   };
 }
 
@@ -177,6 +218,12 @@ function comparableEvent(record: EventRecord): Record<string, unknown> {
     autoCloseOnFull: record.autoCloseOnFull,
     waitlistCapacity: record.waitlistCapacity,
     status: record.status,
+    locationName: record.location.name,
+    locationAddress: record.location.address,
+    locationMapsUrl: record.location.mapsUrl,
+    locationNotes: record.location.notes,
+    locationStatus: record.location.status,
+    locationConfirmedAt: record.location.confirmedAt?.toISOString() ?? null,
   };
 }
 
@@ -221,6 +268,9 @@ export class PostgresEventRepository implements EventRepository {
     if (command.maxPartySize > command.capacity) {
       return failed("MAX_PARTY_SIZE_ABOVE_CAPACITY");
     }
+    if (!isEventLocationConfirmationValid(command.location)) {
+      return failed("LOCATION_CONFIRMATION_INCOMPLETE");
+    }
 
     try {
       return await inTransaction(this.pool, async (client) => {
@@ -235,9 +285,17 @@ export class PostgresEventRepository implements EventRepository {
              closes_at,
              auto_close_on_full,
              waitlist_capacity,
-             status
+             status,
+             location_name,
+             location_address,
+             location_maps_url,
+             location_notes,
+             location_status,
+             location_confirmed_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                   $15::event_location_status,
+                   CASE WHEN $15::event_location_status = 'CONFIRMED' THEN clock_timestamp() ELSE NULL END)
            RETURNING ${eventColumns}`,
           [
             command.internalName,
@@ -250,6 +308,11 @@ export class PostgresEventRepository implements EventRepository {
             command.autoCloseOnFull,
             command.waitlistCapacity,
             command.status,
+            command.location.name,
+            command.location.address,
+            command.location.mapsUrl,
+            command.location.notes,
+            command.location.status,
           ],
         );
         const created = eventRecord(inserted.rows[0]!);
@@ -272,6 +335,9 @@ export class PostgresEventRepository implements EventRepository {
   ): Promise<EventOperationResult<EventRecord>> {
     if (command.closesAt <= command.opensAt) {
       return failed("INVALID_WINDOW");
+    }
+    if (!isEventLocationConfirmationValid(command.location)) {
+      return failed("LOCATION_CONFIRMATION_INCOMPLETE");
     }
 
     try {
@@ -301,6 +367,22 @@ export class PostgresEventRepository implements EventRepository {
                   closes_at = $7,
                   auto_close_on_full = $8,
                   waitlist_capacity = $9,
+                  location_name = $10,
+                  location_address = $11,
+                  location_maps_url = $12,
+                  location_notes = $13,
+                  location_status = $14::event_location_status,
+                  location_confirmed_at = CASE
+                    WHEN $14::event_location_status = 'PENDING' THEN NULL
+                    WHEN location_status = 'CONFIRMED' THEN location_confirmed_at
+                    ELSE clock_timestamp()
+                  END,
+                  location_revision = location_revision + CASE WHEN
+                    location_name IS DISTINCT FROM $10 OR
+                    location_address IS DISTINCT FROM $11 OR
+                    location_maps_url IS DISTINCT FROM $12 OR
+                    location_notes IS DISTINCT FROM $13
+                  THEN 1 ELSE 0 END,
                   updated_at = clock_timestamp()
             WHERE id = $1
             RETURNING ${eventColumns}`,
@@ -314,6 +396,11 @@ export class PostgresEventRepository implements EventRepository {
             command.closesAt,
             command.autoCloseOnFull,
             command.waitlistCapacity,
+            command.location.name,
+            command.location.address,
+            command.location.mapsUrl,
+            command.location.notes,
+            command.location.status,
           ],
         );
         const after = eventRecord(updated.rows[0]!);
@@ -332,6 +419,50 @@ export class PostgresEventRepository implements EventRepository {
       }
       throw error;
     }
+  }
+
+  async setLocationStatus(
+    id: string,
+    status: EventLocationStatus,
+    actorAdminId: string,
+  ): Promise<EventOperationResult<EventRecord>> {
+    return inTransaction(this.pool, async (client) => {
+      const locked = await lockEvent(client, id);
+      if (!locked) return failed("EVENT_NOT_FOUND");
+      if (
+        !isEventLocationConfirmationValid({
+          address: locked.location_address,
+          mapsUrl: locked.location_maps_url,
+          status,
+        })
+      ) {
+        return failed("LOCATION_CONFIRMATION_INCOMPLETE");
+      }
+
+      const before = eventRecord(locked);
+      const updated = await client.query<EventRow>(
+        `UPDATE events
+            SET location_status = $2::event_location_status,
+                location_confirmed_at = CASE
+                  WHEN $2::event_location_status = 'PENDING' THEN NULL
+                  WHEN location_status = 'CONFIRMED' THEN location_confirmed_at
+                  ELSE clock_timestamp()
+                END,
+                updated_at = clock_timestamp()
+          WHERE id = $1
+          RETURNING ${eventColumns}`,
+        [id, status],
+      );
+      const after = eventRecord(updated.rows[0]!);
+      await insertAudit(
+        client,
+        actorAdminId,
+        "EVENT_UPDATED",
+        id,
+        changedMetadata(comparableEvent(before), comparableEvent(after)),
+      );
+      return successful(after);
+    });
   }
 
   publish(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>> {
@@ -651,9 +782,19 @@ export class PostgresEventRepository implements EventRepository {
   private async publicEvents(slug?: string): Promise<DatabaseTimedResult<PublicEvent[]>> {
     const values = slug === undefined ? [] : [slug];
     const slugCondition = slug === undefined ? "" : "AND e.slug = $1";
-    const result = await this.pool.query<EventRow>(
+    const result = await this.pool.query<PublicEventRow>(
       `WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS db_now)
-       SELECT e.*, db_clock.db_now
+       SELECT e.slug,
+              e.starts_at,
+              e.max_party_size,
+              e.status,
+              e.opens_at,
+              e.closes_at,
+              e.capacity,
+              e.reserved_seats,
+              e.waitlist_capacity,
+              e.waitlisted_count,
+              db_clock.db_now
          FROM events e
          CROSS JOIN db_clock
         WHERE e.status <> 'DRAFT'
@@ -664,15 +805,23 @@ export class PostgresEventRepository implements EventRepository {
     const databaseTime = result.rows[0]?.db_now ?? (await this.databaseTime());
     return {
       databaseTime,
-      value: result.rows.map((row) => {
-        const event = eventRecord(row);
-        return {
-          slug: event.slug,
-          startsAt: event.startsAt,
-          phase: derivePhase(event, databaseTime),
-          maxPartySize: event.maxPartySize,
-        };
-      }),
+      value: result.rows.map((row) => ({
+        slug: row.slug,
+        startsAt: row.starts_at,
+        phase: derivePhase(
+          {
+            status: row.status,
+            opensAt: row.opens_at,
+            closesAt: row.closes_at,
+            capacity: row.capacity,
+            reservedSeats: row.reserved_seats,
+            waitlistCapacity: row.waitlist_capacity,
+            waitlistedCount: row.waitlisted_count,
+          },
+          databaseTime,
+        ),
+        maxPartySize: row.max_party_size,
+      })),
     };
   }
 }

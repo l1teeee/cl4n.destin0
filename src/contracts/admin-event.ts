@@ -20,6 +20,45 @@ const slug = z
   .max(80, "El slug no puede superar 80 caracteres.")
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "El slug no tiene un formato válido.");
 
+const mapsUrlMessage =
+  "Pega un enlace de Google Maps (https://maps.app.goo.gl/... o https://www.google.com/maps/...).";
+
+export function isAllowedGoogleMapsUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+
+  const host = url.hostname.toLowerCase();
+  if (host === "maps.app.goo.gl") return true;
+  if (host === "goo.gl") return url.pathname.startsWith("/maps");
+  if (host === "maps.google.com") return true;
+
+  const isGoogleHost = /^(?:(?:www|maps)\.)?google\.[a-z]{2,}(?:\.[a-z]{2,})?$/.test(host);
+  return isGoogleHost && url.pathname.startsWith("/maps");
+}
+
+function nullableTrimmedText(max: number) {
+  return z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    z.string().trim().min(1).max(max).nullable(),
+  );
+}
+
+const locationFields = {
+  locationName: nullableTrimmedText(120),
+  locationAddress: nullableTrimmedText(300),
+  locationMapsUrl: nullableTrimmedText(2048).refine(
+    (value) => value === null || isAllowedGoogleMapsUrl(value),
+    mapsUrlMessage,
+  ),
+  locationNotes: nullableTrimmedText(1000),
+  locationStatus: z.enum(["PENDING", "CONFIRMED"]),
+};
+
 const eventFields = {
   internalName: z
     .string({ error: "El nombre interno es obligatorio." })
@@ -45,6 +84,7 @@ const eventFields = {
     .int("Los lugares en cola deben ser un número entero.")
     .min(0, "Los lugares en cola no pueden ser negativos.")
     .max(50, "Los lugares en cola no pueden superar 50."),
+  ...locationFields,
 };
 
 export const createAdminEventSchema = z
@@ -71,6 +111,7 @@ export const updateAdminEventSchema = z
     maxPartySize: eventFields.maxPartySize,
     autoCloseOnFull: eventFields.autoCloseOnFull,
     waitlistCapacity: eventFields.waitlistCapacity,
+    ...locationFields,
   })
   .strict();
 

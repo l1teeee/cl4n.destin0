@@ -31,8 +31,10 @@ import {
   closeEventNowAction,
   completeEventAction,
   createEventAction,
+  deleteEventImageAction,
   openEventNowAction,
   publishEventAction,
+  setEventLocationStatusAction,
   updateEventAction,
 } from "@/app/admin/(protected)/events/actions";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
@@ -74,6 +76,7 @@ function createForm(slug = "cena-admin"): FormData {
   form.set("capacity", "20");
   form.set("maxPartySize", "4");
   form.set("status", "DRAFT");
+  form.set("locationStatus", "PENDING");
   return form;
 }
 
@@ -86,6 +89,7 @@ function updateForm(slug: string, name = "Cena actualizada"): FormData {
   form.set("opensAt", "2027-11-01T08:00");
   form.set("closesAt", "2027-11-20T20:00");
   form.set("maxPartySize", "5");
+  form.set("locationStatus", "PENDING");
   return form;
 }
 
@@ -160,6 +164,44 @@ describe("admin event Server Actions", () => {
         )
       ).rows[0]!.internal_name,
     ).toBe("Cena actualizada");
+  });
+
+  it("protects and performs the location status quick action", async () => {
+    const id = await insertEvent("DRAFT", "location-status-event");
+    await pool.query("UPDATE events SET location_address = 'San Salvador' WHERE id = $1", [id]);
+    expect(
+      await setEventLocationStatusAction(id, "CONFIRMED", initialState, new FormData()),
+    ).toMatchObject({ ok: false });
+    await authorize();
+    expect(
+      await setEventLocationStatusAction(id, "CONFIRMED", initialState, new FormData()),
+    ).toMatchObject({ ok: true });
+    await expect(
+      pool.query("SELECT location_status, location_confirmed_at FROM events WHERE id = $1", [id]),
+    ).resolves.toMatchObject({
+      rows: [{ location_status: "CONFIRMED", location_confirmed_at: expect.any(Date) }],
+    });
+  });
+
+  it("protects and performs image deletion", async () => {
+    const id = await insertEvent("DRAFT", "delete-image-event");
+    const image = await pool.query<{ id: string }>(
+      `INSERT INTO event_images (
+         event_id, content_type, byte_size, data, public_token, created_by
+       ) VALUES ($1, 'image/webp', 1, $2, $3, $4) RETURNING id`,
+      [id, Buffer.from([1]), "a".repeat(43), adminId],
+    );
+    const imageId = image.rows[0]!.id;
+    expect(await deleteEventImageAction(id, imageId, initialState, new FormData())).toMatchObject({
+      ok: false,
+    });
+    await authorize();
+    expect(await deleteEventImageAction(id, imageId, initialState, new FormData())).toMatchObject({
+      ok: true,
+    });
+    expect((await pool.query("SELECT 1 FROM event_images WHERE id = $1", [imageId])).rowCount).toBe(
+      0,
+    );
   });
 
   it("protects and performs publish", async () => {

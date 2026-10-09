@@ -19,6 +19,11 @@ const validCreate = {
   autoCloseOnFull: false,
   waitlistCapacity: 5,
   status: "DRAFT",
+  locationName: null,
+  locationAddress: null,
+  locationMapsUrl: null,
+  locationNotes: null,
+  locationStatus: "PENDING",
 } as const;
 
 describe("admin event contracts", () => {
@@ -34,8 +39,29 @@ describe("admin event contracts", () => {
       maxPartySize: validCreate.maxPartySize,
       autoCloseOnFull: validCreate.autoCloseOnFull,
       waitlistCapacity: validCreate.waitlistCapacity,
+      locationName: validCreate.locationName,
+      locationAddress: validCreate.locationAddress,
+      locationMapsUrl: validCreate.locationMapsUrl,
+      locationNotes: validCreate.locationNotes,
+      locationStatus: validCreate.locationStatus,
     };
     expect(updateAdminEventSchema.parse(update)).toEqual(update);
+  });
+
+  it("trims location values and stores empty strings as null", () => {
+    const parsed = createAdminEventSchema.parse({
+      ...validCreate,
+      locationName: "  Casa  ",
+      locationAddress: "   ",
+      locationMapsUrl: "",
+      locationNotes: "  Entrada lateral  ",
+    });
+    expect(parsed).toMatchObject({
+      locationName: "Casa",
+      locationAddress: null,
+      locationMapsUrl: null,
+      locationNotes: "Entrada lateral",
+    });
   });
 
   it("rejects unknown fields and max party size above capacity", () => {
