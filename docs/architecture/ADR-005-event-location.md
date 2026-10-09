@@ -37,6 +37,8 @@ Each send enqueues one `EVENT_LOCATION` outbox row per confirmed reservation and
 
 The outbox stores only the reservation id, revision and the non-personal `isUpdate` flag. Recipient and current location data are composed at delivery time, following ADR-003 O2. Delivery permanently rejects reservations that are no longer confirmed, locations that are no longer confirmed and rows superseded by a newer location revision.
 
-Venue photos use unguessable capability URLs backed by each image's `public_token`. The route needs no admin session because email clients must load it. Anyone holding or receiving the email can open those photos, which is the same disclosure trade-off as the address and Maps link in that email. Tokens are validated before database access and are never logged.
+Venue photos use unguessable capability URLs backed by each image's `public_token`. The route needs no admin session because email clients must load it. Anyone holding or receiving the email can open those photos, which is the same disclosure trade-off as the address and Maps link in that email. Tokens are validated before database access and are never logged by the application. The token is redacted from error reports sent to Sentry, but platform request logs still record request paths.
 
 The immediate drain is bounded, and admins can schedule another drain for rows left pending. Brevo plan daily sending limits still cap how many guests can receive the location per day; larger guest lists may need to be processed across the provider's daily reset.
+
+A send revives `FAILED` rows of the current revision instead of skipping them, so an admin can retry after a quota or transient failure. Each send is tied to the location version the admin saw; if the revision or status changed, it fails with `LOCATION_CHANGED`. The retention job deletes `SENT` outbox rows older than 90 days, so a send after that re-queues everyone for the current revision (accepted).

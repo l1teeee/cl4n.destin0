@@ -122,9 +122,10 @@ export async function queryEventRoster(
        LEFT JOIN LATERAL (
          SELECT o.status, o.sent_at, o.last_error
            FROM email_outbox o
-          WHERE (roster.kind = 'RESERVATION' AND o.reservation_id = roster.id)
-             OR (roster.kind = 'WAITLIST_ENTRY' AND o.waitlist_entry_id = roster.id)
-             OR (roster.status = 'PROMOTED' AND o.reservation_id = roster.promoted_reservation_id)
+          WHERE o.kind <> 'EVENT_LOCATION'
+            AND ((roster.kind = 'RESERVATION' AND o.reservation_id = roster.id)
+              OR (roster.kind = 'WAITLIST_ENTRY' AND o.waitlist_entry_id = roster.id)
+              OR (roster.status = 'PROMOTED' AND o.reservation_id = roster.promoted_reservation_id))
           ORDER BY o.created_at DESC, o.id DESC
           LIMIT 1
        ) mail ON true

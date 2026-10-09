@@ -32,6 +32,8 @@ const pathPrefixedMapsHosts = new Set([
 ]);
 
 export function isAllowedGoogleMapsUrl(value: string): boolean {
+  // WHATWG parsing treats a backslash as a slash, but other consumers do not; refuse the ambiguity.
+  if (value.includes("\\")) return false;
   let url: URL;
   try {
     url = new URL(value);
@@ -39,6 +41,7 @@ export function isAllowedGoogleMapsUrl(value: string): boolean {
     return false;
   }
   if (url.protocol !== "https:") return false;
+  if (url.username !== "" || url.password !== "") return false;
 
   const host = url.hostname.toLowerCase();
   if (host === "maps.app.goo.gl" || host === "maps.google.com") return true;
@@ -55,10 +58,9 @@ function nullableTrimmedText(max: number) {
 const locationFields = {
   locationName: nullableTrimmedText(120),
   locationAddress: nullableTrimmedText(300),
-  locationMapsUrl: nullableTrimmedText(2048).refine(
-    (value) => value === null || isAllowedGoogleMapsUrl(value),
-    mapsUrlMessage,
-  ),
+  locationMapsUrl: nullableTrimmedText(2048)
+    .refine((value) => value === null || isAllowedGoogleMapsUrl(value), mapsUrlMessage)
+    .transform((value) => (value === null ? null : new URL(value).href)),
   locationNotes: nullableTrimmedText(1000),
   locationStatus: z.enum(["PENDING", "CONFIRMED"]),
 };

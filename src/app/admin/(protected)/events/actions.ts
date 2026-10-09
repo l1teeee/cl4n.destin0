@@ -68,7 +68,10 @@ const locationStatusSchema = z
 const imageActionSchema = z
   .object({ eventId: z.string().uuid(), imageId: z.string().uuid() })
   .strict();
-const LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS = 50_000;
+// The budget is only checked before each claim; the 20 s margin inside maxDuration = 60 covers
+// one send (up to 8 s) plus the action and page re-render, so the function is never killed
+// between the provider accepting a send and markSent, which would duplicate the email.
+const LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS = 40_000;
 const LOCATION_EMAIL_DRAIN_LIMIT = 100;
 
 const operationMessages: Record<EventOperationErrorCode, string> = {
@@ -277,6 +280,7 @@ export async function setEventLocationStatusAction(
 
 export async function sendEventLocationAction(
   id: string,
+  loadedLocation: LoadedLocationVersion,
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
@@ -290,10 +294,14 @@ export async function sendEventLocationAction(
   const result = await sendEventLocation(
     postgresEventLocationEmailRepository,
     parsed.data.id,
+    loadedLocation,
     authorization.session.admin.id,
   );
   if (!result.ok && result.error === "EVENT_NOT_FOUND") {
     return invalid("No se encontró la experiencia.");
+  }
+  if (!result.ok && result.error === "LOCATION_CHANGED") {
+    return operationError("LOCATION_CHANGED");
   }
   if (!result.ok) return invalid("Confirma la ubicación antes de enviarla.");
 

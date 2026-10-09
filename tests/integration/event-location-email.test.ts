@@ -106,6 +106,19 @@ async function locationRows() {
   ).rows;
 }
 
+async function send(eventId: string) {
+  const current = await pool.query<{ location_revision: number; location_status: string }>(
+    "SELECT location_revision, location_status FROM events WHERE id = $1",
+    [eventId],
+  );
+  const row = current.rows[0]!;
+  return repository.queue(
+    eventId,
+    { revision: row.location_revision, status: row.location_status as "PENDING" | "CONFIRMED" },
+    actorId,
+  );
+}
+
 describe("event location email enqueue", () => {
   it("queues only confirmed reservations and skips rejected, cancelled and waitlisted guests", async () => {
     const eventId = await insertEvent();
@@ -114,7 +127,7 @@ describe("event location email enqueue", () => {
     await insertReservation(eventId, "CANCELLED", 3);
     await insertWaitlistEntry(eventId);
 
-    await expect(repository.queue(eventId, actorId)).resolves.toMatchObject({
+    await expect(send(eventId)).resolves.toMatchObject({
       ok: true,
       queued: 1,
     });
@@ -126,8 +139,8 @@ describe("event location email enqueue", () => {
   it("queues zero on a second send of the same revision", async () => {
     const eventId = await insertEvent();
     await insertReservation(eventId, "CONFIRMED", 1);
-    await repository.queue(eventId, actorId);
-    await expect(repository.queue(eventId, actorId)).resolves.toMatchObject({
+    await send(eventId);
+    await expect(send(eventId)).resolves.toMatchObject({
       ok: true,
       queued: 0,
     });
@@ -137,7 +150,7 @@ describe("event location email enqueue", () => {
     const eventId = await insertEvent();
     await insertReservation(eventId, "CONFIRMED", 1);
     await insertReservation(eventId, "CONFIRMED", 2);
-    await repository.queue(eventId, actorId);
+    await send(eventId);
     await pool.query(
       `UPDATE email_outbox
           SET status = 'SENT', sent_at = now()
@@ -150,7 +163,7 @@ describe("event location email enqueue", () => {
       [eventId],
     );
 
-    await expect(repository.queue(eventId, actorId)).resolves.toMatchObject({
+    await expect(send(eventId)).resolves.toMatchObject({
       ok: true,
       queued: 2,
       locationRevision: 1,
@@ -163,7 +176,7 @@ describe("event location email enqueue", () => {
   it("queues only a newly promoted reservation after the original send", async () => {
     const eventId = await insertEvent();
     const original = await insertReservation(eventId, "CONFIRMED", 1);
-    await repository.queue(eventId, actorId);
+    await send(eventId);
     const promoted = await insertReservation(eventId, "CONFIRMED", 2);
     await pool.query(
       `INSERT INTO waitlist_entries (
@@ -175,7 +188,7 @@ describe("event location email enqueue", () => {
       [eventId, `${randomUUID()}@example.com`, promoted],
     );
 
-    await expect(repository.queue(eventId, actorId)).resolves.toMatchObject({
+    await expect(send(eventId)).resolves.toMatchObject({
       ok: true,
       queued: 1,
     });
@@ -186,7 +199,7 @@ describe("event location email enqueue", () => {
 
   it("rejects sends while the location is pending", async () => {
     const eventId = await insertEvent("PENDING");
-    await expect(repository.queue(eventId, actorId)).resolves.toEqual({
+    await expect(send(eventId)).resolves.toEqual({
       ok: false,
       error: "LOCATION_NOT_CONFIRMED",
     });
@@ -198,10 +211,7 @@ describe("event location email enqueue", () => {
       await insertReservation(eventId, "CONFIRMED", number);
     }
 
-    const results = await Promise.all([
-      repository.queue(eventId, actorId),
-      repository.queue(eventId, actorId),
-    ]);
+    const results = await Promise.all([send(eventId), send(eventId)]);
     expect(results.reduce((total, result) => total + (result.ok ? result.queued : 0), 0)).toBe(12);
     expect(await locationRows()).toHaveLength(12);
   });
@@ -209,7 +219,7 @@ describe("event location email enqueue", () => {
   it("writes the queued count and revision to one audit row", async () => {
     const eventId = await insertEvent();
     await insertReservation(eventId, "CONFIRMED", 1);
-    await repository.queue(eventId, actorId);
+    await send(eventId);
     const audit = await pool.query<{ metadata: Record<string, unknown> }>(
       `SELECT metadata
          FROM audit_logs
@@ -217,6 +227,77 @@ describe("event location email enqueue", () => {
       [eventId],
     );
     expect(audit.rows).toEqual([{ metadata: { locationEmailsQueued: 1, locationRevision: 0 } }]);
+  });
+});
+
+describe("event location email resend and version binding", () => {
+  it("revives only FAILED rows of the current revision and leaves PENDING and SENT untouched", async () => {
+    const eventId = await insertEvent();
+    const failed = await insertReservation(eventId, "CONFIRMED", 1);
+    const sent = await insertReservation(eventId, "CONFIRMED", 2);
+    const pending = await insertReservation(eventId, "CONFIRMED", 3);
+    await send(eventId);
+    await pool.query(
+      `UPDATE email_outbox SET status = 'FAILED', attempts = 3, last_error = 'LOCATION_NOT_CONFIRMED'
+        WHERE reservation_id = $1`,
+      [failed],
+    );
+    await pool.query(
+      `UPDATE email_outbox SET status = 'SENT', sent_at = now() WHERE reservation_id = $1`,
+      [sent],
+    );
+
+    await expect(send(eventId)).resolves.toMatchObject({ ok: true, queued: 1 });
+
+    const rows = await pool.query<{ reservation_id: string; status: string; attempts: number }>(
+      "SELECT reservation_id, status, attempts, last_error FROM email_outbox WHERE kind = 'EVENT_LOCATION'",
+    );
+    const byReservation = new Map(rows.rows.map((row) => [row.reservation_id, row]));
+    expect(byReservation.get(failed)).toMatchObject({
+      status: "PENDING",
+      attempts: 0,
+      last_error: null,
+    });
+    expect(byReservation.get(sent)?.status).toBe("SENT");
+    expect(byReservation.get(pending)?.status).toBe("PENDING");
+    expect(rows.rowCount).toBe(3);
+
+    const summary = await repository.getSummary(eventId);
+    expect(summary).toMatchObject({ failed: 0, sendable: 0 });
+  });
+
+  it("counts FAILED rows as sendable and revives them once under concurrent sends", async () => {
+    const eventId = await insertEvent();
+    await insertReservation(eventId, "CONFIRMED", 1);
+    await insertReservation(eventId, "CONFIRMED", 2);
+    await send(eventId);
+    await pool.query("UPDATE email_outbox SET status = 'FAILED', last_error = 'INTERNAL'");
+    await expect(repository.getSummary(eventId)).resolves.toMatchObject({
+      failed: 2,
+      notYetQueued: 0,
+      sendable: 2,
+    });
+
+    const results = await Promise.all([send(eventId), send(eventId)]);
+    const queued = results.map((result) => (result.ok ? result.queued : -1));
+    expect(queued.reduce((total, value) => total + value, 0)).toBe(2);
+    const rows = await pool.query("SELECT 1 FROM email_outbox WHERE kind = 'EVENT_LOCATION'");
+    expect(rows.rowCount).toBe(2);
+  });
+
+  it("rejects a send bound to an outdated location version", async () => {
+    const eventId = await insertEvent();
+    await insertReservation(eventId, "CONFIRMED", 1);
+    await pool.query("UPDATE events SET location_revision = 1 WHERE id = $1", [eventId]);
+
+    await expect(
+      repository.queue(eventId, { revision: 0, status: "CONFIRMED" }, actorId),
+    ).resolves.toEqual({ ok: false, error: "LOCATION_CHANGED" });
+    await expect(
+      repository.queue(eventId, { revision: 1, status: "PENDING" }, actorId),
+    ).resolves.toEqual({ ok: false, error: "LOCATION_CHANGED" });
+    const rows = await pool.query("SELECT 1 FROM email_outbox");
+    expect(rows.rowCount).toBe(0);
   });
 });
 
@@ -246,7 +327,7 @@ describe("event location email composition failures", () => {
   ])("marks $code as a permanent failure", async ({ code, mutate }) => {
     const eventId = await insertEvent();
     const reservationId = await insertReservation(eventId, "CONFIRMED", 1);
-    await repository.queue(eventId, actorId);
+    await send(eventId);
     await mutate(eventId, reservationId);
     const sender = { send: vi.fn().mockResolvedValue(undefined) };
 

@@ -25,6 +25,8 @@ describe("Google Maps URL allowlist", () => {
     "https://google.evil.com/maps/x",
     "https://www.google.attacker.io/maps/x",
     "https://goo.gl/other",
+    String.raw`https://maps.app.goo.gl\@evil.com/x`,
+    "https://user:pass@maps.app.goo.gl/x",
   ])("rejects %s", (url) => {
     expect(isAllowedGoogleMapsUrl(url)).toBe(false);
   });

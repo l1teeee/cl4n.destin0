@@ -213,15 +213,15 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
           ) : (
             <div className="flex flex-wrap items-start gap-3">
-              {locationEmailSummary.notYetQueued > 0 ? (
+              {locationEmailSummary.sendable > 0 ? (
                 <MutationForm
-                  action={sendEventLocationAction.bind(null, id)}
+                  action={sendEventLocationAction.bind(null, id, loadedLocation)}
                   label={
                     locationEmailSummary.hasOlderSent
-                      ? `Enviar ubicación actualizada a ${locationEmailSummary.notYetQueued}`
-                      : `Enviar ubicación a ${locationEmailSummary.notYetQueued} confirmados`
+                      ? `Enviar ubicación actualizada a ${locationEmailSummary.sendable}`
+                      : `Enviar ubicación a ${locationEmailSummary.sendable} confirmados`
                   }
-                  confirmation={`Se enviará un correo con la ubicación a ${locationEmailSummary.notYetQueued} personas con reserva confirmada. No se puede deshacer.`}
+                  confirmation={`Se enviará un correo con la ubicación a ${locationEmailSummary.sendable} personas con reserva confirmada. No se puede deshacer.`}
                 />
               ) : null}
               {locationEmailSummary.pending > 0 ? (

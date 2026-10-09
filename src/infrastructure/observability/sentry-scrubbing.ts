@@ -4,8 +4,13 @@ const QUERY_TOKEN = /([?&]token=)[^&#]*/gi;
 const FRAGMENT_TOKEN = /(#token=)[^&]*/gi;
 const REDACTED = "[Filtered]";
 
+const LOCATION_PHOTO_TOKEN = /(\/ubicacion\/foto\/)[^/?#]*/gi;
+
 export function scrubTokenFromUrl(url: string): string {
-  return url.replace(QUERY_TOKEN, `$1${REDACTED}`).replace(FRAGMENT_TOKEN, `$1${REDACTED}`);
+  return url
+    .replace(QUERY_TOKEN, `$1${REDACTED}`)
+    .replace(FRAGMENT_TOKEN, `$1${REDACTED}`)
+    .replace(LOCATION_PHOTO_TOKEN, "$1[redacted]");
 }
 
 export function scrubSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {

@@ -18,6 +18,16 @@ describe("Sentry token scrubbing", () => {
     expect(scrubTokenFromUrl(url)).toBe(expected);
   });
 
+  it.each([
+    ["/ubicacion/foto/abc_DEF-123", "/ubicacion/foto/[redacted]"],
+    [
+      "https://example.com/ubicacion/foto/abc_DEF-123?x=1",
+      "https://example.com/ubicacion/foto/[redacted]?x=1",
+    ],
+  ])("redacts the location photo token from %s", (url, expected) => {
+    expect(scrubTokenFromUrl(url)).toBe(expected);
+  });
+
   it("scrubs navigation breadcrumb URL fields", () => {
     const breadcrumb = scrubSentryBreadcrumb({
       data: {

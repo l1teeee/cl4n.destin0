@@ -128,4 +128,41 @@ describe("migration 0007 event location email", () => {
       expect(entry.when).toBeGreaterThan(journal.entries[index]!.when);
     });
   });
+
+  it("applies 0006 and 0007 together over a database at 0005", async () => {
+    const url = testDatabaseUrl();
+    const database = `${url.pathname.slice(1)}_location_email_0005`;
+    url.pathname = `/${database}`;
+    const previous = migrationsBefore("0006_brainy_the_liberteens");
+    await maintenance(async (client) => {
+      await client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
+      await client.query(`CREATE DATABASE ${database}`);
+    });
+
+    const pool = new Pool({ connectionString: url.toString() });
+    try {
+      await migrate(drizzle(pool), { migrationsFolder: previous });
+      await migrate(drizzle(pool), { migrationsFolder: path.resolve("drizzle") });
+
+      const columns = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'email_outbox' AND column_name = 'location_revision'`,
+      );
+      expect(columns.rowCount).toBe(1);
+      const eventColumns = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'events' AND column_name = 'location_revision'`,
+      );
+      expect(eventColumns.rowCount).toBe(1);
+      const applied = await pool.query(
+        "SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations",
+      );
+      expect(applied.rows[0]!.count).toBe(8);
+    } finally {
+      await pool.end();
+      await maintenance(async (client) => {
+        await client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
+      });
+    }
+  }, 15_000);
 });
