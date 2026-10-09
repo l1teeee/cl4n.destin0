@@ -66,6 +66,15 @@ export function changeCapacity(
   return repository.changeCapacity(id, capacity, actorId);
 }
 
+export function changeWaitlistCapacity(
+  repository: EventRepository,
+  id: string,
+  waitlistCapacity: number,
+  actorId: string,
+) {
+  return repository.changeWaitlistCapacity(id, waitlistCapacity, actorId);
+}
+
 export function getAdminEventList(repository: EventRepository) {
   return repository.listAdminEvents();
 }

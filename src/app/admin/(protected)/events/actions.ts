@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import {
   cancelEvent,
   changeCapacity,
+  changeWaitlistCapacity,
   closeEventNow,
   completeEvent,
   createEvent,
@@ -18,7 +20,11 @@ import { sendEventLocation } from "@/application/events/event-location-email";
 import type { EventOperationErrorCode, LoadedLocationVersion } from "@/application/events/types";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
 import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
-import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
+import {
+  changeWaitlistCapacitySchema,
+  createAdminEventSchema,
+  updateAdminEventSchema,
+} from "@/contracts/admin-event";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
@@ -176,7 +182,7 @@ export async function createEventAction(
   if (!result.ok) return operationError(result.error);
 
   revalidateEventPaths(result.value.id, result.value.slug);
-  return { ok: true, message: "Experiencia creada correctamente." };
+  redirect(`/admin/events/${result.value.id}`);
 }
 
 export async function updateEventAction(
@@ -486,6 +492,29 @@ export async function changeCapacityAction(
   scheduleEmailDelivery();
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Capacidad actualizada." };
+}
+
+export async function changeWaitlistCapacityAction(
+  id: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  if (!authorization.authorized) return unauthorized();
+  const parsed = changeWaitlistCapacitySchema.safeParse({
+    id,
+    waitlistCapacity: Number(formData.get("waitlistCapacity")),
+  });
+  if (!parsed.success) return firstValidationError(parsed.error);
+  const result = await changeWaitlistCapacity(
+    postgresEventRepository,
+    parsed.data.id,
+    parsed.data.waitlistCapacity,
+    authorization.session.admin.id,
+  );
+  if (!result.ok) return operationError(result.error);
+  revalidateEventPaths(result.value.id, result.value.slug);
+  return { ok: true, message: "Cola actualizada." };
 }
 
 export async function cancelReservationAction(

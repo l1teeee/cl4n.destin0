@@ -150,7 +150,7 @@ describe("admin Server Action authorization", () => {
     ]);
   });
 
-  it("guards location and image actions with requireAdmin", () => {
+  it("guards location, image and capacity actions with requireAdmin", () => {
     const file = path.join(adminDirectory, "(protected)", "events", "actions.ts");
     const sourceFile = ts.createSourceFile(
       file,
@@ -168,5 +168,7 @@ describe("admin Server Action authorization", () => {
     expect(guards.get("sendEventLocationAction")).toBe("requireAdmin");
     expect(guards.get("processPendingLocationEmailsAction")).toBe("requireAdmin");
     expect(guards.get("deleteEventImageAction")).toBe("requireAdmin");
+    expect(guards.get("changeCapacityAction")).toBe("requireAdmin");
+    expect(guards.get("changeWaitlistCapacityAction")).toBe("requireAdmin");
   });
 });
