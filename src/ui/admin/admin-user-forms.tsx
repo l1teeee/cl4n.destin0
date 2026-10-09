@@ -9,7 +9,13 @@ import { Alert } from "@/ui/primitives/alert";
 import { Button } from "@/ui/primitives/button";
 import { Input } from "@/ui/primitives/input";
 import { Label } from "@/ui/primitives/label";
-import { NativeSelect } from "@/ui/primitives/native-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/ui/primitives/select";
 
 import { adminRoleLabel } from "./view-model";
 
@@ -27,13 +33,18 @@ function StatusMessage({ state }: { state: AdminActionState }) {
 
 function RoleSelect({ defaultValue, disabled }: { defaultValue: AdminRole; disabled?: boolean }) {
   return (
-    <NativeSelect name="role" defaultValue={defaultValue} disabled={disabled}>
-      {adminRoles.map((role) => (
-        <option key={role} value={role}>
-          {adminRoleLabel(role)}
-        </option>
-      ))}
-    </NativeSelect>
+    <Select name="role" defaultValue={defaultValue} disabled={disabled}>
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {adminRoles.map((role) => (
+          <SelectItem key={role} value={role}>
+            {adminRoleLabel(role)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

@@ -84,12 +84,6 @@
   text-transform: uppercase;
 }
 
-.admin-checkbox {
-  width: 1rem;
-  height: 1rem;
-  accent-color: var(--clan-foreground);
-}
-
 .admin-brand {
   display: inline-flex;
   width: 2.75rem;

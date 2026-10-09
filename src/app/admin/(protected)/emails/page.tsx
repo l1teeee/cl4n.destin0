@@ -15,7 +15,13 @@ import {
 import { Badge } from "@/ui/primitives/badge";
 import { Button } from "@/ui/primitives/button";
 import { Label } from "@/ui/primitives/label";
-import { NativeSelect } from "@/ui/primitives/native-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/ui/primitives/select";
 import {
   Table,
   TableBody,
@@ -53,24 +59,34 @@ export default async function EmailsPage({
       <form className="flex flex-wrap items-end gap-3" method="get">
         <Label className="grid gap-2">
           <span>Estado</span>
-          <NativeSelect name="estado" defaultValue={filters.status ?? ""}>
-            {emailStatusFilters.map((filter) => (
-              <option key={filter.status ?? "todos"} value={filter.status ?? ""}>
-                {filter.label}
-              </option>
-            ))}
-          </NativeSelect>
+          <Select name="estado" defaultValue={filters.status ?? "todos"}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {emailStatusFilters.map((filter) => (
+                <SelectItem key={filter.status ?? "todos"} value={filter.status ?? "todos"}>
+                  {filter.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Label>
         <Label className="grid gap-2">
           <span>Tipo</span>
-          <NativeSelect name="tipo" defaultValue={filters.kind ?? ""}>
-            <option value="">Todos</option>
-            {emailOutboxKinds.map((kind) => (
-              <option key={kind} value={kind}>
-                {emailKindLabel(kind)}
-              </option>
-            ))}
-          </NativeSelect>
+          <Select name="tipo" defaultValue={filters.kind ?? "todos"}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos</SelectItem>
+              {emailOutboxKinds.map((kind) => (
+                <SelectItem key={kind} value={kind}>
+                  {emailKindLabel(kind)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Label>
         <Button variant="outline" type="submit">
           Aplicar

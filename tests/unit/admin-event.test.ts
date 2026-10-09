@@ -46,6 +46,20 @@ describe("admin event contracts", () => {
       createAdminEventSchema.safeParse({ ...validCreate, capacity: 1, maxPartySize: 2 }).success,
     ).toBe(false);
   });
+
+  it.each([
+    ["eventDate", "La fecha del evento es obligatoria."],
+    ["eventTime", "La hora del evento es obligatoria."],
+    ["opensAt", "La fecha de apertura es obligatoria."],
+    ["closesAt", "La fecha de cierre es obligatoria."],
+  ] as const)("reports the required message for %s", (field, message) => {
+    const result = createAdminEventSchema.safeParse({ ...validCreate, [field]: "" });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.find((issue) => issue.path[0] === field)?.message).toBe(message);
+    }
+  });
 });
 
 describe("waitlist capacity contract", () => {
