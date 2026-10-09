@@ -57,6 +57,13 @@
       "when": 1791745600000,
       "tag": "0007_event_location_email",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791832000000,
+      "tag": "0008_location_release_coordinates",
+      "breakpoints": true
     }
   ]
 }

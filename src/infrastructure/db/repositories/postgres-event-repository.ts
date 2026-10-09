@@ -56,6 +56,9 @@ interface EventRow extends QueryResultRow {
   location_status: EventLocationStatus;
   location_confirmed_at: Date | null;
   location_revision: number;
+  location_released_revision: number | null;
+  location_latitude: number | null;
+  location_longitude: number | null;
   created_at?: Date;
   updated_at?: Date;
   confirmed_reservation_count?: string;
@@ -124,7 +127,10 @@ const eventColumns = `
   location_notes,
   location_status,
   location_confirmed_at,
-  location_revision`;
+  location_revision,
+  location_released_revision,
+  location_latitude,
+  location_longitude`;
 
 function eventRecord(row: EventRow): EventRecord {
   return {
@@ -148,8 +154,11 @@ function eventRecord(row: EventRow): EventRecord {
       notes: row.location_notes,
       status: row.location_status,
       confirmedAt: row.location_confirmed_at,
+      latitude: row.location_latitude,
+      longitude: row.location_longitude,
     },
     locationRevision: row.location_revision,
+    locationReleasedRevision: row.location_released_revision,
   };
 }
 
@@ -400,6 +409,10 @@ export class PostgresEventRepository implements EventRepository {
                     location_maps_url IS DISTINCT FROM $12 OR
                     location_notes IS DISTINCT FROM $13
                   THEN 1 ELSE 0 END,
+                  location_released_revision = CASE
+                    WHEN $14::event_location_status = 'PENDING' THEN NULL
+                    ELSE location_released_revision
+                  END,
                   updated_at = clock_timestamp()
             WHERE id = $1
             RETURNING ${eventColumns}`,
@@ -466,6 +479,10 @@ export class PostgresEventRepository implements EventRepository {
                   WHEN $2::event_location_status = 'PENDING' THEN NULL
                   WHEN location_status = 'CONFIRMED' THEN location_confirmed_at
                   ELSE clock_timestamp()
+                END,
+                location_released_revision = CASE
+                  WHEN $2::event_location_status = 'PENDING' THEN NULL
+                  ELSE location_released_revision
                 END,
                 updated_at = clock_timestamp()
           WHERE id = $1

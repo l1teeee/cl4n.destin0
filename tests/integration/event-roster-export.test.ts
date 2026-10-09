@@ -122,4 +122,65 @@ describe("roster email column", () => {
 
     expect(roster[0]).toMatchObject({ emailStatus: "FAILED", emailLastError: "HTTP_400" });
   });
+
+  it("returns the current location status or the latest older sent status per guest", async () => {
+    const event = await insertTestEvent(pool);
+    await pool.query("UPDATE events SET location_revision = 2 WHERE id = $1", [event.id]);
+    const reservations: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      const reservation = await pool.query<{ id: string }>(
+        `INSERT INTO reservations (
+           event_id, reservation_number, status, full_name, instagram_handle, phone_e164,
+           email, email_normalized, party_size, terms_accepted_at, idempotency_key,
+           submitted_at, accepted_at
+         ) VALUES ($1, $2, 'CONFIRMED', $3, $4, $5, $6, $6, 1, now(), $7, now(), now())
+         RETURNING id`,
+        [
+          event.id,
+          index + 1,
+          `Location ${index}`,
+          `location${index}`,
+          `+5037111111${index}`,
+          `location${index}@example.com`,
+          randomUUID(),
+        ],
+      );
+      reservations.push(reservation.rows[0]!.id);
+    }
+
+    await pool.query(
+      `INSERT INTO email_outbox (
+         kind, reservation_id, location_revision, payload, status, sent_at
+       ) VALUES
+         ('EVENT_LOCATION', $1, 2, '{"isUpdate": false}', 'SENT', now()),
+         ('EVENT_LOCATION', $2, 1, '{"isUpdate": false}', 'SENT', now() - interval '1 hour'),
+         ('EVENT_LOCATION', $2, 2, '{"isUpdate": true}', 'SENT', now()),
+         ('EVENT_LOCATION', $3, 1, '{"isUpdate": false}', 'SENT', now()),
+         ('EVENT_LOCATION', $4, 1, '{"isUpdate": false}', 'SENT', now() - interval '1 hour'),
+         ('EVENT_LOCATION', $4, 2, '{"isUpdate": false}', 'FAILED', NULL)`,
+      [reservations[1], reservations[2], reservations[3], reservations[4]],
+    );
+
+    const roster = await queryEventRoster(pool, event.id, "confirmadas");
+
+    expect(roster.map((row) => row.locationEmail)).toEqual([
+      null,
+      { status: "SENT", isUpdate: false, sentAt: expect.any(Date), current: true },
+      { status: "SENT", isUpdate: true, sentAt: expect.any(Date), current: true },
+      { status: "SENT", isUpdate: false, sentAt: expect.any(Date), current: false },
+      { status: "FAILED", isUpdate: false, sentAt: null, current: true },
+    ]);
+
+    await pool.query(
+      `INSERT INTO waitlist_entries (
+         event_id, waitlist_number, status, full_name, instagram_handle, phone_e164,
+         email, email_normalized, party_size, terms_accepted_at, idempotency_key, submitted_at
+       ) VALUES ($1, 1, 'WAITING', 'Waiting', 'waiting-location', '+50372222222',
+                 'waiting-location@example.com', 'waiting-location@example.com', 1, now(), $2, now())`,
+      [event.id, randomUUID()],
+    );
+    await expect(queryEventRoster(pool, event.id, "en-cola")).resolves.toMatchObject([
+      { locationEmail: null },
+    ]);
+  });
 });
