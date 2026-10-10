@@ -113,6 +113,18 @@ describe("waitlist capacity contract", () => {
     );
   });
 
+  it("reports a missing queue size on the waitlist capacity field", () => {
+    const result = createAdminEventSchema.safeParse({
+      ...validCreate,
+      waitlistCapacity: undefined,
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === "waitlistCapacity")).toBe(true);
+    }
+  });
+
   it("applies the same bounds to the quick action input", () => {
     const id = "00000000-0000-4000-8000-000000000001";
 

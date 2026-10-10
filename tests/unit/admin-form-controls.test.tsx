@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { AdminUserCreateForm } from "@/ui/admin/admin-user-forms";
 import { EventForm, type EventFormValues } from "@/ui/admin/event-form";
 import { DatePicker } from "@/ui/primitives/date-picker";
 import { DateTimePicker } from "@/ui/primitives/date-time-picker";
@@ -268,6 +269,71 @@ describe("admin form-compatible controls", () => {
     expect(submitted.get("internalName")).toBe(typedName);
     expect(submitted.get("slug")).toBe(typedSlug);
     expect(submitted.get(mode === "create" ? "capacity" : "maxPartySize")).toBe(typedNumber);
+  });
+
+  it("shows EventForm field errors and focuses the first invalid control", async () => {
+    const action = vi.fn(async () => ({
+      ok: false,
+      message: "Revisa los campos marcados.",
+      fieldErrors: {
+        slug: "Ese slug ya está en uso.",
+        opensAt: "La fecha de apertura es obligatoria.",
+      },
+    }));
+    const { container } = render(<EventForm action={action} mode="create" />);
+    const slug = container.querySelector<HTMLInputElement>('[name="slug"]')!;
+
+    fireEvent.submit(slug.form!);
+
+    expect(await screen.findByText("Ese slug ya está en uso.")).toBeDefined();
+    expect(screen.getByText("La fecha de apertura es obligatoria.")).toBeDefined();
+    expect(slug.getAttribute("aria-invalid")).toBe("true");
+    expect(container.querySelector("button#opensAt")?.getAttribute("data-invalid")).toBe("true");
+    expect(document.activeElement).toBe(slug);
+  });
+
+  it("keeps AdminUserCreateForm values after a field error", async () => {
+    const action = vi.fn(async () => ({
+      ok: false,
+      message: "Revisa los campos marcados.",
+      fieldErrors: { email: "Ya existe un administrador con ese email." },
+    }));
+    const { container } = render(<AdminUserCreateForm action={action} />);
+    const email = container.querySelector<HTMLInputElement>('[name="email"]')!;
+    const displayName = container.querySelector<HTMLInputElement>('[name="displayName"]')!;
+    const password = container.querySelector<HTMLInputElement>('[name="password"]')!;
+    const passwordConfirmation = container.querySelector<HTMLInputElement>(
+      '[name="passwordConfirmation"]',
+    )!;
+
+    fireEvent.change(email, { target: { value: "admin@example.com" } });
+    fireEvent.change(displayName, { target: { value: "Admin Prueba" } });
+    fireEvent.change(password, { target: { value: "una-clave-segura" } });
+    fireEvent.change(passwordConfirmation, { target: { value: "una-clave-segura" } });
+    fireEvent.submit(email.form!);
+
+    expect(await screen.findByText("Ya existe un administrador con ese email.")).toBeDefined();
+    expect(email.value).toBe("admin@example.com");
+    expect(displayName.value).toBe("Admin Prueba");
+    expect(password.value).toBe("una-clave-segura");
+    expect(passwordConfirmation.value).toBe("una-clave-segura");
+    expect(email.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(email);
+  });
+
+  it("clears AdminUserCreateForm after a successful create", async () => {
+    const action = vi.fn(async () => ({ ok: true, message: "Administrador creado." }));
+    const { container } = render(<AdminUserCreateForm action={action} />);
+    const email = container.querySelector<HTMLInputElement>('[name="email"]')!;
+    const displayName = container.querySelector<HTMLInputElement>('[name="displayName"]')!;
+
+    fireEvent.change(email, { target: { value: "admin@example.com" } });
+    fireEvent.change(displayName, { target: { value: "Admin Prueba" } });
+    fireEvent.submit(email.form!);
+
+    expect(await screen.findByText("Administrador creado.")).toBeDefined();
+    expect(email.value).toBe("");
+    expect(displayName.value).toBe("");
   });
 });
 
