@@ -41,6 +41,12 @@ describe("GoogleMapsLinkResolver", () => {
     expect(fetchFake).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses hops with an explicit port without requesting them", async () => {
+    const { resolver, fetchFake } = resolverWith([redirectTo("https://maps.app.goo.gl:8443/x")]);
+    expect(await resolver.expand(shortLink)).toBeNull();
+    expect(fetchFake).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses non-https hops", async () => {
     const { resolver } = resolverWith([redirectTo("http://www.google.com/maps/place/Casa")]);
     expect(await resolver.expand(shortLink)).toBeNull();

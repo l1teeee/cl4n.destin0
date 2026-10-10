@@ -32,10 +32,13 @@ function isStale(event: EventLocationRow, loaded: LoadedLocationVersion): boolea
   return event.location_revision !== loaded.revision || event.location_status !== loaded.status;
 }
 
-function isLockNotAvailable(error: unknown): boolean {
-  return (
-    typeof error === "object" && error !== null && (error as { code?: string }).code === "55P03"
-  );
+// 55P03 lock_not_available (lock_timeout), 57014 query_canceled (statement_timeout).
+const retryableSqlStates = new Set(["55P03", "57014"]);
+
+function isRetryableTimeout(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: string }).code;
+  return code !== undefined && retryableSqlStates.has(code);
 }
 
 const transactionSettings = [
@@ -55,8 +58,8 @@ export class PostgresEventLocationEmailRepository implements EventLocationEmailR
     try {
       return await this.queueInTransaction(eventId, loadedLocation, actorAdminId);
     } catch (error) {
-      // Reservations hold the event row lock while a window is busy; the admin can simply retry.
-      if (isLockNotAvailable(error)) return { ok: false, error: "TRY_AGAIN" };
+      // Reservations hold the event row lock while a window is busy, or a large send hits the statement timeout; the admin can simply retry.
+      if (isRetryableTimeout(error)) return { ok: false, error: "TRY_AGAIN" };
       throw error;
     }
   }

@@ -369,9 +369,16 @@ export function locationSendButtonLabel(firstTime: number, updates: number): str
   return null;
 }
 
+function personNoun(count: number): string {
+  return count === 1 ? "persona" : "personas";
+}
+
 export function locationSendConfirmation(firstTime: number, updates: number): string {
-  const firstTimeSentence = `Se enviará la ubicación por primera vez a ${firstTime} personas con reserva confirmada.`;
-  const updateSentence = `${updates} personas recibieron una ubicación anterior y recibirán la actualización.`;
+  const firstTimeSentence = `Se enviará la ubicación por primera vez a ${firstTime} ${personNoun(firstTime)} con reserva confirmada.`;
+  const updateSentence =
+    updates === 1
+      ? "1 persona recibió una ubicación anterior y recibirá la actualización."
+      : `${updates} personas recibieron una ubicación anterior y recibirán la actualización.`;
   const autoSendSentence =
     "Después de este envío, quien se confirme, incluso desde la cola, recibirá la ubicación automáticamente.";
   const warning = "No se puede deshacer.";

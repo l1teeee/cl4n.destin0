@@ -14,6 +14,7 @@ import { postgresEventRepository } from "@/infrastructure/db/repositories/postgr
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
+import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { StatGrid } from "@/ui/admin/stat-grid";
@@ -375,102 +376,108 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             <Link href={`/admin/events/${id}/export?vista=${view}`}>Exportar CSV</Link>
           </Button>
         </div>
-        <nav className="flex flex-wrap gap-3" aria-label="Vistas del listado">
-          {rosterViews.map((item) => (
-            <Button variant={item.view === view ? "default" : "outline"} asChild key={item.view}>
-              <Link href={`/admin/events/${id}?vista=${item.view}`}>
-                {item.label} ({rosterCounts[item.view]})
-              </Link>
-            </Button>
-          ))}
-        </nav>
-        {roster.value.length === 0 ? (
-          <p className="admin-empty">No hay personas en esta vista.</p>
-        ) : (
-          <Table className="min-w-[1400px]">
-            <TableHeader>
-              <TableRow>
-                {[
-                  view === "en-cola" ? "Posición en cola" : "Número",
-                  "Nombre",
-                  "Instagram",
-                  "Teléfono",
-                  "Email",
-                  "Personas",
-                  "Alergias",
-                  "Estado",
-                  "Recibida",
-                  "Correo",
-                  "Ubicación",
-                  "Acciones",
-                ].map((heading) => (
-                  <TableHead key={heading}>{heading}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {roster.value.map((row, index) => (
-                <TableRow
-                  className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
-                  key={`${row.kind}-${row.id}`}
-                  style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
-                >
-                  <TableCell className="font-mono">
-                    {row.status === "WAITING" && row.queuePosition !== null
-                      ? `#${row.queuePosition}`
-                      : formatReservationNumber(row.reservationNumber)}
-                  </TableCell>
-                  <TableCell>{row.fullName}</TableCell>
-                  <TableCell>@{row.instagram}</TableCell>
-                  <TableCell>{row.phone}</TableCell>
-                  <TableCell>{row.email}</TableCell>
-                  <TableCell>{row.partySize}</TableCell>
-                  <TableCell>{row.allergies ?? "No"}</TableCell>
-                  <TableCell>
-                    <Badge variant={rosterStatusBadgeVariant(row.status)}>
-                      {rosterStatusLabel(row.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{formatAdminDate(row.submittedAt)}</TableCell>
-                  <TableCell>
-                    <span
-                      className={row.emailStatus === "FAILED" ? "text-destructive" : undefined}
-                      title={
-                        row.emailStatus === "FAILED" ? (row.emailLastError ?? undefined) : undefined
-                      }
-                    >
-                      {row.emailStatus ? rosterEmailLabel(row.emailStatus, row.emailSentAt) : "-"}
-                    </span>
-                    <span className="sr-only">
-                      {row.emailStatus ? emailStatusLabel(row.emailStatus) : "Sin correo"}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <LocationCell cell={rosterLocationCell(row)} />
-                  </TableCell>
-                  <TableCell>
-                    {row.kind === "RESERVATION" && row.status === "CONFIRMED" ? (
-                      <MutationForm
-                        action={cancelReservationAction.bind(null, id, row.id)}
-                        label="Cancelar reservación"
-                        confirmation="Se liberarán los cupos de esta reservación. Confirma para continuar."
-                        danger
-                      />
-                    ) : null}
-                    {row.kind === "WAITLIST_ENTRY" && row.status === "WAITING" ? (
-                      <MutationForm
-                        action={cancelWaitlistEntryAction.bind(null, id, row.id)}
-                        label="Retirar de la cola"
-                        confirmation="La persona perderá su posición en la cola. Confirma para continuar."
-                        danger
-                      />
-                    ) : null}
-                  </TableCell>
+        <ActionFeedbackProvider>
+          <nav className="flex flex-wrap gap-3" aria-label="Vistas del listado">
+            {rosterViews.map((item) => (
+              <Button variant={item.view === view ? "default" : "outline"} asChild key={item.view}>
+                <Link href={`/admin/events/${id}?vista=${item.view}`}>
+                  {item.label} ({rosterCounts[item.view]})
+                </Link>
+              </Button>
+            ))}
+          </nav>
+          {roster.value.length === 0 ? (
+            <p className="admin-empty">No hay personas en esta vista.</p>
+          ) : (
+            <Table className="min-w-[1400px]">
+              <TableHeader>
+                <TableRow>
+                  {[
+                    view === "en-cola" ? "Posición en cola" : "Número",
+                    "Nombre",
+                    "Instagram",
+                    "Teléfono",
+                    "Email",
+                    "Personas",
+                    "Alergias",
+                    "Estado",
+                    "Recibida",
+                    "Correo",
+                    "Ubicación",
+                    "Acciones",
+                  ].map((heading) => (
+                    <TableHead key={heading}>{heading}</TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+              </TableHeader>
+              <TableBody>
+                {roster.value.map((row, index) => (
+                  <TableRow
+                    className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
+                    key={`${row.kind}-${row.id}`}
+                    style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+                  >
+                    <TableCell className="font-mono">
+                      {row.status === "WAITING" && row.queuePosition !== null
+                        ? `#${row.queuePosition}`
+                        : formatReservationNumber(row.reservationNumber)}
+                    </TableCell>
+                    <TableCell>{row.fullName}</TableCell>
+                    <TableCell>@{row.instagram}</TableCell>
+                    <TableCell>{row.phone}</TableCell>
+                    <TableCell>{row.email}</TableCell>
+                    <TableCell>{row.partySize}</TableCell>
+                    <TableCell>{row.allergies ?? "No"}</TableCell>
+                    <TableCell>
+                      <Badge variant={rosterStatusBadgeVariant(row.status)}>
+                        {rosterStatusLabel(row.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{formatAdminDate(row.submittedAt)}</TableCell>
+                    <TableCell>
+                      <span
+                        className={row.emailStatus === "FAILED" ? "text-destructive" : undefined}
+                        title={
+                          row.emailStatus === "FAILED"
+                            ? (row.emailLastError ?? undefined)
+                            : undefined
+                        }
+                      >
+                        {row.emailStatus ? rosterEmailLabel(row.emailStatus, row.emailSentAt) : "-"}
+                      </span>
+                      <span className="sr-only">
+                        {row.emailStatus ? emailStatusLabel(row.emailStatus) : "Sin correo"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <LocationCell cell={rosterLocationCell(row)} />
+                    </TableCell>
+                    <TableCell>
+                      {row.kind === "RESERVATION" && row.status === "CONFIRMED" ? (
+                        <MutationForm
+                          action={cancelReservationAction.bind(null, id, row.id)}
+                          label="Cancelar reservación"
+                          reportToSection
+                          confirmation="Se liberarán los cupos de esta reservación. Confirma para continuar."
+                          danger
+                        />
+                      ) : null}
+                      {row.kind === "WAITLIST_ENTRY" && row.status === "WAITING" ? (
+                        <MutationForm
+                          action={cancelWaitlistEntryAction.bind(null, id, row.id)}
+                          label="Retirar de la cola"
+                          reportToSection
+                          confirmation="La persona perderá su posición en la cola. Confirma para continuar."
+                          danger
+                        />
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </ActionFeedbackProvider>
       </section>
 
       <section className="admin-section space-y-4">

@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
+import { useActionFeedback } from "@/ui/admin/action-feedback";
 import { Alert } from "@/ui/primitives/alert";
 import {
   AlertDialog,
@@ -28,6 +29,7 @@ interface MutationFormProps {
   children?: ReactNode;
   confirmation?: string;
   danger?: boolean;
+  reportToSection?: boolean;
 }
 
 function FormContent({
@@ -35,7 +37,7 @@ function FormContent({
   children,
   danger,
   pending,
-}: Omit<MutationFormProps, "action" | "confirmation"> & { pending: boolean }) {
+}: Omit<MutationFormProps, "action" | "confirmation" | "reportToSection"> & { pending: boolean }) {
   return (
     <>
       {children}
@@ -53,12 +55,15 @@ export function MutationForm({
   children,
   confirmation,
   danger = false,
+  reportToSection = false,
 }: MutationFormProps) {
+  const feedback = useActionFeedback();
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(
     async (previousState: AdminActionState, formData: FormData) => {
       const result = await action(previousState, formData);
       if (result.ok) setOpen(false);
+      if (result.ok && reportToSection && feedback) feedback.report(result);
       return result;
     },
     initialState,
@@ -107,7 +112,9 @@ export function MutationForm({
       ) : (
         form
       )}
-      {state.message && (!confirmation || state.ok) ? (
+      {state.message &&
+      (!confirmation || state.ok) &&
+      !(reportToSection && feedback && state.ok) ? (
         <Alert variant={state.ok ? "success" : "destructive"} role="status">
           {state.message}
         </Alert>

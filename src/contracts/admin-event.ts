@@ -42,6 +42,7 @@ export function isAllowedGoogleMapsUrl(value: string): boolean {
   }
   if (url.protocol !== "https:") return false;
   if (url.username !== "" || url.password !== "") return false;
+  if (url.port !== "") return false;
 
   const host = url.hostname.toLowerCase();
   if (host === "maps.app.goo.gl" || host === "maps.google.com") return true;

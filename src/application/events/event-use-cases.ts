@@ -1,5 +1,6 @@
 import type { EventLifecycleStatus } from "@/domain/event/event-phase";
 import {
+  normalizeMapsUrl,
   parseMapsCoordinates,
   type EventLocationStatus,
   type MapsCoordinates,
@@ -30,6 +31,25 @@ async function resolveMapsCoordinates(
   return expanded === null ? null : parseMapsCoordinates(expanded);
 }
 
+async function resolveUpdateCoordinates(
+  repository: EventRepository,
+  resolver: MapsLinkResolver,
+  input: UpdateEventInput,
+): Promise<MapsCoordinates | null> {
+  const nextMapsUrl = input.location.mapsUrl;
+  if (nextMapsUrl === null) return null;
+
+  // Saving unrelated fields must not trigger an outbound lookup for a link that is already resolved.
+  const current = await repository.getAdminEvent(input.id);
+  const stored = current.value?.location;
+  const linkUnchanged =
+    stored?.mapsUrl != null && normalizeMapsUrl(stored.mapsUrl) === normalizeMapsUrl(nextMapsUrl);
+  const hasStoredCoordinates = stored?.latitude != null && stored.longitude != null;
+  if (linkUnchanged && hasStoredCoordinates) return null;
+
+  return resolveMapsCoordinates(resolver, nextMapsUrl);
+}
+
 export async function createEvent(
   repository: EventRepository,
   resolver: MapsLinkResolver,
@@ -47,7 +67,7 @@ export async function updateEvent(
   actorId: string,
 ) {
   // Resolved before the transaction so outbound HTTP never holds the event row lock.
-  const coordinates = await resolveMapsCoordinates(resolver, input.location.mapsUrl);
+  const coordinates = await resolveUpdateCoordinates(repository, resolver, input);
   return repository.update({ ...input, coordinates }, actorId);
 }
 

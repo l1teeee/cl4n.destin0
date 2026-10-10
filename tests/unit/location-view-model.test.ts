@@ -57,6 +57,14 @@ describe("location send texts", () => {
     expect(locationSendConfirmation(0, 2)).toBe(`${update} ${auto} No se puede deshacer.`);
     expect(locationSendConfirmation(3, 2)).toBe(`${first} ${update} ${auto} No se puede deshacer.`);
   });
+
+  it("uses the singular for exactly one person", () => {
+    const auto =
+      "Después de este envío, quien se confirme, incluso desde la cola, recibirá la ubicación automáticamente.";
+    expect(locationSendConfirmation(1, 1)).toBe(
+      `Se enviará la ubicación por primera vez a 1 persona con reserva confirmada. 1 persona recibió una ubicación anterior y recibirá la actualización. ${auto} No se puede deshacer.`,
+    );
+  });
 });
 
 describe("location map", () => {

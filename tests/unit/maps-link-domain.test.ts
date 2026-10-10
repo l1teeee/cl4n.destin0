@@ -60,6 +60,17 @@ describe("reconcileMapsLink", () => {
     ).toBe(true);
   });
 
+  it("treats a stored link that differs only by normalization as unchanged", () => {
+    const stored = "HTTPS://WWW.GOOGLE.COM/maps/place/Casa/@13.69,-89.21,17z";
+    expect(
+      reconcileMapsLink(
+        { address: "Calle 1", mapsUrl: stored },
+        { address: "Calle 2", mapsUrl: link },
+        false,
+      ),
+    ).toEqual({ mapsUrl: null, mapsUrlCleared: true });
+  });
+
   it("does nothing when there was no previous link", () => {
     expect(
       reconcileMapsLink(

@@ -25,6 +25,14 @@ function normalizeAddress(address: string | null): string | null {
   return address.trim().replace(/\s+/g, " ");
 }
 
+export function normalizeMapsUrl(value: string): string {
+  try {
+    return new URL(value).href;
+  } catch {
+    return value;
+  }
+}
+
 // An address edit that leaves the old Maps link untouched would send guests to the previous place.
 export function reconcileMapsLink(
   previous: MapsLinkState,
@@ -32,7 +40,10 @@ export function reconcileMapsLink(
   keepMapsUrl: boolean,
 ): MapsLinkReconciliation {
   const addressChanged = normalizeAddress(previous.address) !== normalizeAddress(next.address);
-  const mapsUrlUntouched = previous.mapsUrl !== null && next.mapsUrl === previous.mapsUrl;
+  const mapsUrlUntouched =
+    previous.mapsUrl !== null &&
+    next.mapsUrl !== null &&
+    normalizeMapsUrl(next.mapsUrl) === normalizeMapsUrl(previous.mapsUrl);
   if (addressChanged && mapsUrlUntouched && !keepMapsUrl) {
     return { mapsUrl: null, mapsUrlCleared: true };
   }
@@ -105,7 +116,9 @@ export interface StoredCoordinatesChoice {
 
 export function chooseStoredCoordinates(choice: StoredCoordinatesChoice): MapsCoordinates | null {
   if (choice.nextMapsUrl === null) return null;
-  const linkUnchanged = choice.nextMapsUrl === choice.previousMapsUrl;
+  const linkUnchanged =
+    choice.previousMapsUrl !== null &&
+    normalizeMapsUrl(choice.nextMapsUrl) === normalizeMapsUrl(choice.previousMapsUrl);
   if (linkUnchanged && choice.resolvedCoordinates === null) return choice.previousCoordinates;
   return choice.resolvedCoordinates;
 }

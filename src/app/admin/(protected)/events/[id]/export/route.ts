@@ -48,7 +48,7 @@ function rosterCsv(rows: EventRosterRow[]): string {
       formatUtcForElSalvador(row.submittedAt, "dd/MM/yyyy HH:mm"),
       emailDelivery(row),
       row.emailSentAt ? formatUtcForElSalvador(row.emailSentAt, "dd/MM/yyyy HH:mm") : "",
-      rosterLocationCell(row).text,
+      row.kind === "RESERVATION" ? rosterLocationCell(row).text : "",
     ]),
   ]);
 }
