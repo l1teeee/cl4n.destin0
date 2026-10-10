@@ -374,7 +374,7 @@ describe("event location email resend and version binding", () => {
   });
 });
 
-describe("released location email for late confirmations", () => {
+describe("confirmed location email for new confirmations", () => {
   it("queues a promoted guest once and drains location after the promotion notice", async () => {
     const event = await fullEventWithWaiting(400);
     await confirmLocation(event.id);
@@ -467,13 +467,13 @@ describe("released location email for late confirmations", () => {
     ).resolves.toMatchObject({ rows: [{ payload: { isUpdate: false } }] });
   });
 
-  it("does not auto-queue promotions before release, after an edit, or after pending", async () => {
+  it("auto-queues promotions for confirmed revisions but not pending locations", async () => {
     const eventRepository = new PostgresEventRepository(pool);
 
     const neverReleased = await fullEventWithWaiting(410);
     await confirmLocation(neverReleased.id);
     await eventRepository.changeCapacity(neverReleased.id, 2, actorId);
-    const [neverReleasedPromotion] = await promotedReservationIds(neverReleased.id);
+    const neverReleasedPromotion = (await promotedReservationIds(neverReleased.id))[0]!;
 
     const staleRelease = await fullEventWithWaiting(420);
     await confirmLocation(staleRelease.id);
@@ -486,7 +486,7 @@ describe("released location email for late confirmations", () => {
       [staleRelease.id],
     );
     await eventRepository.changeCapacity(staleRelease.id, 2, actorId);
-    const [stalePromotion] = await promotedReservationIds(staleRelease.id);
+    const stalePromotion = (await promotedReservationIds(staleRelease.id))[0]!;
 
     const pending = await fullEventWithWaiting(430);
     await confirmLocation(pending.id);
@@ -500,29 +500,42 @@ describe("released location email for late confirmations", () => {
       ),
     ).resolves.toMatchObject({ ok: true });
     await eventRepository.changeCapacity(pending.id, 2, actorId);
-    const [pendingPromotion] = await promotedReservationIds(pending.id);
+    const pendingPromotion = (await promotedReservationIds(pending.id))[0]!;
 
-    const rows = await pool.query<{ reservation_id: string }>(
-      `SELECT reservation_id
+    const rows = await pool.query<{
+      reservation_id: string;
+      location_revision: number;
+      payload: { isUpdate: boolean };
+    }>(
+      `SELECT reservation_id, location_revision, payload
          FROM email_outbox
         WHERE kind = 'EVENT_LOCATION'
           AND reservation_id = ANY($1::uuid[])`,
       [[neverReleasedPromotion, stalePromotion, pendingPromotion]],
     );
-    expect(rows.rows).toHaveLength(0);
+    const byReservation = new Map(rows.rows.map((row) => [row.reservation_id, row]));
+    expect(byReservation.get(neverReleasedPromotion)).toMatchObject({
+      location_revision: 0,
+      payload: { isUpdate: false },
+    });
+    expect(byReservation.get(stalePromotion)).toMatchObject({
+      location_revision: 1,
+      payload: { isUpdate: false },
+    });
+    expect(byReservation.has(pendingPromotion)).toBe(false);
+    expect(rows.rows).toHaveLength(2);
     await expect(
       pool.query("SELECT location_released_revision FROM events WHERE id = $1", [pending.id]),
     ).resolves.toMatchObject({ rows: [{ location_released_revision: null }] });
   });
 
-  it("auto-queues a direct confirmation but not a waitlisted reservation", async () => {
+  it("auto-queues a direct confirmation without a prior bulk send but not a waitlisted reservation", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 1,
       maxPartySize: 1,
       waitlistCapacity: 1,
     });
     await confirmLocation(event.id);
-    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 0 });
 
     expect((await submit(event.slug, 440)).status).toBe(201);
     expect((await submit(event.slug, 441)).status).toBe(202);
@@ -546,6 +559,35 @@ describe("released location email for late confirmations", () => {
         payload: { isUpdate: false },
       },
     ]);
+  });
+
+  it("keeps one row when a bulk send follows an automatic direct-confirmation row", async () => {
+    const event = await insertTestEvent(pool, { capacity: 2, maxPartySize: 1 });
+    await confirmLocation(event.id);
+
+    expect((await submit(event.slug, 445)).status).toBe(201);
+    const confirmed = await pool.query<{ id: string }>(
+      `SELECT id
+         FROM reservations
+        WHERE event_id = $1
+          AND status = 'CONFIRMED'`,
+      [event.id],
+    );
+    const reservationId = confirmed.rows[0]!.id;
+
+    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 0 });
+    await expect(
+      pool.query(
+        `SELECT location_revision, payload
+           FROM email_outbox
+          WHERE kind = 'EVENT_LOCATION'
+            AND reservation_id = $1`,
+        [reservationId],
+      ),
+    ).resolves.toMatchObject({
+      rowCount: 1,
+      rows: [{ location_revision: 0, payload: { isUpdate: false } }],
+    });
   });
 
   it("queues two capacity promotions and separates first-time from update sendable counts", async () => {

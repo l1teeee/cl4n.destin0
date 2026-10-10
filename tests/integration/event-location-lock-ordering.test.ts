@@ -187,7 +187,7 @@ describe("location email ordering behind the event row lock", () => {
     await expectSeatsWithinCapacity(event.id);
   });
 
-  it("queues no location email for a confirmation waiting behind a location text edit", async () => {
+  it("queues the current revision for a confirmation waiting behind a location text edit", async () => {
     const event = await insertTestEvent(pool, { capacity: 5 });
     await confirmLocation(event.id);
     const earlierGuest = await insertConfirmedReservation(pool, event.id, 1);
@@ -211,13 +211,13 @@ describe("location email ordering behind the event row lock", () => {
     const counts = await locationRowCounts(event.id);
     expect(counts.size).toBe(2);
     for (const [reservationId, row] of counts) {
-      const expectedRows = reservationId === earlierGuest ? 1 : 0;
-      expect(row.rows).toBe(expectedRows);
+      const expectedRevision = reservationId === earlierGuest ? 0 : 1;
+      expect(row).toMatchObject({ rows: 1, revisions: [expectedRevision] });
     }
     const currentRevisionRows = await pool.query(
       "SELECT 1 FROM email_outbox WHERE kind = 'EVENT_LOCATION' AND location_revision = 1",
     );
-    expect(currentRevisionRows.rowCount).toBe(0);
+    expect(currentRevisionRows.rowCount).toBe(1);
     await expectSeatsWithinCapacity(event.id);
   });
 

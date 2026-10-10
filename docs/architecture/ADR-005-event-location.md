@@ -18,7 +18,7 @@ An experience needs an admin-managed venue, address, Google Maps link, direction
 6. Admin responses serve image bytes privately. `public_token` is stored for part 2 but is not selected into any part 1 DTO, response or page.
 7. Location and image changes use the existing `EVENT_UPDATED` audit action. Text changes increment `location_revision`; status and image changes do not.
 
-The owner decided on 2026-10-09 that location is managed in the admin panel and later emailed manually in bulk to guests with a confirmed reservation. It is never public and is never sent at registration. Part 2 will add that bulk email, its template and capability image routes. `events.location_revision` and `event_images.public_token` are included now so the location schema lands in one migration.
+The owner originally decided on 2026-10-09 that location is managed in the admin panel and later emailed manually in bulk to guests with a confirmed reservation. It is never public and, under that original decision, was never sent at registration. Part 3 supersedes that registration rule for reservations that become confirmed while the location is confirmed. Part 2 adds the bulk email, its template and capability image routes. `events.location_revision` and `event_images.public_token` are included now so the location schema lands in one migration.
 
 ## Consequences
 
@@ -31,7 +31,7 @@ Each event can consume at most 12 MiB of image data plus PostgreSQL overhead. Th
 
 ## Part 2: bulk location email
 
-The owner manually sends the confirmed location in bulk to reservations whose current status is `CONFIRMED`. Saving or confirming a location never sends email, and reservation-time emails remain unchanged. Manual sending keeps the disclosure under the owner's control.
+The owner manually sends the confirmed location in bulk to reservations whose current status is `CONFIRMED`. Saving or confirming a location never sends email. Automatic reservation-time sends follow Part 3; manual sending remains how guests who were already confirmed receive the location.
 
 Each send enqueues one `EVENT_LOCATION` outbox row per confirmed reservation and current `location_revision`. A unique `(reservation_id, location_revision)` index makes repeated or concurrent sends idempotent while allowing a changed location to be sent again. Guests promoted after an earlier send can be queued separately without resending to everyone else.
 
@@ -43,15 +43,15 @@ The immediate drain is bounded, and admins can schedule another drain for rows l
 
 A send revives `FAILED` rows of the current revision instead of skipping them, so an admin can retry after a quota or transient failure. Each send is tied to the location version the admin saw; if the revision or status changed, it fails with `LOCATION_CHANGED`. The retention job deletes `SENT` outbox rows older than 90 days, so a send after that re-queues everyone for the current revision (accepted).
 
-## Part 3: automatic send to late confirmations
+## Part 3: automatic send to new confirmations
 
-When a reservation becomes `CONFIRMED` after the admin has bulk-sent the current confirmed location, its confirmation transaction automatically enqueues one `EVENT_LOCATION` email with `isUpdate: false`. This applies to a direct reservation and to a FIFO waitlist promotion caused by a capacity increase, reservation cancellation or waitlist-entry cancellation. A guest who remains waitlisted does not receive the location.
+After the owner reported that confirmed locations were not emailed at registration, the owner decided on 2026-10-09 that the gate is the event's location status at the moment a reservation becomes `CONFIRMED`. When `location_status = 'CONFIRMED'`, the same confirmation transaction automatically enqueues one `EVENT_LOCATION` email for the current `location_revision` with `isUpdate: false`. This applies to a direct reservation and to a FIFO waitlist promotion caused by a capacity increase, reservation cancellation or waitlist-entry cancellation. It does not depend on a prior bulk send. A guest who remains waitlisted does not receive the location.
 
-`events.location_released_revision` records the location revision most recently released through a manual bulk send. The bulk-send transaction sets it only while the location is `CONFIRMED`, before inserting the per-reservation outbox rows. Returning the location to `PENDING` clears it. Editing location text increments `location_revision`, so an older released revision stops matching without being cleared. Confirming a location does not set the released revision.
+`events.location_released_revision` is still written by the bulk-send transaction as a record of the last released revision, but it no longer gates automatic sends. Returning the location to `PENDING` clears it. Editing location text increments `location_revision`, and confirming a location does not set the released revision. Saving or confirming a location still does not send email by itself. Guests who were already confirmed receive the location only through the admin's bulk send.
 
-Bulk send, direct allocation and waitlist promotion serialize on the same event row lock. Under `READ COMMITTED`, the bulk insert sees a fresh statement snapshot after taking that lock. A concurrent late confirmation is therefore either included in the bulk insert or observes the released current revision and queues its own location email in the same transaction. The unique outbox index on reservation and location revision prevents duplicates.
+Bulk send, direct allocation and waitlist promotion serialize on the same event row lock. Under `READ COMMITTED`, the bulk insert sees a fresh statement snapshot after taking that lock. A concurrent confirmation is therefore either included in the bulk insert or queues its own location email in the same transaction before a later bulk send. The unique outbox index on reservation and location revision prevents duplicates between an automatic row and a later bulk send of the same revision.
 
-The admin can still bulk-send manually, including retrying failed current-revision rows. The Part 2 sentence "Saving or confirming a location never sends email" remains true: automatic sending is triggered only by a later transition of a guest into `CONFIRMED`, and only after the admin has released that exact location revision.
+The admin can still bulk-send manually, including retrying failed current-revision rows. The Part 2 sentence "Saving or confirming a location never sends email" remains true: automatic sending is triggered only by a later transition of a guest into `CONFIRMED` while the location is confirmed.
 
 ## Part 4: Maps link follows the address, exact point
 

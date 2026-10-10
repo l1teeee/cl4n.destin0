@@ -44,7 +44,7 @@ async function submit(eventSlug: string, sequence: number, partySize = 1) {
   });
 }
 
-describe("released location concurrency", () => {
+describe("confirmed location email concurrency", () => {
   it("covers every concurrent direct confirmation and promotion exactly once", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 6,

@@ -15,7 +15,7 @@ import type {
 import { classifyAllocationFailure } from "@/domain/reservation/allocation-failure";
 
 import { pool as applicationPool } from "../client";
-import { queueReleasedLocationEmail } from "./released-location-email";
+import { queueConfirmedLocationEmail } from "./confirmed-location-email";
 import { retryableDatabaseErrorCode } from "../retryable-database-error";
 import { promoteWaitlist } from "./waitlist-promotion";
 
@@ -532,7 +532,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
          VALUES ('RESERVATION_CONFIRMED', $1)`,
         [reservationId],
       );
-      await queueReleasedLocationEmail(client, event.id, reservationId);
+      await queueConfirmedLocationEmail(client, event.id, reservationId);
 
       if (allocation.status === "CLOSED") {
         await insertEventClosedAudit(client, event.id);

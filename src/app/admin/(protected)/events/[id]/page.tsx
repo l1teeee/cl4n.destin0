@@ -266,8 +266,9 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           )}
           {event.location.status === "CONFIRMED" ? (
             <p className="admin-muted">
-              Quien se confirme después de un envío, incluso desde la cola, recibe la ubicación
-              automáticamente.
+              Con la ubicación confirmada, cada nueva reservación confirmada, incluso desde la cola,
+              recibe la ubicación automáticamente. Quienes ya estaban confirmados la reciben con el
+              envío.
             </p>
           ) : null}
           {event.location.status === "CONFIRMED" &&

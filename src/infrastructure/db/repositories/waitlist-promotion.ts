@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-import { queueReleasedLocationEmail } from "./released-location-email";
+import { queueConfirmedLocationEmail } from "./confirmed-location-email";
 
 interface WaitingEntryRow {
   id: string;
@@ -186,7 +186,7 @@ async function recordPromotion(
      VALUES ('WAITLIST_PROMOTED', $1)`,
     [reservationId],
   );
-  await queueReleasedLocationEmail(client, eventId, reservationId);
+  await queueConfirmedLocationEmail(client, eventId, reservationId);
 }
 
 /**
