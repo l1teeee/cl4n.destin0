@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState, useEffect, useRef, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { adminRoles, type AdminRole } from "@/domain/admin/admin-access";
 import { Alert } from "@/ui/primitives/alert";
 import { Button } from "@/ui/primitives/button";
+import { FieldError } from "@/ui/primitives/field-error";
 import { Input } from "@/ui/primitives/input";
 import { Label } from "@/ui/primitives/label";
 import {
@@ -18,10 +19,18 @@ import {
 } from "@/ui/primitives/select";
 
 import { adminRoleLabel } from "./view-model";
+import { useFocusFirstInvalid } from "./use-focus-first-invalid";
 
 type FormAction = (state: AdminActionState, formData: FormData) => Promise<AdminActionState>;
 
 const initialState: AdminActionState = { ok: false, message: "" };
+
+function submitForm(event: FormEvent<HTMLFormElement>, formAction: (formData: FormData) => void) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  startTransition(() => formAction(formData));
+}
+
 function StatusMessage({ state }: { state: AdminActionState }) {
   if (!state.message) return null;
   return (
@@ -31,10 +40,20 @@ function StatusMessage({ state }: { state: AdminActionState }) {
   );
 }
 
-function RoleSelect({ defaultValue, disabled }: { defaultValue: AdminRole; disabled?: boolean }) {
+function RoleSelect({
+  defaultValue,
+  disabled,
+  invalid = false,
+  describedBy,
+}: {
+  defaultValue: AdminRole;
+  disabled?: boolean;
+  invalid?: boolean;
+  describedBy?: string;
+}) {
   return (
     <Select name="role" defaultValue={defaultValue} disabled={disabled}>
-      <SelectTrigger>
+      <SelectTrigger aria-invalid={invalid || undefined} aria-describedby={describedBy}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -52,10 +71,12 @@ function PasswordInput({
   name,
   label,
   autoComplete,
+  error,
 }: {
   name: string;
   label: string;
   autoComplete: "new-password" | "current-password";
+  error?: string;
 }) {
   return (
     <Label className="grid gap-2">
@@ -67,33 +88,74 @@ function PasswordInput({
         minLength={autoComplete === "new-password" ? 12 : 1}
         maxLength={autoComplete === "new-password" ? 256 : 1024}
         required
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${name}-error` : undefined}
       />
+      <FieldError id={`${name}-error`} message={error} />
     </Label>
   );
 }
 
 export function AdminUserCreateForm({ action }: { action: FormAction }) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusFirstInvalid(formRef, state);
+
+  useEffect(() => {
+    if (state.ok) formRef.current?.reset();
+  }, [state]);
 
   return (
-    <form action={formAction} className="grid max-w-xl gap-4">
+    <form
+      ref={formRef}
+      onSubmit={(event) => submitForm(event, formAction)}
+      noValidate
+      className="grid max-w-xl gap-4"
+    >
       <Label className="grid gap-2">
         <span>Email</span>
-        <Input name="email" type="email" autoComplete="off" maxLength={254} required />
+        <Input
+          name="email"
+          type="email"
+          autoComplete="off"
+          maxLength={254}
+          required
+          aria-invalid={Boolean(state.fieldErrors?.email)}
+          aria-describedby={state.fieldErrors?.email ? "email-error" : undefined}
+        />
+        <FieldError id="email-error" message={state.fieldErrors?.email} />
       </Label>
       <Label className="grid gap-2">
         <span>Nombre</span>
-        <Input name="displayName" maxLength={80} required />
+        <Input
+          name="displayName"
+          maxLength={80}
+          required
+          aria-invalid={Boolean(state.fieldErrors?.displayName)}
+          aria-describedby={state.fieldErrors?.displayName ? "displayName-error" : undefined}
+        />
+        <FieldError id="displayName-error" message={state.fieldErrors?.displayName} />
       </Label>
       <Label className="grid gap-2">
         <span>Rol</span>
-        <RoleSelect defaultValue="ADMIN" />
+        <RoleSelect
+          defaultValue="ADMIN"
+          invalid={Boolean(state.fieldErrors?.role)}
+          describedBy={state.fieldErrors?.role ? "role-error" : undefined}
+        />
+        <FieldError id="role-error" message={state.fieldErrors?.role} />
       </Label>
-      <PasswordInput name="password" label="Contraseña inicial" autoComplete="new-password" />
+      <PasswordInput
+        name="password"
+        label="Contraseña inicial"
+        autoComplete="new-password"
+        error={state.fieldErrors?.password}
+      />
       <PasswordInput
         name="passwordConfirmation"
         label="Confirmar contraseña"
         autoComplete="new-password"
+        error={state.fieldErrors?.passwordConfirmation}
       />
       <p className="admin-muted text-sm">
         Mínimo 12 caracteres. Comparte la contraseña por un canal seguro.
@@ -121,17 +183,38 @@ export function AdminUserProfileForm({
   roleLocked: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusFirstInvalid(formRef, state);
 
   return (
-    <form action={formAction} className="grid max-w-xl gap-4">
+    <form
+      ref={formRef}
+      onSubmit={(event) => submitForm(event, formAction)}
+      noValidate
+      className="grid max-w-xl gap-4"
+    >
       <input type="hidden" name="expectedRole" value={role} />
       <Label className="grid gap-2">
         <span>Nombre</span>
-        <Input name="displayName" defaultValue={displayName} maxLength={80} required />
+        <Input
+          name="displayName"
+          defaultValue={displayName}
+          maxLength={80}
+          required
+          aria-invalid={Boolean(state.fieldErrors?.displayName)}
+          aria-describedby={state.fieldErrors?.displayName ? "displayName-error" : undefined}
+        />
+        <FieldError id="displayName-error" message={state.fieldErrors?.displayName} />
       </Label>
       <Label className="grid gap-2">
         <span>Rol</span>
-        <RoleSelect defaultValue={role} disabled={roleLocked} />
+        <RoleSelect
+          defaultValue={role}
+          disabled={roleLocked}
+          invalid={Boolean(state.fieldErrors?.role)}
+          describedBy={state.fieldErrors?.role ? "role-error" : undefined}
+        />
+        <FieldError id="role-error" message={state.fieldErrors?.role} />
         {roleLocked ? (
           <>
             <input type="hidden" name="role" value={role} />
@@ -154,30 +237,50 @@ export function AdminUserProfileForm({
 
 export function PasswordForm({ action, mode }: { action: FormAction; mode: "reset" | "change" }) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusFirstInvalid(formRef, state);
 
   return (
-    <form action={formAction} className="grid max-w-xl gap-4">
+    <form
+      ref={formRef}
+      onSubmit={(event) => submitForm(event, formAction)}
+      noValidate
+      className="grid max-w-xl gap-4"
+    >
       {mode === "change" ? (
         <>
           <PasswordInput
             name="currentPassword"
             label="Contraseña actual"
             autoComplete="current-password"
+            error={state.fieldErrors?.currentPassword}
           />
-          <PasswordInput name="newPassword" label="Nueva contraseña" autoComplete="new-password" />
+          <PasswordInput
+            name="newPassword"
+            label="Nueva contraseña"
+            autoComplete="new-password"
+            error={state.fieldErrors?.newPassword}
+          />
           <PasswordInput
             name="newPasswordConfirmation"
             label="Confirmar nueva contraseña"
             autoComplete="new-password"
+            error={state.fieldErrors?.newPasswordConfirmation}
           />
         </>
       ) : (
         <>
-          <PasswordInput name="password" label="Nueva contraseña" autoComplete="new-password" />
+          <PasswordInput
+            name="password"
+            label="Nueva contraseña"
+            autoComplete="new-password"
+            error={state.fieldErrors?.password}
+          />
           <PasswordInput
             name="passwordConfirmation"
             label="Confirmar contraseña"
             autoComplete="new-password"
+            error={state.fieldErrors?.passwordConfirmation}
           />
         </>
       )}

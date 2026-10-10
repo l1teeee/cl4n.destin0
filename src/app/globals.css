@@ -356,14 +356,20 @@ textarea {
   color: var(--clan-foreground);
   transition:
     border-color 200ms ease,
-    background-color 200ms ease,
-    box-shadow 200ms ease;
+    background-color 200ms ease;
 }
 
 .reservation-input:focus {
-  border-color: var(--clan-foreground);
+  border-color: #b9b7b0;
   background: #fffbf405;
-  box-shadow: 0 0 0 3px #fffbf40d;
+}
+
+.reservation-input:focus-visible {
+  outline: none;
+}
+
+.reservation-input[aria-invalid="true"] {
+  border-color: var(--destructive);
 }
 
 .reservation-input:disabled {

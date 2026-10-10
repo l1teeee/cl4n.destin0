@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
+import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
 import type { AdminUserDependencies } from "@/application/admin-users/admin-user-use-cases";
 import type { AdminUserErrorCode } from "@/application/admin-users/types";
 import { hashPassword, verifyPassword } from "@/infrastructure/auth/password";
@@ -33,6 +34,12 @@ const errorMessages: Record<AdminUserErrorCode, string> = {
   EMAIL_DELIVERY_FAILED: "No se pudo enviar el código. Inténtalo de nuevo.",
 };
 
+const errorFields: Partial<Record<AdminUserErrorCode, string>> = {
+  EMAIL_TAKEN: "email",
+  INVALID_CURRENT_PASSWORD: "currentPassword",
+  SAME_PASSWORD: "newPassword",
+};
+
 export function adminUserDependencies(): AdminUserDependencies {
   return {
     repository: postgresAdminUserRepository,
@@ -57,17 +64,24 @@ export function deniedState(error: "UNAUTHORIZED" | "FORBIDDEN"): AdminActionSta
 }
 
 export function validationState(error: z.ZodError): AdminActionState {
-  return { ok: false, message: error.issues[0]?.message ?? "Revisa los datos del formulario." };
+  return {
+    ok: false,
+    message: "Revisa los campos marcados.",
+    fieldErrors: fieldErrorsFromZod(error),
+  };
 }
 
 export function errorState(
   error: AdminUserErrorCode,
   selfActionMessage?: string,
 ): AdminActionState {
+  const message =
+    error === "SELF_ACTION" && selfActionMessage ? selfActionMessage : errorMessages[error];
+  const field = errorFields[error];
   return {
     ok: false,
-    message:
-      error === "SELF_ACTION" && selfActionMessage ? selfActionMessage : errorMessages[error],
+    message,
+    fieldErrors: field ? { [field]: message } : undefined,
   };
 }
 

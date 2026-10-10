@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
+import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
 import {
   cancelEvent,
   changeCapacity,
@@ -44,6 +45,7 @@ import {
 export interface AdminActionState {
   ok: boolean;
   message: string;
+  fieldErrors?: Partial<Record<string, string>>;
 }
 
 const idSchema = z.object({ id: z.string().uuid("El identificador no es válido.") }).strict();
@@ -102,6 +104,14 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
     "La ubicación cambió mientras editabas. Recarga la página para ver la versión actual.",
 };
 
+const operationErrorFields: Partial<Record<EventOperationErrorCode, string>> = {
+  SLUG_TAKEN: "slug",
+  SLUG_LOCKED: "slug",
+  MAX_PARTY_SIZE_ABOVE_CAPACITY: "maxPartySize",
+  INVALID_WINDOW: "closesAt",
+  LOCATION_CONFIRMATION_INCOMPLETE: "locationAddress",
+};
+
 // Number("") is 0, which would silently turn an empty field into "waitlist off".
 function optionalNumber(value: FormDataEntryValue | null): number | undefined {
   if (typeof value !== "string" || value.trim() === "") return undefined;
@@ -117,11 +127,34 @@ function invalid(message: string): AdminActionState {
 }
 
 function operationError(error: EventOperationErrorCode): AdminActionState {
-  return invalid(operationMessages[error]);
+  const message = operationMessages[error];
+  const field = operationErrorFields[error];
+  return {
+    ok: false,
+    message,
+    fieldErrors: field ? { [field]: message } : undefined,
+  };
 }
 
 function firstValidationError(error: z.ZodError): AdminActionState {
   return invalid(error.issues[0]?.message ?? "Revisa los datos del formulario.");
+}
+
+function formValidationError(error: z.ZodError): AdminActionState {
+  return {
+    ok: false,
+    message: "Revisa los campos marcados.",
+    fieldErrors: fieldErrorsFromZod(error),
+  };
+}
+
+function dateConversionError(error: unknown, field: string): AdminActionState {
+  const message = error instanceof Error ? error.message : "Las fechas no son válidas.";
+  return {
+    ok: false,
+    message,
+    fieldErrors: { [field]: message },
+  };
 }
 
 const MAPS_LINK_CLEARED_MESSAGE =
@@ -162,10 +195,10 @@ export async function createEventAction(
     eventTime: formData.get("eventTime"),
     opensAt: formData.get("opensAt"),
     closesAt: formData.get("closesAt"),
-    capacity: Number(formData.get("capacity")),
-    maxPartySize: Number(formData.get("maxPartySize")),
+    capacity: optionalNumber(formData.get("capacity")),
+    maxPartySize: optionalNumber(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
-    waitlistCapacity: Number(formData.get("waitlistCapacity")),
+    waitlistCapacity: optionalNumber(formData.get("waitlistCapacity")),
     status: formData.get("status"),
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
@@ -173,17 +206,25 @@ export async function createEventAction(
     locationNotes: formData.get("locationNotes"),
     locationStatus: formData.get("locationStatus"),
   });
-  if (!parsed.success) return firstValidationError(parsed.error);
+  if (!parsed.success) return formValidationError(parsed.error);
 
   let startsAt: Date;
   let opensAt: Date;
   let closesAt: Date;
   try {
     startsAt = localEventDateTimeToUtc(parsed.data.eventDate, parsed.data.eventTime);
+  } catch (error) {
+    return dateConversionError(error, "eventDate");
+  }
+  try {
     opensAt = localDateTimeToUtc(parsed.data.opensAt);
+  } catch (error) {
+    return dateConversionError(error, "opensAt");
+  }
+  try {
     closesAt = localDateTimeToUtc(parsed.data.closesAt);
   } catch (error) {
-    return invalid(error instanceof Error ? error.message : "Las fechas no son válidas.");
+    return dateConversionError(error, "closesAt");
   }
 
   const result = await createEvent(
@@ -227,7 +268,7 @@ export async function updateEventAction(
     eventTime: formData.get("eventTime"),
     opensAt: formData.get("opensAt"),
     closesAt: formData.get("closesAt"),
-    maxPartySize: Number(formData.get("maxPartySize")),
+    maxPartySize: optionalNumber(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
@@ -238,17 +279,25 @@ export async function updateEventAction(
     locationRevision: formData.get("locationRevision"),
     locationStatusLoaded: formData.get("locationStatusLoaded"),
   });
-  if (!parsed.success) return firstValidationError(parsed.error);
+  if (!parsed.success) return formValidationError(parsed.error);
 
   let startsAt: Date;
   let opensAt: Date;
   let closesAt: Date;
   try {
     startsAt = localEventDateTimeToUtc(parsed.data.eventDate, parsed.data.eventTime);
+  } catch (error) {
+    return dateConversionError(error, "eventDate");
+  }
+  try {
     opensAt = localDateTimeToUtc(parsed.data.opensAt);
+  } catch (error) {
+    return dateConversionError(error, "opensAt");
+  }
+  try {
     closesAt = localDateTimeToUtc(parsed.data.closesAt);
   } catch (error) {
-    return invalid(error instanceof Error ? error.message : "Las fechas no son válidas.");
+    return dateConversionError(error, "closesAt");
   }
 
   const result = await updateEvent(

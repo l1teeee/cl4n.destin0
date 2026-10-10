@@ -26,6 +26,8 @@ interface DatePickerProps {
   name: string;
   defaultValue?: string;
   placeholder?: string;
+  invalid?: boolean;
+  describedBy?: string;
 }
 
 function DatePicker({
@@ -33,6 +35,8 @@ function DatePicker({
   name,
   defaultValue = "",
   placeholder = "Selecciona una fecha",
+  invalid = false,
+  describedBy,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState(defaultValue);
@@ -49,7 +53,9 @@ function DatePicker({
         <button
           id={id}
           type="button"
-          className="flex min-h-11 w-full items-center justify-between gap-2 rounded-none border border-input bg-transparent px-[0.8rem] py-[0.65rem] text-left text-sm text-foreground transition-[border-color,background-color] duration-200 focus:border-primary focus:bg-[#fffbf405] [@media(hover:hover)_and_(pointer:fine)]:hover:not-focus:border-[#b9b7b0]"
+          data-invalid={invalid || undefined}
+          aria-describedby={describedBy}
+          className="flex min-h-11 w-full items-center justify-between gap-2 rounded-none border border-input bg-transparent px-[0.8rem] py-[0.65rem] text-left text-sm text-foreground transition-[border-color,background-color] duration-200 focus:border-[#b9b7b0] focus:bg-[#fffbf405] focus-visible:outline-none data-invalid:border-destructive data-invalid:focus:border-destructive [@media(hover:hover)_and_(pointer:fine)]:data-invalid:hover:border-destructive [@media(hover:hover)_and_(pointer:fine)]:hover:not-focus:border-[#b9b7b0]"
         >
           <span className={cn(!selected && "text-muted-foreground")}>
             {selected ? formatDateLabel(selected) : placeholder}
