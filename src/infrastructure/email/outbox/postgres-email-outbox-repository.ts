@@ -75,7 +75,7 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
            WHERE status = 'PENDING'
              AND next_attempt_at <= clock_timestamp()
              AND (locked_until IS NULL OR locked_until < clock_timestamp())
-           ORDER BY created_at
+           ORDER BY created_at, id
            LIMIT $1
              FOR UPDATE SKIP LOCKED
         )
@@ -84,7 +84,10 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
               attempts, next_attempt_at, locked_until, last_error, sent_at, created_at`,
       [limit],
     );
-    return result.rows.map(toRow).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    return result.rows.map(toRow).sort((a, b) => {
+      const createdAtDifference = a.createdAt.getTime() - b.createdAt.getTime();
+      return createdAtDifference === 0 ? a.id.localeCompare(b.id) : createdAtDifference;
+    });
   }
 
   async markSent(id: string, lease: Date): Promise<boolean> {

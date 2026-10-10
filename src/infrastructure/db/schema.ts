@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   customType,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -202,6 +203,9 @@ export const events = pgTable(
     locationStatus: eventLocationStatus("location_status").notNull().default("PENDING"),
     locationConfirmedAt: timestamp("location_confirmed_at", { withTimezone: true }),
     locationRevision: integer("location_revision").notNull().default(0),
+    locationReleasedRevision: integer("location_released_revision"),
+    locationLatitude: doublePrecision("location_latitude"),
+    locationLongitude: doublePrecision("location_longitude"),
     lastReservationNumber: integer("last_reservation_number").notNull().default(0),
     waitlistCapacity: integer("waitlist_capacity").notNull().default(5),
     waitlistedCount: integer("waitlisted_count").notNull().default(0),
@@ -260,6 +264,22 @@ export const events = pgTable(
       sql`${table.locationStatus} <> 'CONFIRMED' OR ${table.locationAddress} IS NOT NULL OR ${table.locationMapsUrl} IS NOT NULL`,
     ),
     check("events_location_revision_nonnegative_chk", sql`${table.locationRevision} >= 0`),
+    check(
+      "events_location_released_revision_chk",
+      sql`${table.locationReleasedRevision} IS NULL OR (${table.locationReleasedRevision} >= 0 AND ${table.locationReleasedRevision} <= ${table.locationRevision})`,
+    ),
+    check(
+      "events_location_coordinates_pair_chk",
+      sql`(${table.locationLatitude} IS NULL) = (${table.locationLongitude} IS NULL)`,
+    ),
+    check(
+      "events_location_latitude_chk",
+      sql`${table.locationLatitude} IS NULL OR ${table.locationLatitude} BETWEEN -90 AND 90`,
+    ),
+    check(
+      "events_location_longitude_chk",
+      sql`${table.locationLongitude} IS NULL OR ${table.locationLongitude} BETWEEN -180 AND 180`,
+    ),
     index("events_status_opens_at_idx").on(table.status, table.opensAt),
   ],
 );

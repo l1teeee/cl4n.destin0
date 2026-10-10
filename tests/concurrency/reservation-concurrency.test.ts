@@ -935,4 +935,40 @@ describe("reservation allocation concurrency", () => {
     expect(summary.oversold).toBe(0);
     printSummary("WH", requests.length, results, summary, durationMs);
   });
+
+  it("WI: never exceeds the queue limit when joins race a capacity decrease", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 1,
+      maxPartySize: 1,
+      waitlistCapacity: 40,
+    });
+    await seedReservations(event.slug, 1, 1_500_000);
+    const adminId = await insertConcurrencyAdmin();
+    const requests = Array.from({ length: 50 }, (_, index) => ({
+      sequence: 1_510_000 + index,
+    }));
+    const startedAt = performance.now();
+    const { results, operationResults } = await fireWithOperations(event.slug, requests, [
+      () => eventRepository.changeWaitlistCapacity(event.id, 10, adminId),
+    ]);
+    const durationMs = Math.round(performance.now() - startedAt);
+    const summary = await assertInvariants(event.id, results);
+    const finalState = await pool.query<{
+      waitlist_capacity: number;
+      waitlisted_count: number;
+    }>("SELECT waitlist_capacity, waitlisted_count FROM events WHERE id = $1", [event.id]);
+    const changeResult = operationResults[0]!;
+
+    expect(finalState.rows[0]!.waitlisted_count).toBeLessThanOrEqual(
+      finalState.rows[0]!.waitlist_capacity,
+    );
+    if (changeResult.ok) {
+      expect(finalState.rows[0]!.waitlist_capacity).toBe(10);
+    } else {
+      expect(changeResult.error).toBe("WAITLIST_CAPACITY_BELOW_WAITING");
+      expect(finalState.rows[0]!.waitlist_capacity).toBe(40);
+    }
+    expect(summary.oversold).toBe(0);
+    printSummary("WI", requests.length, results, summary, durationMs);
+  });
 });

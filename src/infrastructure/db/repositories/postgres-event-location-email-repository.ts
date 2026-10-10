@@ -22,13 +22,23 @@ interface LocationEmailSummaryRow extends QueryResultRow {
   pending: number;
   failed: number;
   not_yet_queued: number;
-  sendable: number;
+  first_time_sendable: number;
+  update_sendable: number;
   has_older_sent: boolean;
   last_sent_at: Date | null;
 }
 
 function isStale(event: EventLocationRow, loaded: LoadedLocationVersion): boolean {
   return event.location_revision !== loaded.revision || event.location_status !== loaded.status;
+}
+
+// 55P03 lock_not_available (lock_timeout), 57014 query_canceled (statement_timeout).
+const retryableSqlStates = new Set(["55P03", "57014"]);
+
+function isRetryableTimeout(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: string }).code;
+  return code !== undefined && retryableSqlStates.has(code);
 }
 
 const transactionSettings = [
@@ -40,22 +50,49 @@ const transactionSettings = [
 export class PostgresEventLocationEmailRepository implements EventLocationEmailRepository {
   constructor(private readonly pool: Pool = applicationPool) {}
 
-  queue(
+  async queue(
+    eventId: string,
+    loadedLocation: LoadedLocationVersion,
+    actorAdminId: string,
+  ): Promise<QueueEventLocationEmailsResult> {
+    try {
+      return await this.queueInTransaction(eventId, loadedLocation, actorAdminId);
+    } catch (error) {
+      // Reservations hold the event row lock while a window is busy, or a large send hits the statement timeout; the admin can simply retry.
+      if (isRetryableTimeout(error)) return { ok: false, error: "TRY_AGAIN" };
+      throw error;
+    }
+  }
+
+  private queueInTransaction(
     eventId: string,
     loadedLocation: LoadedLocationVersion,
     actorAdminId: string,
   ): Promise<QueueEventLocationEmailsResult> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
-      const eventResult = await client.query<EventLocationRow>(
-        `SELECT location_status, location_revision
-           FROM events
-          WHERE id = $1`,
-        [eventId],
+      const released = await client.query<EventLocationRow>(
+        `UPDATE events
+            SET location_released_revision = location_revision,
+                updated_at = clock_timestamp()
+          WHERE id = $1
+            AND location_status = 'CONFIRMED'
+            AND location_revision = $2
+            AND $3::event_location_status = 'CONFIRMED'
+          RETURNING location_status, location_revision`,
+        [eventId, loadedLocation.revision, loadedLocation.status],
       );
-      const event = eventResult.rows[0];
-      if (!event) return { ok: false, error: "EVENT_NOT_FOUND" };
-      if (isStale(event, loadedLocation)) return { ok: false, error: "LOCATION_CHANGED" };
-      if (event.location_status !== "CONFIRMED") {
+      let event = released.rows[0];
+
+      if (!event) {
+        const current = await client.query<EventLocationRow>(
+          `SELECT location_status, location_revision
+             FROM events
+            WHERE id = $1`,
+          [eventId],
+        );
+        event = current.rows[0];
+        if (!event) return { ok: false, error: "EVENT_NOT_FOUND" };
+        if (isStale(event, loadedLocation)) return { ok: false, error: "LOCATION_CHANGED" };
         return { ok: false, error: "LOCATION_NOT_CONFIRMED" };
       }
 
@@ -91,22 +128,6 @@ export class PostgresEventLocationEmailRepository implements EventLocationEmailR
       );
       const queued = inserted.rowCount ?? 0;
 
-      if (queued === 0) {
-        // The event row is not locked, so it may have changed between the read and the insert.
-        const current = await client.query<EventLocationRow>(
-          `SELECT location_status, location_revision FROM events WHERE id = $1`,
-          [eventId],
-        );
-        const latest = current.rows[0];
-        if (
-          !latest ||
-          latest.location_status !== event.location_status ||
-          latest.location_revision !== event.location_revision
-        ) {
-          return { ok: false, error: "LOCATION_CHANGED" };
-        }
-      }
-
       await client.query(
         `INSERT INTO audit_logs (
            actor_type, actor_admin_id, action, entity_type, entity_id, metadata
@@ -137,7 +158,27 @@ export class PostgresEventLocationEmailRepository implements EventLocationEmailR
          COUNT(o.id) FILTER (WHERE o.status = 'PENDING')::int AS pending,
          COUNT(o.id) FILTER (WHERE o.status = 'FAILED')::int AS failed,
          (COUNT(r.id) - COUNT(o.id))::int AS not_yet_queued,
-         (COUNT(r.id) - COUNT(o.id) FILTER (WHERE o.status <> 'FAILED'))::int AS sendable,
+         COUNT(r.id) FILTER (
+           WHERE (o.id IS NULL OR o.status = 'FAILED')
+             AND NOT EXISTS (
+               SELECT 1
+                 FROM email_outbox sent_once
+                WHERE sent_once.kind = 'EVENT_LOCATION'
+                  AND sent_once.reservation_id = r.id
+                  AND sent_once.status = 'SENT'
+             )
+         )::int AS first_time_sendable,
+         COUNT(r.id) FILTER (
+           WHERE (o.id IS NULL OR o.status = 'FAILED')
+             AND EXISTS (
+               SELECT 1
+                 FROM email_outbox older_sent
+                WHERE older_sent.kind = 'EVENT_LOCATION'
+                  AND older_sent.reservation_id = r.id
+                  AND older_sent.status = 'SENT'
+                  AND older_sent.location_revision < e.location_revision
+             )
+         )::int AS update_sendable,
          EXISTS (
            SELECT 1
              FROM reservations previous_reservation
@@ -169,7 +210,9 @@ export class PostgresEventLocationEmailRepository implements EventLocationEmailR
       pending: row.pending,
       failed: row.failed,
       notYetQueued: row.not_yet_queued,
-      sendable: row.sendable,
+      sendable: row.first_time_sendable + row.update_sendable,
+      firstTimeSendable: row.first_time_sendable,
+      updateSendable: row.update_sendable,
       hasOlderSent: row.has_older_sent,
       lastSentAt: row.last_sent_at,
     };

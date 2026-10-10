@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { Alert } from "@/ui/primitives/alert";
+import { reconcileMapsLink } from "@/domain/event/event-location";
 import { Button } from "@/ui/primitives/button";
 import { DatePicker } from "@/ui/primitives/date-picker";
 import { DateTimePicker } from "@/ui/primitives/date-time-picker";
@@ -54,9 +55,23 @@ interface EventFormProps {
 
 export function EventForm({ action, values, mode, slugEditable = true }: EventFormProps) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const [address, setAddress] = useState(values?.locationAddress ?? "");
+  const [mapsUrl, setMapsUrl] = useState(values?.locationMapsUrl ?? "");
+  const mapsLinkWillBeCleared =
+    mode === "edit" &&
+    reconcileMapsLink(
+      { address: values?.locationAddress ?? null, mapsUrl: values?.locationMapsUrl ?? null },
+      { address: address.trim() === "" ? null : address, mapsUrl: mapsUrl.trim() },
+      false,
+    ).mapsUrlCleared;
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => formAction(formData));
+  };
 
   return (
-    <form action={formAction} className="grid max-w-3xl gap-5 md:grid-cols-2">
+    <form onSubmit={handleSubmit} className="grid max-w-3xl gap-5 md:grid-cols-2">
       {mode === "edit" && values?.locationRevision !== undefined ? (
         <>
           <input type="hidden" name="locationRevision" value={values.locationRevision} />
@@ -110,18 +125,20 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
           required
         />
       </Label>
-      <Label className="grid gap-2">
-        <span>Lugares en cola</span>
-        <Input
-          name="waitlistCapacity"
-          type="number"
-          min={0}
-          max={50}
-          defaultValue={values?.waitlistCapacity ?? 5}
-          required
-        />
-        <span className="admin-muted">0 desactiva la cola.</span>
-      </Label>
+      {mode === "create" ? (
+        <Label className="grid gap-2">
+          <span>Lugares en cola</span>
+          <Input
+            name="waitlistCapacity"
+            type="number"
+            min={0}
+            max={50}
+            defaultValue={values?.waitlistCapacity ?? 5}
+            required
+          />
+          <span className="admin-muted">0 desactiva la cola.</span>
+        </Label>
+      ) : null}
       <div className="grid gap-2">
         <Label htmlFor="opensAt">Apertura</Label>
         <DateTimePicker id="opensAt" name="opensAt" defaultValue={values?.opensAt} />
@@ -169,6 +186,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
             id="locationAddress"
             name="locationAddress"
             defaultValue={values?.locationAddress ?? ""}
+            onChange={(event) => setAddress(event.target.value)}
             maxLength={300}
           />
         </div>
@@ -184,8 +202,26 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
             name="locationMapsUrl"
             type="url"
             defaultValue={values?.locationMapsUrl ?? ""}
+            onChange={(event) => setMapsUrl(event.target.value)}
             maxLength={2048}
           />
+          {mapsLinkWillBeCleared ? (
+            <div className="grid gap-2">
+              <p className="admin-muted">
+                Cambiaste la dirección. Al guardar se quitará el enlace de Google Maps anterior y se
+                usará la nueva dirección. Pega el enlace nuevo para marcar el punto exacto.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  id="keepMapsUrl"
+                  name="keepMapsUrl"
+                  type="checkbox"
+                  className="size-4 accent-current"
+                />
+                <Label htmlFor="keepMapsUrl">Mantener el enlace de Google Maps actual</Label>
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="grid gap-2 md:col-span-2">
           <Label htmlFor="locationNotes">Indicaciones</Label>

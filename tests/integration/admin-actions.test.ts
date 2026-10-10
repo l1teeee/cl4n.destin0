@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
+import { redirect } from "next/navigation";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
@@ -28,6 +29,7 @@ import {
   cancelReservationAction,
   cancelWaitlistEntryAction,
   changeCapacityAction,
+  changeWaitlistCapacityAction,
   closeEventNowAction,
   completeEventAction,
   createEventAction,
@@ -75,6 +77,7 @@ function createForm(slug = "cena-admin"): FormData {
   form.set("closesAt", "2027-11-19T20:00");
   form.set("capacity", "20");
   form.set("maxPartySize", "4");
+  form.set("waitlistCapacity", "5");
   form.set("status", "DRAFT");
   form.set("locationStatus", "PENDING");
   return form;
@@ -137,8 +140,12 @@ describe("admin event Server Actions", () => {
     expect(await createEventAction(initialState, createForm())).toMatchObject({ ok: false });
     expect((await pool.query("SELECT 1 FROM events")).rowCount).toBe(0);
     await authorize();
-    expect(await createEventAction(initialState, createForm())).toMatchObject({ ok: true });
-    expect((await pool.query("SELECT 1 FROM events")).rowCount).toBe(1);
+    await expect(createEventAction(initialState, createForm())).rejects.toThrow(
+      /^REDIRECT:\/admin\/events\//,
+    );
+    const created = await pool.query<{ id: string }>("SELECT id FROM events");
+    expect(created.rowCount).toBe(1);
+    expect(redirect).toHaveBeenLastCalledWith(`/admin/events/${created.rows[0]!.id}`);
   });
 
   it("protects and performs update", async () => {
@@ -284,6 +291,39 @@ describe("admin event Server Actions", () => {
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
     ).toBe(25);
+  });
+
+  it("protects and performs waitlist capacity changes", async () => {
+    const id = await insertEvent("DRAFT", "waitlist-capacity-event");
+    const form = new FormData();
+    form.set("waitlistCapacity", "7");
+
+    expect(await changeWaitlistCapacityAction(id, initialState, form)).toMatchObject({ ok: false });
+    await authorize();
+    expect(await changeWaitlistCapacityAction(id, initialState, form)).toMatchObject({ ok: true });
+    expect(
+      (
+        await pool.query<{ waitlist_capacity: number }>(
+          "SELECT waitlist_capacity FROM events WHERE id = $1",
+          [id],
+        )
+      ).rows[0]!.waitlist_capacity,
+    ).toBe(7);
+  });
+
+  it("rejects a missing or empty waitlist capacity instead of reading it as 0", async () => {
+    const id = await insertEvent("DRAFT", "waitlist-capacity-missing");
+    await authorize();
+
+    const empty = new FormData();
+    empty.set("waitlistCapacity", "");
+    expect(await changeWaitlistCapacityAction(id, initialState, empty)).toMatchObject({
+      ok: false,
+      message: "Los lugares en cola deben ser un número.",
+    });
+    expect(await changeWaitlistCapacityAction(id, initialState, new FormData())).toMatchObject({
+      ok: false,
+    });
   });
 
   it("protects and performs reservation cancellation", async () => {

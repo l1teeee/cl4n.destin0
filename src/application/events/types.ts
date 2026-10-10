@@ -1,5 +1,5 @@
 import type { EventLifecycleStatus, EventPhase } from "@/domain/event/event-phase";
-import type { EventLocationStatus } from "@/domain/event/event-location";
+import type { EventLocationStatus, MapsCoordinates } from "@/domain/event/event-location";
 
 export type EventOperationErrorCode =
   | "EVENT_NOT_FOUND"
@@ -25,6 +25,8 @@ export interface EventLocation {
 
 export interface EventLocationRecord extends EventLocation {
   confirmedAt: Date | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface LoadedLocationVersion {
@@ -51,6 +53,7 @@ export interface EventRecord {
   status: EventLifecycleStatus;
   location: EventLocationRecord;
   locationRevision: number;
+  locationReleasedRevision: number | null;
 }
 
 export interface CreateEventCommand {
@@ -65,6 +68,7 @@ export interface CreateEventCommand {
   waitlistCapacity: number;
   status: "DRAFT" | "SCHEDULED";
   location: EventLocation;
+  coordinates: MapsCoordinates | null;
 }
 
 export interface UpdateEventCommand {
@@ -76,8 +80,10 @@ export interface UpdateEventCommand {
   opensAt: Date;
   closesAt: Date;
   autoCloseOnFull: boolean;
-  waitlistCapacity: number;
   location: EventLocation;
+  keepMapsUrl: boolean;
+  // Null for an unchanged link keeps the stored point, so a failed lookup never erases it.
+  coordinates: MapsCoordinates | null;
   expectedLocation: LoadedLocationVersion;
 }
 
@@ -145,6 +151,12 @@ export interface EventRosterRow {
   emailStatus: RosterEmailStatus | null;
   emailSentAt: Date | null;
   emailLastError: string | null;
+  locationEmail: {
+    status: RosterEmailStatus;
+    isUpdate: boolean;
+    sentAt: Date | null;
+    current: boolean;
+  } | null;
 }
 
 export type EventRosterCounts = Record<RosterView, number>;
@@ -200,6 +212,7 @@ export interface PaginatedAuditLog {
 export interface PublicEvent {
   slug: string;
   startsAt: Date;
+  opensAt: Date;
   phase: EventPhase;
   maxPartySize: number;
 }

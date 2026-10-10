@@ -1,6 +1,8 @@
 import type {
   AdminEventSummary,
   AuditLogItem,
+  EventLocationRecord,
+  EventRosterRow,
   ReservationSortKey,
   ReservationStatus,
   RosterEmailStatus,
@@ -331,5 +333,82 @@ export function parseEmailLogSearchParams(params: Record<string, string | string
   return {
     ...(status ? { status } : {}),
     ...(kind ? { kind } : {}),
+  };
+}
+
+export interface RosterLocationCell {
+  text: string;
+  failed: boolean;
+  title: string | null;
+}
+
+export function rosterLocationCell(row: EventRosterRow): RosterLocationCell {
+  const cell = (text: string, failed = false, title: string | null = null) => ({
+    text,
+    failed,
+    title,
+  });
+  if (row.kind !== "RESERVATION") return cell("-");
+
+  const email = row.locationEmail;
+  if (email === null) return cell("No enviada");
+  if (!email.current) return cell("Desactualizada", false, "Recibió una ubicación anterior");
+  if (email.status === "PENDING") return cell("En envío");
+  if (email.status === "FAILED") return cell("Falló", true);
+
+  const prefix = email.isUpdate ? "Actualización enviada" : "Enviada";
+  return cell(`${prefix} ${formatAdminDate(email.sentAt)}`);
+}
+
+export function locationSendButtonLabel(firstTime: number, updates: number): string | null {
+  if (firstTime > 0 && updates > 0) {
+    return `Enviar ubicación (${firstTime} por primera vez, ${updates} actualizaciones)`;
+  }
+  if (firstTime > 0) return `Enviar ubicación a ${firstTime}`;
+  if (updates > 0) return `Enviar actualización a ${updates}`;
+  return null;
+}
+
+function personNoun(count: number): string {
+  return count === 1 ? "persona" : "personas";
+}
+
+export function locationSendConfirmation(firstTime: number, updates: number): string {
+  const firstTimeSentence = `Se enviará la ubicación por primera vez a ${firstTime} ${personNoun(firstTime)} con reserva confirmada.`;
+  const updateSentence =
+    updates === 1
+      ? "1 persona recibió una ubicación anterior y recibirá la actualización."
+      : `${updates} personas recibieron una ubicación anterior y recibirán la actualización.`;
+  const autoSendSentence =
+    "Después de este envío, quien se confirme, incluso desde la cola, recibirá la ubicación automáticamente.";
+  const warning = "No se puede deshacer.";
+  if (firstTime > 0 && updates > 0) {
+    return `${firstTimeSentence} ${updateSentence} ${autoSendSentence} ${warning}`;
+  }
+  if (firstTime > 0) return `${firstTimeSentence} ${autoSendSentence} ${warning}`;
+  return `${updateSentence} ${autoSendSentence} ${warning}`;
+}
+
+export interface LocationMap {
+  src: string;
+  caption: string;
+}
+
+export function locationMap(
+  location: Pick<EventLocationRecord, "name" | "address" | "latitude" | "longitude">,
+): LocationMap | null {
+  if (location.latitude !== null && location.longitude !== null) {
+    return {
+      src: `https://www.google.com/maps?q=${location.latitude},${location.longitude}&z=17&output=embed`,
+      caption: "Punto exacto del enlace de Google Maps.",
+    };
+  }
+  if (location.address === null) return null;
+
+  const query = location.name ? `${location.name}, ${location.address}` : location.address;
+  return {
+    src: `https://www.google.com/maps?q=${encodeURIComponent(query.replace(/\r?\n/g, ", "))}&output=embed`,
+    caption:
+      "Ubicación aproximada según la dirección. Pega un enlace de Google Maps para marcar el punto exacto.",
   };
 }

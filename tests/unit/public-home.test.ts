@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import type { PublicEvent } from "@/application/events/types";
-import { buildHomeViewModel } from "@/ui/public/home-view-model";
+import { buildHomeViewModel, buildRequestAccessViewModel } from "@/ui/public/home-view-model";
 
-function event(slug: string, phase: PublicEvent["phase"]): PublicEvent {
+function event(
+  slug: string,
+  phase: PublicEvent["phase"],
+  opensAt = new Date("2026-11-20T18:00:00.000Z"),
+): PublicEvent {
   return {
     slug,
     phase,
     startsAt: new Date("2026-11-22T01:30:00.000Z"),
+    opensAt,
     maxPartySize: 2,
   };
 }
@@ -43,8 +48,24 @@ describe("buildHomeViewModel", () => {
     expect(buildHomeViewModel([])).toEqual({ state: "CLOSED" });
   });
 
-  it("shows closed when the read model has neither open nor full events", () => {
-    expect(buildHomeViewModel([event("proxima", "SCHEDULED")])).toEqual({ state: "CLOSED" });
+  it("shows the earliest scheduled opening", () => {
+    const later = new Date("2026-11-21T18:00:00.000Z");
+    const earlier = new Date("2026-11-20T18:00:00.000Z");
+
+    expect(
+      buildHomeViewModel([
+        event("posterior", "SCHEDULED", later),
+        event("proxima", "SCHEDULED", earlier),
+      ]),
+    ).toEqual({ state: "SCHEDULED", opensAt: earlier });
+  });
+
+  it("prefers a scheduled opening over a full event", () => {
+    const opensAt = new Date("2026-11-20T18:00:00.000Z");
+    expect(buildHomeViewModel([event("agotada", "FULL"), event("proxima", "SCHEDULED")])).toEqual({
+      state: "SCHEDULED",
+      opensAt,
+    });
   });
 
   it("keeps a waitlist-only event reservable and flags it", () => {
@@ -58,5 +79,24 @@ describe("buildHomeViewModel", () => {
         },
       ],
     });
+  });
+
+  it.each([
+    ["DRAFT", { state: "NOT_FOUND" }],
+    ["OPEN", { state: "RESERVATION" }],
+    ["WAITLIST", { state: "RESERVATION" }],
+    [
+      "SCHEDULED",
+      {
+        state: "CLOSED",
+        variant: { state: "SCHEDULED", opensAt: new Date("2026-11-20T18:00:00.000Z") },
+      },
+    ],
+    ["FULL", { state: "CLOSED", variant: { state: "FULL" } }],
+    ["CLOSED", { state: "CLOSED", variant: { state: "CLOSED" } }],
+    ["COMPLETED", { state: "CLOSED", variant: { state: "DEFAULT" } }],
+    ["CANCELLED", { state: "CLOSED", variant: { state: "DEFAULT" } }],
+  ] as const)("selects the solicitar view for %s", (phase, expected) => {
+    expect(buildRequestAccessViewModel(event("cena", phase))).toEqual(expected);
   });
 });

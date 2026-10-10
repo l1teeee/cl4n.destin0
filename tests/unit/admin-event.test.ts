@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createAdminEventSchema, updateAdminEventSchema } from "@/contracts/admin-event";
+import {
+  changeWaitlistCapacitySchema,
+  createAdminEventSchema,
+  updateAdminEventSchema,
+} from "@/contracts/admin-event";
 import {
   formatUtcForElSalvador,
   localDateTimeToUtc,
@@ -38,12 +42,12 @@ describe("admin event contracts", () => {
       closesAt: validCreate.closesAt,
       maxPartySize: validCreate.maxPartySize,
       autoCloseOnFull: validCreate.autoCloseOnFull,
-      waitlistCapacity: validCreate.waitlistCapacity,
       locationName: validCreate.locationName,
       locationAddress: validCreate.locationAddress,
       locationMapsUrl: validCreate.locationMapsUrl,
       locationNotes: validCreate.locationNotes,
       locationStatus: validCreate.locationStatus,
+      keepMapsUrl: false,
       locationRevision: "3",
       locationStatusLoaded: "PENDING",
     };
@@ -109,6 +113,19 @@ describe("waitlist capacity contract", () => {
     );
   });
 
+  it("applies the same bounds to the quick action input", () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: 0 }).success).toBe(true);
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: 50 }).success).toBe(true);
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: -1 }).success).toBe(
+      false,
+    );
+    expect(changeWaitlistCapacitySchema.safeParse({ id, waitlistCapacity: 51 }).success).toBe(
+      false,
+    );
+  });
+
   it("requires the queue size on update", () => {
     const { waitlistCapacity, ...withoutQueue } = validCreate;
     void waitlistCapacity;
@@ -124,7 +141,7 @@ describe("waitlist capacity contract", () => {
     };
 
     expect(updateAdminEventSchema.safeParse(update).success).toBe(false);
-    expect(updateAdminEventSchema.safeParse({ ...update, waitlistCapacity: 51 }).success).toBe(
+    expect(updateAdminEventSchema.safeParse({ ...update, waitlistCapacity: 5 }).success).toBe(
       false,
     );
   });

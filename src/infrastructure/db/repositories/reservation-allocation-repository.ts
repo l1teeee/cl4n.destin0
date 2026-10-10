@@ -15,6 +15,7 @@ import type {
 import { classifyAllocationFailure } from "@/domain/reservation/allocation-failure";
 
 import { pool as applicationPool } from "../client";
+import { queueReleasedLocationEmail } from "./released-location-email";
 import { retryableDatabaseErrorCode } from "../retryable-database-error";
 import { promoteWaitlist } from "./waitlist-promotion";
 
@@ -531,6 +532,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
          VALUES ('RESERVATION_CONFIRMED', $1)`,
         [reservationId],
       );
+      await queueReleasedLocationEmail(client, event.id, reservationId);
 
       if (allocation.status === "CLOSED") {
         await insertEventClosedAudit(client, event.id);
@@ -716,6 +718,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
          VALUES ('WAITLIST_CANCELLED', $1)`,
         [command.waitlistEntryId],
       );
+      await promoteWaitlist(client, eventId);
       await client.query("COMMIT");
       return "CANCELLED";
     } catch (error) {

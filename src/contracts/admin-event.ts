@@ -42,6 +42,7 @@ export function isAllowedGoogleMapsUrl(value: string): boolean {
   }
   if (url.protocol !== "https:") return false;
   if (url.username !== "" || url.password !== "") return false;
+  if (url.port !== "") return false;
 
   const host = url.hostname.toLowerCase();
   if (host === "maps.app.goo.gl" || host === "maps.google.com") return true;
@@ -116,10 +117,17 @@ export const updateAdminEventSchema = z
     closesAt: eventFields.closesAt,
     maxPartySize: eventFields.maxPartySize,
     autoCloseOnFull: eventFields.autoCloseOnFull,
-    waitlistCapacity: eventFields.waitlistCapacity,
     ...locationFields,
+    keepMapsUrl: z.boolean(),
     locationRevision: z.string().regex(/^\d+$/).transform(Number),
     locationStatusLoaded: z.enum(["PENDING", "CONFIRMED"]),
+  })
+  .strict();
+
+export const changeWaitlistCapacitySchema = z
+  .object({
+    id: z.string().uuid("El identificador no es válido."),
+    waitlistCapacity: eventFields.waitlistCapacity,
   })
   .strict();
 

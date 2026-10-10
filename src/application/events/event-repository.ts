@@ -43,6 +43,11 @@ export interface EventRepository {
     capacity: number,
     actorAdminId: string,
   ): Promise<EventOperationResult<EventRecord>>;
+  changeWaitlistCapacity(
+    id: string,
+    waitlistCapacity: number,
+    actorAdminId: string,
+  ): Promise<EventOperationResult<EventRecord>>;
   listAdminEvents(): Promise<DatabaseTimedResult<AdminEventSummary[]>>;
   getAdminEvent(id: string): Promise<DatabaseTimedResult<AdminEventDetail | null>>;
   listAdminReservations(

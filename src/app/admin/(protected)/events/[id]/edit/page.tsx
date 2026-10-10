@@ -9,6 +9,7 @@ import { postgresEventImageRepository } from "@/infrastructure/db/repositories/p
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import { EventForm } from "@/ui/admin/event-form";
 import { EventImagesManager } from "@/ui/admin/event-images-manager";
+import { locationMap } from "@/ui/admin/view-model";
 import { Button } from "@/ui/primitives/button";
 
 export default async function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,6 +21,7 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
   ]);
   const event = result.value;
   if (!event) notFound();
+  const map = locationMap(event.location);
 
   return (
     <main className="admin-page space-y-8">
@@ -46,7 +48,6 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
           closesAt: formatUtcForElSalvador(event.closesAt, "yyyy-MM-dd'T'HH:mm"),
           maxPartySize: event.maxPartySize,
           autoCloseOnFull: event.autoCloseOnFull,
-          waitlistCapacity: event.waitlistCapacity,
           locationName: event.location.name,
           locationAddress: event.location.address,
           locationMapsUrl: event.location.mapsUrl,
@@ -55,6 +56,21 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
           locationRevision: event.locationRevision,
         }}
       />
+      {map ? (
+        <section className="admin-section max-w-3xl space-y-4">
+          <h2 className="admin-section-title">Mapa guardado</h2>
+          <figure className="space-y-2">
+            <iframe
+              className="aspect-video w-full border border-border grayscale"
+              src={map.src}
+              title="Mapa de la ubicación"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+            <figcaption className="admin-muted">{map.caption}</figcaption>
+          </figure>
+        </section>
+      ) : null}
       <section className="admin-section max-w-3xl space-y-4">
         <h2 className="admin-section-title">Imágenes del lugar</h2>
         <EventImagesManager eventId={id} images={images} />

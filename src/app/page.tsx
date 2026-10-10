@@ -14,5 +14,9 @@ export default async function Home() {
     return <HomeExperience viewModel={viewModel} />;
   }
 
-  return <ClosedState soldOut={viewModel.state === "FULL"} />;
+  if (viewModel.state === "SCHEDULED") {
+    return <ClosedState variant={{ state: "SCHEDULED", opensAt: viewModel.opensAt }} />;
+  }
+
+  return <ClosedState variant={{ state: viewModel.state === "FULL" ? "FULL" : "DEFAULT" }} />;
 }

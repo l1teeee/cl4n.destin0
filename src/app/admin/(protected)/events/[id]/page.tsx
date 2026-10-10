@@ -14,6 +14,7 @@ import { postgresEventRepository } from "@/infrastructure/db/repositories/postgr
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
+import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { StatGrid } from "@/ui/admin/stat-grid";
@@ -23,13 +24,18 @@ import {
   formatAdminDate,
   formatReservationNumber,
   lifecycleActions,
+  locationMap,
+  locationSendButtonLabel,
+  locationSendConfirmation,
   parseRosterView,
   publicEventUrl,
   publicLinkHint,
   rosterEmailLabel,
+  rosterLocationCell,
   rosterStatusBadgeVariant,
   rosterStatusLabel,
   rosterViews,
+  type RosterLocationCell,
 } from "@/ui/admin/view-model";
 import { Badge } from "@/ui/primitives/badge";
 import { Button } from "@/ui/primitives/button";
@@ -49,6 +55,7 @@ import {
   cancelReservationAction,
   cancelWaitlistEntryAction,
   changeCapacityAction,
+  changeWaitlistCapacityAction,
   closeEventNowAction,
   completeEventAction,
   openEventNowAction,
@@ -83,6 +90,11 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   if (!locationEmailSummary) notFound();
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
   const controls = lifecycleActions(event, eventResult.databaseTime);
+  const map = locationMap(event.location);
+  const sendLabel = locationSendButtonLabel(
+    locationEmailSummary.firstTimeSendable,
+    locationEmailSummary.updateSendable,
+  );
 
   return (
     <main className="admin-page space-y-10">
@@ -158,18 +170,17 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         ) : (
           <p className="admin-empty">Sin ubicación todavía.</p>
         )}
-        {event.location.address ? (
-          <iframe
-            className="aspect-video w-full border border-border grayscale"
-            src={`https://www.google.com/maps?q=${encodeURIComponent(
-              event.location.name
-                ? `${event.location.name}, ${event.location.address}`
-                : event.location.address,
-            )}&output=embed`}
-            title="Mapa de la ubicación"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
+        {map ? (
+          <figure className="space-y-2">
+            <iframe
+              className="aspect-video w-full border border-border grayscale"
+              src={map.src}
+              title="Mapa de la ubicación"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+            <figcaption className="admin-muted">{map.caption}</figcaption>
+          </figure>
         ) : null}
         {images.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
@@ -214,26 +225,30 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             <Badge variant="default">
               Confirmadas: {locationEmailSummary.confirmedReservations}
             </Badge>
-            <Badge variant="confirmed">Enviados: {locationEmailSummary.sent}</Badge>
-            <Badge variant="draft">Pendientes: {locationEmailSummary.pending}</Badge>
+            <Badge variant="confirmed">
+              Recibieron la ubicación actual: {locationEmailSummary.sent}
+            </Badge>
+            <Badge variant="default">
+              Por primera vez: {locationEmailSummary.firstTimeSendable}
+            </Badge>
+            <Badge variant="default">Por actualizar: {locationEmailSummary.updateSendable}</Badge>
+            <Badge variant="draft">En envío: {locationEmailSummary.pending}</Badge>
             <Badge variant={locationEmailSummary.failed > 0 ? "rejected" : "default"}>
               Fallidos: {locationEmailSummary.failed}
             </Badge>
-            <Badge variant="default">Sin encolar: {locationEmailSummary.notYetQueued}</Badge>
           </div>
           {event.location.status !== "CONFIRMED" ? (
             <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
           ) : (
             <div className="flex flex-wrap items-start gap-3">
-              {locationEmailSummary.sendable > 0 ? (
+              {sendLabel ? (
                 <MutationForm
                   action={sendEventLocationAction.bind(null, id, loadedLocation)}
-                  label={
-                    locationEmailSummary.hasOlderSent
-                      ? `Enviar ubicación actualizada a ${locationEmailSummary.sendable}`
-                      : `Enviar ubicación a ${locationEmailSummary.sendable} confirmados`
-                  }
-                  confirmation={`Se enviará un correo con la ubicación a ${locationEmailSummary.sendable} personas con reserva confirmada. No se puede deshacer.`}
+                  label={sendLabel}
+                  confirmation={locationSendConfirmation(
+                    locationEmailSummary.firstTimeSendable,
+                    locationEmailSummary.updateSendable,
+                  )}
                 />
               ) : null}
               {locationEmailSummary.pending > 0 ? (
@@ -249,6 +264,12 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
               ) : null}
             </div>
           )}
+          {event.location.status === "CONFIRMED" ? (
+            <p className="admin-muted">
+              Quien se confirme después de un envío, incluso desde la cola, recibe la ubicación
+              automáticamente.
+            </p>
+          ) : null}
           {event.location.status === "CONFIRMED" &&
           locationEmailSummary.confirmedReservations > 0 &&
           locationEmailSummary.confirmedReservations === locationEmailSummary.sent ? (
@@ -297,20 +318,55 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
       </section>
 
       <section className="admin-section space-y-4">
-        <h2 className="admin-section-title">Capacidad</h2>
-        <MutationForm action={changeCapacityAction.bind(null, id)} label="Cambiar capacidad">
-          <Label className="grid gap-2">
-            <span>Nueva capacidad</span>
-            <Input
-              className="w-40"
-              name="newCapacity"
-              type="number"
-              min={1}
-              defaultValue={event.capacity}
-              required
-            />
-          </Label>
-        </MutationForm>
+        <h2 className="admin-section-title">Cupos y cola</h2>
+        <p className="admin-muted">
+          Capacidad {event.capacity} · Reservados {event.reservedSeats} · Disponibles{" "}
+          {event.availableSeats} · Cola {event.waitlistedCount}/{event.waitlistCapacity}
+        </p>
+        {event.status === "CLOSED" ? (
+          <p className="admin-muted">
+            {event.closesAt > eventResult.databaseTime
+              ? 'El formulario está cerrado. Usa "Abrir ahora" para recibir nuevas solicitudes.'
+              : "El formulario está cerrado y su fecha de cierre ya pasó. Edita la fecha de cierre para volver a abrirlo."}
+          </p>
+        ) : null}
+        {event.status !== "COMPLETED" && event.status !== "CANCELLED" ? (
+          <div className="space-y-4">
+            <MutationForm action={changeCapacityAction.bind(null, id)} label="Actualizar cupos">
+              <Label className="grid gap-2">
+                <span>Cupos totales</span>
+                <Input
+                  className="w-40"
+                  name="newCapacity"
+                  type="number"
+                  min={1}
+                  defaultValue={event.capacity}
+                  required
+                />
+              </Label>
+            </MutationForm>
+            <p className="admin-muted">
+              Si amplías los cupos, las personas en la cola entran en orden y reciben su correo.
+            </p>
+            <MutationForm
+              action={changeWaitlistCapacityAction.bind(null, id)}
+              label="Actualizar cola"
+            >
+              <Label className="grid gap-2">
+                <span>Lugares en la cola</span>
+                <Input
+                  className="w-40"
+                  name="waitlistCapacity"
+                  type="number"
+                  min={0}
+                  max={50}
+                  defaultValue={event.waitlistCapacity}
+                  required
+                />
+              </Label>
+            </MutationForm>
+          </div>
+        ) : null}
       </section>
 
       <section className="admin-section space-y-4">
@@ -320,98 +376,108 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             <Link href={`/admin/events/${id}/export?vista=${view}`}>Exportar CSV</Link>
           </Button>
         </div>
-        <nav className="flex flex-wrap gap-3" aria-label="Vistas del listado">
-          {rosterViews.map((item) => (
-            <Button variant={item.view === view ? "default" : "outline"} asChild key={item.view}>
-              <Link href={`/admin/events/${id}?vista=${item.view}`}>
-                {item.label} ({rosterCounts[item.view]})
-              </Link>
-            </Button>
-          ))}
-        </nav>
-        {roster.value.length === 0 ? (
-          <p className="admin-empty">No hay personas en esta vista.</p>
-        ) : (
-          <Table className="min-w-[1250px]">
-            <TableHeader>
-              <TableRow>
-                {[
-                  view === "en-cola" ? "Posición en cola" : "Número",
-                  "Nombre",
-                  "Instagram",
-                  "Teléfono",
-                  "Email",
-                  "Personas",
-                  "Alergias",
-                  "Estado",
-                  "Recibida",
-                  "Correo",
-                  "Acciones",
-                ].map((heading) => (
-                  <TableHead key={heading}>{heading}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {roster.value.map((row, index) => (
-                <TableRow
-                  className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
-                  key={`${row.kind}-${row.id}`}
-                  style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
-                >
-                  <TableCell className="font-mono">
-                    {row.status === "WAITING" && row.queuePosition !== null
-                      ? `#${row.queuePosition}`
-                      : formatReservationNumber(row.reservationNumber)}
-                  </TableCell>
-                  <TableCell>{row.fullName}</TableCell>
-                  <TableCell>@{row.instagram}</TableCell>
-                  <TableCell>{row.phone}</TableCell>
-                  <TableCell>{row.email}</TableCell>
-                  <TableCell>{row.partySize}</TableCell>
-                  <TableCell>{row.allergies ?? "No"}</TableCell>
-                  <TableCell>
-                    <Badge variant={rosterStatusBadgeVariant(row.status)}>
-                      {rosterStatusLabel(row.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{formatAdminDate(row.submittedAt)}</TableCell>
-                  <TableCell>
-                    <span
-                      className={row.emailStatus === "FAILED" ? "text-destructive" : undefined}
-                      title={
-                        row.emailStatus === "FAILED" ? (row.emailLastError ?? undefined) : undefined
-                      }
-                    >
-                      {row.emailStatus ? rosterEmailLabel(row.emailStatus, row.emailSentAt) : "-"}
-                    </span>
-                    <span className="sr-only">
-                      {row.emailStatus ? emailStatusLabel(row.emailStatus) : "Sin correo"}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {row.kind === "RESERVATION" && row.status === "CONFIRMED" ? (
-                      <MutationForm
-                        action={cancelReservationAction.bind(null, id, row.id)}
-                        label="Cancelar reservación"
-                        confirmation="Se liberarán los cupos de esta reservación. Confirma para continuar."
-                        danger
-                      />
-                    ) : null}
-                    {row.kind === "WAITLIST_ENTRY" && row.status === "WAITING" ? (
-                      <MutationForm
-                        action={cancelWaitlistEntryAction.bind(null, id, row.id)}
-                        label="Retirar de la cola"
-                        confirmation="La persona perderá su posición en la cola. Confirma para continuar."
-                        danger
-                      />
-                    ) : null}
-                  </TableCell>
+        <ActionFeedbackProvider>
+          <nav className="flex flex-wrap gap-3" aria-label="Vistas del listado">
+            {rosterViews.map((item) => (
+              <Button variant={item.view === view ? "default" : "outline"} asChild key={item.view}>
+                <Link href={`/admin/events/${id}?vista=${item.view}`}>
+                  {item.label} ({rosterCounts[item.view]})
+                </Link>
+              </Button>
+            ))}
+          </nav>
+          {roster.value.length === 0 ? (
+            <p className="admin-empty">No hay personas en esta vista.</p>
+          ) : (
+            <Table className="min-w-[1400px]">
+              <TableHeader>
+                <TableRow>
+                  {[
+                    view === "en-cola" ? "Posición en cola" : "Número",
+                    "Nombre",
+                    "Instagram",
+                    "Teléfono",
+                    "Email",
+                    "Personas",
+                    "Alergias",
+                    "Estado",
+                    "Recibida",
+                    "Correo",
+                    "Ubicación",
+                    "Acciones",
+                  ].map((heading) => (
+                    <TableHead key={heading}>{heading}</TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+              </TableHeader>
+              <TableBody>
+                {roster.value.map((row, index) => (
+                  <TableRow
+                    className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
+                    key={`${row.kind}-${row.id}`}
+                    style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+                  >
+                    <TableCell className="font-mono">
+                      {row.status === "WAITING" && row.queuePosition !== null
+                        ? `#${row.queuePosition}`
+                        : formatReservationNumber(row.reservationNumber)}
+                    </TableCell>
+                    <TableCell>{row.fullName}</TableCell>
+                    <TableCell>@{row.instagram}</TableCell>
+                    <TableCell>{row.phone}</TableCell>
+                    <TableCell>{row.email}</TableCell>
+                    <TableCell>{row.partySize}</TableCell>
+                    <TableCell>{row.allergies ?? "No"}</TableCell>
+                    <TableCell>
+                      <Badge variant={rosterStatusBadgeVariant(row.status)}>
+                        {rosterStatusLabel(row.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{formatAdminDate(row.submittedAt)}</TableCell>
+                    <TableCell>
+                      <span
+                        className={row.emailStatus === "FAILED" ? "text-destructive" : undefined}
+                        title={
+                          row.emailStatus === "FAILED"
+                            ? (row.emailLastError ?? undefined)
+                            : undefined
+                        }
+                      >
+                        {row.emailStatus ? rosterEmailLabel(row.emailStatus, row.emailSentAt) : "-"}
+                      </span>
+                      <span className="sr-only">
+                        {row.emailStatus ? emailStatusLabel(row.emailStatus) : "Sin correo"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <LocationCell cell={rosterLocationCell(row)} />
+                    </TableCell>
+                    <TableCell>
+                      {row.kind === "RESERVATION" && row.status === "CONFIRMED" ? (
+                        <MutationForm
+                          action={cancelReservationAction.bind(null, id, row.id)}
+                          label="Cancelar reservación"
+                          reportToSection
+                          confirmation="Se liberarán los cupos de esta reservación. Confirma para continuar."
+                          danger
+                        />
+                      ) : null}
+                      {row.kind === "WAITLIST_ENTRY" && row.status === "WAITING" ? (
+                        <MutationForm
+                          action={cancelWaitlistEntryAction.bind(null, id, row.id)}
+                          label="Retirar de la cola"
+                          reportToSection
+                          confirmation="La persona perderá su posición en la cola. Confirma para continuar."
+                          danger
+                        />
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </ActionFeedbackProvider>
       </section>
 
       <section className="admin-section space-y-4">
@@ -419,5 +485,13 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         <AuditLogTable items={audit.value.items} />
       </section>
     </main>
+  );
+}
+
+function LocationCell({ cell }: { cell: RosterLocationCell }) {
+  return (
+    <span className={cell.failed ? "text-destructive" : undefined} title={cell.title ?? undefined}>
+      {cell.text}
+    </span>
   );
 }

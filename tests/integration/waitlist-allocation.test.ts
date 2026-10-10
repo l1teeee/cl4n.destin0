@@ -542,15 +542,20 @@ describe("waitlist configuration", () => {
         notes: detail.location.notes,
         status: detail.location.status,
       },
+      keepMapsUrl: false,
+      coordinates: null,
       expectedLocation: { revision: detail.locationRevision, status: detail.location.status },
     };
 
-    expect(await eventRepository.update({ ...command, waitlistCapacity: 1 }, adminId)).toEqual({
+    expect(await eventRepository.changeWaitlistCapacity(event.id, 1, adminId)).toEqual({
       ok: false,
       error: "WAITLIST_CAPACITY_BELOW_WAITING",
     });
-    const accepted = await eventRepository.update({ ...command, waitlistCapacity: 2 }, adminId);
+    const accepted = await eventRepository.changeWaitlistCapacity(event.id, 2, adminId);
     expect(accepted.ok && accepted.value.waitlistCapacity).toBe(2);
+
+    const edited = await eventRepository.update({ ...command, internalName: "Editada" }, adminId);
+    expect(edited.ok && edited.value.waitlistCapacity).toBe(2);
   });
 });
 

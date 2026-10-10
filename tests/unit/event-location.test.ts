@@ -27,8 +27,16 @@ describe("Google Maps URL allowlist", () => {
     "https://goo.gl/other",
     String.raw`https://maps.app.goo.gl\@evil.com/x`,
     "https://user:pass@maps.app.goo.gl/x",
+    "https://maps.app.goo.gl:8443/x",
+    "https://www.google.com:8443/maps/place/x",
   ])("rejects %s", (url) => {
     expect(isAllowedGoogleMapsUrl(url)).toBe(false);
+  });
+});
+
+describe("Google Maps URL default port", () => {
+  it("accepts an explicit :443 because URL parsing drops the default port", () => {
+    expect(isAllowedGoogleMapsUrl("https://maps.app.goo.gl:443/x")).toBe(true);
   });
 });
 

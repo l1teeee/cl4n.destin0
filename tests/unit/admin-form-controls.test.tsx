@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { EventForm } from "@/ui/admin/event-form";
+import { EventForm, type EventFormValues } from "@/ui/admin/event-form";
 import { DatePicker } from "@/ui/primitives/date-picker";
 import { DateTimePicker } from "@/ui/primitives/date-time-picker";
 import { FieldHint } from "@/ui/primitives/field-hint";
@@ -121,6 +121,24 @@ describe("admin date and time controls", () => {
 });
 
 describe("admin form-compatible controls", () => {
+  const editValues = {
+    internalName: "Cena guardada",
+    slug: "cena-guardada",
+    eventDate: "2026-10-09",
+    eventTime: "20:00",
+    opensAt: "2026-10-01T08:00",
+    closesAt: "2026-10-08T20:00",
+    maxPartySize: 2,
+    autoCloseOnFull: false,
+    waitlistCapacity: 5,
+    locationName: null,
+    locationAddress: null,
+    locationMapsUrl: null,
+    locationNotes: null,
+    locationStatus: "PENDING",
+    locationRevision: 0,
+  } satisfies EventFormValues;
+
   it("posts on only while Switch is checked", () => {
     const { container } = render(
       <form>
@@ -176,6 +194,41 @@ describe("admin form-compatible controls", () => {
       expect(container.querySelector(`[name="${name}"]`)).not.toBeNull();
     }
     expect(screen.getByRole("button", { name: "Qué es el slug" })).toBeDefined();
+  });
+
+  it.each([
+    { mode: "create" as const, values: undefined },
+    { mode: "edit" as const, values: editValues },
+  ])("keeps typed values after a $mode action error", async ({ mode, values }) => {
+    const action = vi.fn(async (state: { ok: boolean; message: string }, formData: FormData) => {
+      void state;
+      void formData;
+      return { ok: false, message: "No se pudo guardar." };
+    });
+    const { container } = render(<EventForm action={action} mode={mode} values={values} />);
+    const name = screen.getByLabelText("Nombre interno") as HTMLInputElement;
+    const slug = container.querySelector<HTMLInputElement>('[name="slug"]')!;
+    const numberField = container.querySelector<HTMLInputElement>(
+      mode === "create" ? '[name="capacity"]' : '[name="maxPartySize"]',
+    )!;
+    const typedName = mode === "create" ? "Cena nueva" : "Cena editada";
+    const typedSlug = mode === "create" ? "cena-nueva" : "cena-editada";
+    const typedNumber = mode === "create" ? "24" : "4";
+
+    fireEvent.change(name, { target: { value: typedName } });
+    fireEvent.change(slug, { target: { value: typedSlug } });
+    fireEvent.change(numberField, { target: { value: typedNumber } });
+    fireEvent.submit(name.form!);
+
+    expect(await screen.findByText("No se pudo guardar.")).toBeDefined();
+    expect(name.value).toBe(typedName);
+    expect(slug.value).toBe(typedSlug);
+    expect(numberField.value).toBe(typedNumber);
+    expect(action).toHaveBeenCalledOnce();
+    const submitted = action.mock.calls[0]![1];
+    expect(submitted.get("internalName")).toBe(typedName);
+    expect(submitted.get("slug")).toBe(typedSlug);
+    expect(submitted.get(mode === "create" ? "capacity" : "maxPartySize")).toBe(typedNumber);
   });
 });
 

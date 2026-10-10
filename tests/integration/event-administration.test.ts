@@ -31,6 +31,7 @@ const baseCommand: CreateEventCommand = {
     notes: null,
     status: "PENDING",
   },
+  coordinates: null,
 };
 
 beforeAll(async () => {
@@ -171,7 +172,6 @@ describe("event mutations", () => {
       opensAt: created.value.opensAt,
       closesAt: created.value.closesAt,
       autoCloseOnFull: created.value.autoCloseOnFull,
-      waitlistCapacity: created.value.waitlistCapacity,
       location: {
         name: created.value.location.name,
         address: created.value.location.address,
@@ -179,6 +179,8 @@ describe("event mutations", () => {
         notes: created.value.location.notes,
         status: created.value.location.status,
       },
+      keepMapsUrl: false,
+      coordinates: null,
       expectedLocation: { revision: 0, status: created.value.location.status },
     };
     const unchanged = await repository.update(command, adminId);
@@ -252,8 +254,9 @@ describe("event mutations", () => {
       opensAt: created.value.opensAt,
       closesAt: created.value.closesAt,
       autoCloseOnFull: created.value.autoCloseOnFull,
-      waitlistCapacity: created.value.waitlistCapacity,
       location: { ...created.value.location, address: "Calle vieja" },
+      keepMapsUrl: false,
+      coordinates: null,
       expectedLocation: { revision: 0, status: "CONFIRMED" as const },
     };
 
@@ -294,6 +297,102 @@ describe("event mutations", () => {
     expect(stored.rows[0]).toEqual({ location_address: "Calle 2", location_status: "PENDING" });
   });
 
+  describe("maps link and coordinates on update", () => {
+    const pin = { latitude: 13.6929, longitude: -89.2182 };
+    const mapsUrl = "https://www.google.com/maps/place/Casa/@13.69,-89.21,17z";
+
+    async function createWithMapsLink() {
+      const created = await repository.create(
+        {
+          ...baseCommand,
+          slug: "maps-link",
+          location: { name: "Casa", address: "Calle 1", mapsUrl, notes: null, status: "CONFIRMED" },
+          coordinates: pin,
+        },
+        adminId,
+      );
+      if (!created.ok) throw new Error(created.error);
+      return created.value;
+    }
+
+    function updateCommand(created: Awaited<ReturnType<typeof createWithMapsLink>>) {
+      return {
+        id: created.id,
+        internalName: created.internalName,
+        slug: created.slug,
+        startsAt: created.startsAt,
+        maxPartySize: created.maxPartySize,
+        opensAt: created.opensAt,
+        closesAt: created.closesAt,
+        autoCloseOnFull: created.autoCloseOnFull,
+        location: {
+          name: created.location.name,
+          address: created.location.address,
+          mapsUrl: created.location.mapsUrl,
+          notes: created.location.notes,
+          status: created.location.status,
+        },
+        keepMapsUrl: false,
+        coordinates: pin,
+        expectedLocation: { revision: created.locationRevision, status: created.location.status },
+      };
+    }
+
+    it("stores the coordinates sent with a full link", async () => {
+      const created = await createWithMapsLink();
+      expect(created.location).toMatchObject(pin);
+    });
+
+    it("clears the link and coordinates when only the address changes", async () => {
+      const created = await createWithMapsLink();
+      const command = updateCommand(created);
+      const result = await repository.update(
+        { ...command, location: { ...command.location, address: "Calle 2" } },
+        adminId,
+      );
+      if (!result.ok) throw new Error(result.error);
+      expect(result.value.location).toMatchObject({
+        address: "Calle 2",
+        mapsUrl: null,
+        latitude: null,
+        longitude: null,
+      });
+    });
+
+    it("keeps the link when keepMapsUrl is set", async () => {
+      const created = await createWithMapsLink();
+      const command = updateCommand(created);
+      const result = await repository.update(
+        { ...command, keepMapsUrl: true, location: { ...command.location, address: "Calle 2" } },
+        adminId,
+      );
+      if (!result.ok) throw new Error(result.error);
+      expect(result.value.location).toMatchObject({ mapsUrl, ...pin });
+    });
+
+    it("keeps stored coordinates when an unchanged link could not be resolved", async () => {
+      const created = await createWithMapsLink();
+      const result = await repository.update(
+        { ...updateCommand(created), coordinates: null },
+        adminId,
+      );
+      if (!result.ok) throw new Error(result.error);
+      expect(result.value.location).toMatchObject({ mapsUrl, ...pin });
+    });
+
+    it("rejects a confirmed location left without address or link after reconciling", async () => {
+      const created = await createWithMapsLink();
+      const command = updateCommand(created);
+      expectError(
+        await repository.update(
+          { ...command, location: { ...command.location, address: null } },
+          adminId,
+        ),
+        "LOCATION_CONFIRMATION_INCOMPLETE",
+      );
+    });
+  });
+
   it("rejects incomplete confirmed locations in the domain and database", async () => {
     expectError(
       await repository.create(
@@ -326,8 +425,9 @@ describe("event mutations", () => {
       opensAt: baseCommand.opensAt,
       closesAt: baseCommand.closesAt,
       autoCloseOnFull: true,
-      waitlistCapacity: 3,
       location: baseCommand.location,
+      keepMapsUrl: false,
+      coordinates: null,
       expectedLocation: { revision: 0, status: baseCommand.location.status },
     };
 
@@ -498,6 +598,72 @@ describe("capacity changes", () => {
   });
 });
 
+describe("waitlist capacity changes", () => {
+  it("raises and lowers the limit and writes EVENT_UPDATED audit metadata", async () => {
+    const id = await insertEvent("DRAFT");
+    await pool.query("UPDATE events SET waitlist_capacity = 2 WHERE id = $1", [id]);
+
+    const raised = await repository.changeWaitlistCapacity(id, 5, adminId);
+    expect(raised.ok && raised.value.waitlistCapacity).toBe(5);
+    const lowered = await repository.changeWaitlistCapacity(id, 1, adminId);
+    expect(lowered.ok && lowered.value.waitlistCapacity).toBe(1);
+
+    const audits = await auditFor(id);
+    expect(audits.rows.map((row) => ({ action: row.action, metadata: row.metadata }))).toEqual([
+      {
+        action: "EVENT_UPDATED",
+        metadata: { waitlistCapacity: { from: 2, to: 5 } },
+      },
+      {
+        action: "EVENT_UPDATED",
+        metadata: { waitlistCapacity: { from: 5, to: 1 } },
+      },
+    ]);
+  });
+
+  it("rejects a limit below the number currently waiting", async () => {
+    const id = await insertEvent("SCHEDULED");
+    await pool.query(
+      "UPDATE events SET waitlist_capacity = 5, waitlisted_count = 2 WHERE id = $1",
+      [id],
+    );
+
+    expectError(
+      await repository.changeWaitlistCapacity(id, 1, adminId),
+      "WAITLIST_CAPACITY_BELOW_WAITING",
+    );
+    const stored = await pool.query<{ waitlist_capacity: number }>(
+      "SELECT waitlist_capacity FROM events WHERE id = $1",
+      [id],
+    );
+    expect(stored.rows[0]!.waitlist_capacity).toBe(5);
+  });
+
+  it.each(["COMPLETED", "CANCELLED"] as const)("rejects changes for %s events", async (status) => {
+    const id = await insertEvent(status);
+
+    expectError(await repository.changeWaitlistCapacity(id, 5, adminId), "INVALID_TRANSITION");
+  });
+
+  it("changes a full event to the WAITLIST phase after raising the queue limit", async () => {
+    const id = await insertEvent("SCHEDULED", {
+      capacity: 2,
+      maxPartySize: 1,
+      opensAt: new Date(Date.now() - 60_000),
+      closesAt: new Date(Date.now() + 60_000),
+    });
+    await pool.query(
+      "UPDATE events SET reserved_seats = capacity, waitlist_capacity = 0 WHERE id = $1",
+      [id],
+    );
+
+    const changed = await repository.changeWaitlistCapacity(id, 3, adminId);
+    expect(changed.ok).toBe(true);
+    const readModel = await repository.getAdminEvent(id);
+    expect(readModel.value?.phase).toBe("WAITLIST");
+  });
+});
+
 describe("event read models", () => {
   async function insertReservation(
     eventId: string,
@@ -584,9 +750,14 @@ describe("event read models", () => {
     expect(detail.value).toMatchObject({ id: open, phase: "OPEN" });
 
     const home = await repository.getPublicHomeEvents();
-    expect(home.value.map((event) => event.slug).sort()).toEqual(["full-event", "open-event"]);
+    expect(home.value.map((event) => event.slug).sort()).toEqual([
+      "full-event",
+      "open-event",
+      "scheduled-event",
+    ]);
     expect(Object.keys(home.value[0]!).sort()).toEqual([
       "maxPartySize",
+      "opensAt",
       "phase",
       "slug",
       "startsAt",
@@ -594,6 +765,7 @@ describe("event read models", () => {
     const publicDetail = await repository.getPublicEventBySlug("open-event");
     expect(Object.keys(publicDetail.value!).sort()).toEqual([
       "maxPartySize",
+      "opensAt",
       "phase",
       "slug",
       "startsAt",

@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminMobileBar, AdminSidebar } from "@/ui/admin/admin-sidebar";
-import { SidebarProvider } from "@/ui/primitives/sidebar";
+import { SidebarInset, SidebarProvider } from "@/ui/primitives/sidebar";
 
 const navigation = vi.hoisted(() => ({ pathname: "/admin" }));
 
@@ -59,6 +59,12 @@ afterEach(() => {
 });
 
 describe("AdminSidebar", () => {
+  it("uses a div for the sidebar inset so pages own the main landmark", () => {
+    const { container } = render(<SidebarInset />);
+
+    expect(container.firstElementChild?.tagName).toBe("DIV");
+  });
+
   it("renders the circle mark link without an image", () => {
     const { container } = renderSidebar();
     const homeLink = screen.getByRole("link", { name: "Clandestino Admin, inicio" });
