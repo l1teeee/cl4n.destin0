@@ -159,7 +159,11 @@ describe("user management actions", () => {
         initialState,
         createForm(email, { passwordConfirmation: "otra-clave-123" }),
       ),
-    ).resolves.toEqual({ ok: false, message: "Las contraseñas no coinciden." });
+    ).resolves.toEqual({
+      ok: false,
+      message: "Revisa los campos marcados.",
+      fieldErrors: { passwordConfirmation: "Las contraseñas no coinciden." },
+    });
     await expect(createAdminUserAction(initialState, createForm(email))).resolves.toEqual({
       ok: true,
       message: `Administrador ${email} creado. Le enviaremos un correo de aviso.`,
@@ -168,6 +172,7 @@ describe("user management actions", () => {
     await expect(createAdminUserAction(initialState, createForm(email))).resolves.toEqual({
       ok: false,
       message: "Ya existe un administrador con ese email.",
+      fieldErrors: { email: "Ya existe un administrador con ese email." },
     });
   });
 

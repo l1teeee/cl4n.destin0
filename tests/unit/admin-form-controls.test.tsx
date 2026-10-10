@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AdminUserCreateForm } from "@/ui/admin/admin-user-forms";
@@ -289,7 +289,7 @@ describe("admin form-compatible controls", () => {
     expect(screen.getByText("La fecha de apertura es obligatoria.")).toBeDefined();
     expect(slug.getAttribute("aria-invalid")).toBe("true");
     expect(container.querySelector("button#opensAt")?.getAttribute("data-invalid")).toBe("true");
-    expect(document.activeElement).toBe(slug);
+    await waitFor(() => expect(document.activeElement).toBe(slug));
   });
 
   it("keeps AdminUserCreateForm values after a field error", async () => {
@@ -318,7 +318,7 @@ describe("admin form-compatible controls", () => {
     expect(password.value).toBe("una-clave-segura");
     expect(passwordConfirmation.value).toBe("una-clave-segura");
     expect(email.getAttribute("aria-invalid")).toBe("true");
-    expect(document.activeElement).toBe(email);
+    await waitFor(() => expect(document.activeElement).toBe(email));
   });
 
   it("clears AdminUserCreateForm after a successful create", async () => {
