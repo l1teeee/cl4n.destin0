@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AdminEventSummary } from "@/application/events/types";
 import {
   adminStatusBadgeVariant,
+  auditPageSizeFor,
   dashboardActions,
   eventPhaseLabel,
   formatAdminDate,
@@ -167,6 +168,12 @@ describe("admin formatting and query parsing", () => {
       page: 2,
     });
     expect(parseAuditSearchParams({ entityType: "UNKNOWN", page: "-1" })).toEqual({ page: 1 });
+  });
+
+  it("uses five audit rows on phones and ten elsewhere", () => {
+    expect(auditPageSizeFor("mobile")).toBe(5);
+    expect(auditPageSizeFor("tablet")).toBe(10);
+    expect(auditPageSizeFor(undefined)).toBe(10);
   });
 
   it("maps roster and email labels and allow-lists their filters", () => {

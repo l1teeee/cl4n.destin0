@@ -1,10 +1,12 @@
+import { headers } from "next/headers";
 import Link from "next/link";
+import { userAgent } from "next/server";
 
 import { getAdminAuditLog } from "@/application/events/event-use-cases";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
-import { parseAuditSearchParams } from "@/ui/admin/view-model";
+import { auditPageSizeFor, parseAuditSearchParams } from "@/ui/admin/view-model";
 import { Button } from "@/ui/primitives/button";
 import { Label } from "@/ui/primitives/label";
 import {
@@ -22,7 +24,11 @@ export default async function AuditPage({
 }) {
   await requireAdmin("page");
   const query = parseAuditSearchParams(await searchParams);
-  const result = await getAdminAuditLog(postgresEventRepository, { ...query, pageSize: 25 });
+  const { device } = userAgent({ headers: await headers() });
+  const result = await getAdminAuditLog(postgresEventRepository, {
+    ...query,
+    pageSize: auditPageSizeFor(device.type),
+  });
   const pages = Math.max(1, Math.ceil(result.value.total / result.value.pageSize));
   const filter = query.entityType ? `&entityType=${query.entityType}` : "";
 

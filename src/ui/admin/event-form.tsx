@@ -141,7 +141,7 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
       ) : null}
       <div className="grid gap-2">
         <Label htmlFor="opensAt">Apertura</Label>
-        <DateTimePicker id="opensAt" name="opensAt" defaultValue={values?.opensAt} />
+        <DateTimePicker id="opensAt" name="opensAt" defaultValue={values?.opensAt} todayShortcut />
       </div>
       <div className="grid gap-2">
         <Label htmlFor="closesAt">Cierre</Label>

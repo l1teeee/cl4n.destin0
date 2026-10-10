@@ -118,6 +118,45 @@ describe("admin date and time controls", () => {
 
     expect(hiddenInput(second.container, "closesAt")?.value).toMatch(/^\d{4}-10-09T20:30$/);
   });
+
+  it("sets today's date and current time from the shortcut", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 9, 14, 37));
+
+    try {
+      const { container } = render(<DateTimePicker name="opensAt" todayShortcut />);
+      fireEvent.click(screen.getByRole("button", { name: "Selecciona fecha y hora" }));
+      fireEvent.click(screen.getByRole("button", { name: "Hoy" }));
+
+      expect(hiddenInput(container, "opensAt")?.value).toBe("2026-10-09T14:37");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the chosen time when using the today shortcut", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 9, 14, 37));
+
+    try {
+      const { container } = render(
+        <DateTimePicker name="opensAt" defaultValue="2026-12-01T20:00" todayShortcut />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "1 dic 2026 · 20:00" }));
+      fireEvent.click(screen.getByRole("button", { name: "Hoy" }));
+
+      expect(hiddenInput(container, "opensAt")?.value).toBe("2026-10-09T20:00");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hides the today shortcut by default", () => {
+    render(<DateTimePicker name="opensAt" />);
+    fireEvent.click(screen.getByRole("button", { name: "Selecciona fecha y hora" }));
+
+    expect(screen.queryByRole("button", { name: "Hoy" })).toBeNull();
+  });
 });
 
 describe("admin form-compatible controls", () => {

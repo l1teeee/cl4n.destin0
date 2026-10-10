@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { format } from "date-fns";
 import { CalendarDays } from "lucide-react";
 
 import { cn } from "@/ui/cn";
@@ -14,6 +15,7 @@ interface DateTimePickerProps {
   name: string;
   defaultValue?: string;
   placeholder?: string;
+  todayShortcut?: boolean;
 }
 
 function DateTimePicker({
@@ -21,11 +23,13 @@ function DateTimePicker({
   name,
   defaultValue = "",
   placeholder = "Selecciona fecha y hora",
+  todayShortcut = false,
 }: DateTimePickerProps) {
   const [dateValue, initialTime = ""] = defaultValue.split("T");
   const [date, setDate] = React.useState(dateValue || "");
   const [time, setTime] = React.useState(initialTime);
   const selected = parseLocalDate(date);
+  const [month, setMonth] = React.useState<Date>(selected ?? new Date());
   const [hour = "", minute = ""] = time.split(":");
   const value = date && time ? `${date}T${time}` : "";
 
@@ -39,6 +43,13 @@ function DateTimePicker({
 
   function selectMinute(nextMinute: string) {
     setTime(`${hour || "00"}:${nextMinute}`);
+  }
+
+  function selectToday() {
+    const now = new Date();
+    setDate(formatLocalDate(now));
+    setMonth(now);
+    if (!time) setTime(format(now, "HH:mm"));
   }
 
   return (
@@ -66,7 +77,24 @@ function DateTimePicker({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="flex flex-col p-0 sm:flex-row">
-        <Calendar mode="single" selected={selected} defaultMonth={selected} onSelect={selectDate} />
+        <div>
+          <Calendar
+            mode="single"
+            selected={selected}
+            month={month}
+            onMonthChange={setMonth}
+            onSelect={selectDate}
+          />
+          {todayShortcut ? (
+            <button
+              type="button"
+              className="mx-3 mb-3 inline-flex h-8 items-center rounded-full px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={selectToday}
+            >
+              Hoy
+            </button>
+          ) : null}
+        </div>
         <div className="border-t border-input/60 p-3 sm:border-t-0 sm:border-l">
           <TimeColumns value={time} onHourChange={selectHour} onMinuteChange={selectMinute} />
         </div>

@@ -215,6 +215,13 @@ export function parseAuditSearchParams(params: Record<string, string | string[] 
   };
 }
 
+const AUDIT_PAGE_SIZE_MOBILE = 5;
+const AUDIT_PAGE_SIZE_DESKTOP = 10;
+
+export function auditPageSizeFor(deviceType: string | undefined): number {
+  return deviceType === "mobile" ? AUDIT_PAGE_SIZE_MOBILE : AUDIT_PAGE_SIZE_DESKTOP;
+}
+
 export const rosterViews: readonly { view: RosterView; label: string }[] = [
   { view: "confirmadas", label: "Confirmadas" },
   { view: "en-cola", label: "En cola" },
