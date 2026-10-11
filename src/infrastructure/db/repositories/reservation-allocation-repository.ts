@@ -145,6 +145,7 @@ async function claimWaitlistPlace(
             END,
             updated_at = clock_timestamp()
       WHERE id = $1
+        AND deleted_at IS NULL
         AND status = 'SCHEDULED'
         AND opens_at <= clock_timestamp()
         AND closes_at > clock_timestamp()
@@ -301,7 +302,8 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         `SELECT id, status, starts_at, opens_at, closes_at,
                 capacity, reserved_seats, max_party_size
            FROM events
-          WHERE slug = $1`,
+          WHERE slug = $1
+            AND deleted_at IS NULL`,
         [command.eventSlug],
       );
       const event = eventResult.rows[0];
@@ -346,6 +348,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
                 END,
                 updated_at = clock_timestamp()
           WHERE id = $1
+            AND deleted_at IS NULL
             AND status = 'SCHEDULED'
             AND opens_at <= clock_timestamp()
             AND closes_at > clock_timestamp()
@@ -593,8 +596,9 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       const eventResult = await client.query<{ event_id: string }>(
         `SELECT e.id AS event_id
            FROM reservations r
-           JOIN events e ON e.id = r.event_id
+          JOIN events e ON e.id = r.event_id
           WHERE r.id = $1
+            AND e.deleted_at IS NULL
           FOR UPDATE OF e`,
         [command.reservationId],
       );
@@ -670,8 +674,9 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       const eventResult = await client.query<{ event_id: string }>(
         `SELECT e.id AS event_id
            FROM waitlist_entries w
-           JOIN events e ON e.id = w.event_id
+          JOIN events e ON e.id = w.event_id
           WHERE w.id = $1
+            AND e.deleted_at IS NULL
           FOR UPDATE OF e`,
         [command.waitlistEntryId],
       );

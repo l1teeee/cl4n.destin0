@@ -101,6 +101,10 @@ export function cancelEvent(repository: EventRepository, id: string, actorId: st
   return repository.cancel(id, actorId);
 }
 
+export function deleteEvent(repository: EventRepository, id: string, actorId: string) {
+  return repository.delete(id, actorId);
+}
+
 export function changeCapacity(
   repository: EventRepository,
   id: string,

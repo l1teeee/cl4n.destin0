@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { canTransition } from "@/domain/event/event-lifecycle";
-import type { EventLifecycleStatus } from "@/domain/event/event-phase";
+import { canDeleteEvent, canTransition } from "@/domain/event/event-lifecycle";
+import type { EventLifecycleStatus, EventPhase } from "@/domain/event/event-phase";
 
 const statuses: EventLifecycleStatus[] = ["DRAFT", "SCHEDULED", "CLOSED", "COMPLETED", "CANCELLED"];
 
@@ -22,5 +22,20 @@ describe("canTransition", () => {
         expect(canTransition(from, to), `${from} -> ${to}`).toBe(allowed.has(`${from}:${to}`));
       }
     }
+  });
+});
+
+describe("canDeleteEvent", () => {
+  it.each([
+    ["DRAFT", true],
+    ["SCHEDULED", true],
+    ["OPEN", false],
+    ["WAITLIST", false],
+    ["FULL", false],
+    ["CLOSED", true],
+    ["COMPLETED", true],
+    ["CANCELLED", true],
+  ] satisfies [EventPhase, boolean][])("evaluates deletion for %s", (phase, expected) => {
+    expect(canDeleteEvent(phase)).toBe(expected);
   });
 });

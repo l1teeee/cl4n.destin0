@@ -12,6 +12,7 @@ import {
   closeEventNow,
   completeEvent,
   createEvent,
+  deleteEvent,
   openEventNow,
   publishEvent,
   setLocationStatus,
@@ -98,6 +99,8 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
   CAPACITY_BELOW_ALLOCATED: "La capacidad no puede ser menor que los cupos reservados.",
   CAPACITY_BELOW_MAX_PARTY_SIZE: "La capacidad no puede ser menor que el tamaño máximo del grupo.",
   WAITLIST_CAPACITY_BELOW_WAITING: "No puedes dejar menos lugares en cola que personas esperando.",
+  EVENT_ACCEPTING_RESERVATIONS:
+    "La experiencia está recibiendo reservaciones. Ciérrala antes de eliminarla.",
   LOCATION_CONFIRMATION_INCOMPLETE:
     "Para confirmar la ubicación agrega la dirección o el enlace de Google Maps.",
   LOCATION_CHANGED:
@@ -551,6 +554,31 @@ export async function cancelEventAction(
   if (!result.ok) return operationError(result.error);
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Experiencia cancelada." };
+}
+
+export async function deleteEventAction(
+  id: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = idSchema.safeParse({ id });
+  if (!parsed.success) return firstValidationError(parsed.error);
+  const result = await deleteEvent(
+    postgresEventRepository,
+    parsed.data.id,
+    authorization.session.admin.id,
+  );
+  if (!result.ok) return operationError(result.error);
+  revalidatePath("/admin");
+  revalidatePath("/admin/audit");
+  revalidatePath("/");
+  revalidatePath(`/solicitar/${result.value.slug}`);
+  revalidatePath(`/admin/events/${result.value.id}`);
+  return { ok: true, message: "Experiencia eliminada." };
 }
 
 export async function changeCapacityAction(

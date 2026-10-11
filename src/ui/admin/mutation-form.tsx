@@ -18,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/ui/primitives/alert-dialog";
 import { Button } from "@/ui/primitives/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/primitives/tooltip";
 
 const initialState: AdminActionState = { ok: false, message: "" };
 
@@ -27,7 +28,8 @@ interface MutationFormProps {
   action: MutationAction;
   label: string;
   children?: ReactNode;
-  confirmation?: string;
+  confirmation?: ReactNode;
+  icon?: ReactNode;
   danger?: boolean;
   reportToSection?: boolean;
 }
@@ -37,7 +39,9 @@ function FormContent({
   children,
   danger,
   pending,
-}: Omit<MutationFormProps, "action" | "confirmation" | "reportToSection"> & { pending: boolean }) {
+}: Omit<MutationFormProps, "action" | "confirmation" | "icon" | "reportToSection"> & {
+  pending: boolean;
+}) {
   return (
     <>
       {children}
@@ -54,6 +58,7 @@ export function MutationForm({
   label,
   children,
   confirmation,
+  icon,
   danger = false,
   reportToSection = false,
 }: MutationFormProps) {
@@ -80,9 +85,31 @@ export function MutationForm({
     <div className="space-y-2">
       {confirmation ? (
         <AlertDialog open={open} onOpenChange={setOpen}>
-          <AlertDialogTrigger asChild>
-            <Button variant={danger ? "destructive" : "outline"}>{label}</Button>
-          </AlertDialogTrigger>
+          {icon ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    aria-label={label}
+                    size="icon-sm"
+                    variant="ghost"
+                    className={
+                      danger
+                        ? "text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:text-destructive focus-visible:text-destructive"
+                        : undefined
+                    }
+                  >
+                    {icon}
+                  </Button>
+                </AlertDialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <AlertDialogTrigger asChild>
+              <Button variant={danger ? "destructive" : "outline"}>{label}</Button>
+            </AlertDialogTrigger>
+          )}
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{label}</AlertDialogTitle>

@@ -102,7 +102,12 @@ describe("event phase labels", () => {
 
 describe("admin dashboard actions", () => {
   it("shows only phase-valid dashboard actions", () => {
-    expect(dashboardActions(event({}), now)).toEqual(["OPEN_NOW", "EDIT", "RESERVATIONS"]);
+    expect(dashboardActions(event({}), now)).toEqual([
+      "OPEN_NOW",
+      "EDIT",
+      "RESERVATIONS",
+      "DELETE",
+    ]);
     expect(dashboardActions(event({ status: "SCHEDULED", phase: "OPEN" }), now)).toEqual([
       "CLOSE_NOW",
       "EDIT",
@@ -116,6 +121,7 @@ describe("admin dashboard actions", () => {
     expect(dashboardActions(event({ status: "COMPLETED", phase: "COMPLETED" }), now)).toEqual([
       "EDIT",
       "RESERVATIONS",
+      "DELETE",
     ]);
   });
 

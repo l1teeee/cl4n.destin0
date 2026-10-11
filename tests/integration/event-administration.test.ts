@@ -136,7 +136,7 @@ describe("event mutations", () => {
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/email|phone|instagram|notes/i);
   });
 
-  it("maps the events_slug_uq violation to SLUG_TAKEN", async () => {
+  it("maps the events_slug_live_uq violation to SLUG_TAKEN", async () => {
     await repository.create(baseCommand, adminId);
     expectError(await repository.create(baseCommand, adminId), "SLUG_TAKEN");
   });

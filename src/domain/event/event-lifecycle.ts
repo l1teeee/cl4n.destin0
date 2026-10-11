@@ -1,4 +1,4 @@
-import type { EventLifecycleStatus } from "./event-phase";
+import type { EventLifecycleStatus, EventPhase } from "./event-phase";
 
 export const allowedLifecycleTransitions = {
   DRAFT: ["SCHEDULED", "CANCELLED"],
@@ -10,4 +10,8 @@ export const allowedLifecycleTransitions = {
 
 export function canTransition(from: EventLifecycleStatus, to: EventLifecycleStatus): boolean {
   return allowedLifecycleTransitions[from].some((allowed) => allowed === to);
+}
+
+export function canDeleteEvent(phase: EventPhase): boolean {
+  return phase !== "OPEN" && phase !== "WAITLIST" && phase !== "FULL";
 }

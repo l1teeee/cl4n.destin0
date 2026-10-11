@@ -2,9 +2,11 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Trash2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { MutationForm } from "@/ui/admin/mutation-form";
+import { TooltipProvider } from "@/ui/primitives/tooltip";
 
 afterEach(cleanup);
 
@@ -39,6 +41,25 @@ describe("MutationForm", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("uses an accessible icon trigger for confirmations", async () => {
+    render(
+      <TooltipProvider>
+        <MutationForm
+          action={vi.fn()}
+          label="Eliminar experiencia"
+          confirmation="Esta acción no se puede deshacer."
+          icon={<Trash2 />}
+          danger
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar experiencia" }));
+
+    expect(await screen.findByRole("alertdialog")).toBeDefined();
+    expect(screen.getByText("Esta acción no se puede deshacer.")).toBeDefined();
   });
 
   it("runs the confirmed action and closes on success", async () => {

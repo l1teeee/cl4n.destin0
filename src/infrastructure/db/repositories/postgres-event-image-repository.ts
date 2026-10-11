@@ -67,7 +67,10 @@ export class PostgresEventImageRepository implements EventImageRepository {
   }): Promise<AddEventImageResult> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
       await lockEventImages(client, input.eventId);
-      const event = await client.query("SELECT 1 FROM events WHERE id = $1", [input.eventId]);
+      const event = await client.query(
+        "SELECT 1 FROM events WHERE id = $1 AND deleted_at IS NULL",
+        [input.eventId],
+      );
       if (event.rowCount === 0) return { ok: false, error: "EVENT_NOT_FOUND" };
 
       const count = await client.query<{ count: number }>(
