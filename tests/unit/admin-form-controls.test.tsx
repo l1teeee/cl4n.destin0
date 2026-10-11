@@ -178,6 +178,11 @@ describe("admin form-compatible controls", () => {
     locationStatus: "PENDING",
     locationRevision: 0,
   } satisfies EventFormValues;
+  const createValues = {
+    ...editValues,
+    capacity: 20,
+    status: "DRAFT",
+  } satisfies EventFormValues;
 
   it("posts on only while Switch is checked", () => {
     const { container } = render(
@@ -237,7 +242,7 @@ describe("admin form-compatible controls", () => {
   });
 
   it.each([
-    { mode: "create" as const, values: undefined },
+    { mode: "create" as const, values: createValues },
     { mode: "edit" as const, values: editValues },
   ])("keeps typed values after a $mode action error", async ({ mode, values }) => {
     const action = vi.fn(async (state: { ok: boolean; message: string }, formData: FormData) => {
@@ -258,6 +263,7 @@ describe("admin form-compatible controls", () => {
     fireEvent.change(name, { target: { value: typedName } });
     fireEvent.change(slug, { target: { value: typedSlug } });
     fireEvent.change(numberField, { target: { value: typedNumber } });
+    if (mode === "create") fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     fireEvent.submit(name.form!);
 
     expect(await screen.findByText("No se pudo guardar.")).toBeDefined();
@@ -280,9 +286,10 @@ describe("admin form-compatible controls", () => {
         opensAt: "La fecha de apertura es obligatoria.",
       },
     }));
-    const { container } = render(<EventForm action={action} mode="create" />);
+    const { container } = render(<EventForm action={action} mode="create" values={createValues} />);
     const slug = container.querySelector<HTMLInputElement>('[name="slug"]')!;
 
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     fireEvent.submit(slug.form!);
 
     expect(await screen.findByText("Ese slug ya está en uso.")).toBeDefined();

@@ -29,6 +29,8 @@ import { createCancelWaitlistEntry } from "@/application/reservations/cancel-wai
 import {
   changeWaitlistCapacitySchema,
   createAdminEventSchema,
+  optionalNumber,
+  readCreateEventFormData,
   updateAdminEventSchema,
 } from "@/contracts/admin-event";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
@@ -115,12 +117,6 @@ const operationErrorFields: Partial<Record<EventOperationErrorCode, string>> = {
   LOCATION_CONFIRMATION_INCOMPLETE: "locationAddress",
 };
 
-// Number("") is 0, which would silently turn an empty field into "waitlist off".
-function optionalNumber(value: FormDataEntryValue | null): number | undefined {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
-  return Number(value);
-}
-
 function unauthorized(): AdminActionState {
   return { ok: false, message: "Tu sesión no es válida. Inicia sesión nuevamente." };
 }
@@ -191,24 +187,7 @@ export async function createEventAction(
   const authorization = await requireAdmin("action");
   if (!authorization.authorized) return unauthorized();
 
-  const parsed = createAdminEventSchema.safeParse({
-    internalName: formData.get("internalName"),
-    slug: formData.get("slug"),
-    eventDate: formData.get("eventDate"),
-    eventTime: formData.get("eventTime"),
-    opensAt: formData.get("opensAt"),
-    closesAt: formData.get("closesAt"),
-    capacity: optionalNumber(formData.get("capacity")),
-    maxPartySize: optionalNumber(formData.get("maxPartySize")),
-    autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
-    waitlistCapacity: optionalNumber(formData.get("waitlistCapacity")),
-    status: formData.get("status"),
-    locationName: formData.get("locationName"),
-    locationAddress: formData.get("locationAddress"),
-    locationMapsUrl: formData.get("locationMapsUrl"),
-    locationNotes: formData.get("locationNotes"),
-    locationStatus: formData.get("locationStatus"),
-  });
+  const parsed = createAdminEventSchema.safeParse(readCreateEventFormData(formData));
   if (!parsed.success) return formValidationError(parsed.error);
 
   let startsAt: Date;
