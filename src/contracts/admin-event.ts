@@ -1,5 +1,32 @@
 import { z } from "zod";
 
+// Number("") is 0, which would silently turn an empty field into "waitlist off".
+export function optionalNumber(value: FormDataEntryValue | null): number | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return Number(value);
+}
+
+export function readCreateEventFormData(formData: FormData) {
+  return {
+    internalName: formData.get("internalName"),
+    slug: formData.get("slug"),
+    eventDate: formData.get("eventDate"),
+    eventTime: formData.get("eventTime"),
+    opensAt: formData.get("opensAt"),
+    closesAt: formData.get("closesAt"),
+    capacity: optionalNumber(formData.get("capacity")),
+    maxPartySize: optionalNumber(formData.get("maxPartySize")),
+    autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
+    waitlistCapacity: optionalNumber(formData.get("waitlistCapacity")),
+    status: formData.get("status"),
+    locationName: formData.get("locationName"),
+    locationAddress: formData.get("locationAddress"),
+    locationMapsUrl: formData.get("locationMapsUrl"),
+    locationNotes: formData.get("locationNotes"),
+    locationStatus: formData.get("locationStatus"),
+  };
+}
+
 const localDate = z
   .string({ error: "La fecha es obligatoria." })
   .min(1, "La fecha del evento es obligatoria.")

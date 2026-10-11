@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   changeWaitlistCapacitySchema,
   createAdminEventSchema,
+  readCreateEventFormData,
   updateAdminEventSchema,
 } from "@/contracts/admin-event";
 import {
@@ -31,6 +32,37 @@ const validCreate = {
 } as const;
 
 describe("admin event contracts", () => {
+  it("reads create form numbers, empty values, and checkboxes", () => {
+    const formData = new FormData();
+    for (const [field, value] of Object.entries({
+      internalName: "Cena",
+      slug: "cena",
+      eventDate: "2026-11-20",
+      eventTime: "19:30",
+      opensAt: "2026-11-01T08:00",
+      closesAt: "2026-11-19T20:00",
+      capacity: "20",
+      maxPartySize: "",
+      waitlistCapacity: "5",
+      status: "DRAFT",
+      locationName: "",
+      locationAddress: "",
+      locationMapsUrl: "",
+      locationNotes: "",
+      locationStatus: "PENDING",
+      autoCloseOnFull: "on",
+    })) {
+      formData.set(field, value);
+    }
+
+    expect(readCreateEventFormData(formData)).toMatchObject({
+      capacity: 20,
+      maxPartySize: undefined,
+      waitlistCapacity: 5,
+      autoCloseOnFull: true,
+    });
+  });
+
   it("accepts strict create and update inputs", () => {
     expect(createAdminEventSchema.parse(validCreate)).toEqual(validCreate);
     const update = {
