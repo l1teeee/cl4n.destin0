@@ -23,7 +23,7 @@ import type {
   SortDirection,
   UpdateEventCommand,
 } from "@/application/events/types";
-import { canTransition } from "@/domain/event/event-lifecycle";
+import { canDeleteEvent, canTransition } from "@/domain/event/event-lifecycle";
 import {
   chooseStoredCoordinates,
   isEventLocationConfirmationValid,
@@ -180,7 +180,7 @@ function isSlugViolation(error: unknown): boolean {
     "code" in error &&
     error.code === "23505" &&
     "constraint" in error &&
-    error.constraint === "events_slug_uq"
+    error.constraint === "events_slug_live_uq"
   );
 }
 
@@ -212,8 +212,9 @@ async function insertAudit(
 async function lockEvent(client: PoolClient, id: string): Promise<EventRow | null> {
   const result = await client.query<EventRow>(
     `SELECT ${eventColumns}, clock_timestamp() AS db_now
-       FROM events
+      FROM events
       WHERE id = $1
+        AND deleted_at IS NULL
       FOR UPDATE`,
     [id],
   );
@@ -579,6 +580,35 @@ export class PostgresEventRepository implements EventRepository {
     return this.transition(id, "CANCELLED", actorAdminId, "EVENT_UPDATED");
   }
 
+  async delete(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>> {
+    return inTransaction(this.pool, async (client) => {
+      const locked = await lockEvent(client, id);
+      if (!locked) {
+        return failed("EVENT_NOT_FOUND");
+      }
+      const record = eventRecord(locked);
+      if (!canDeleteEvent(derivePhase(record, locked.db_now!))) {
+        return failed("EVENT_ACCEPTING_RESERVATIONS");
+      }
+
+      const deleted = await client.query<EventRow>(
+        `UPDATE events
+            SET deleted_at = clock_timestamp(),
+                updated_at = clock_timestamp()
+          WHERE id = $1
+          RETURNING ${eventColumns}`,
+        [id],
+      );
+      await insertAudit(client, actorAdminId, "EVENT_DELETED", id, {
+        internalName: record.internalName,
+        slug: record.slug,
+        status: record.status,
+        reservedSeats: record.reservedSeats,
+      });
+      return successful(eventRecord(deleted.rows[0]!));
+    });
+  }
+
   async changeCapacity(
     id: string,
     capacity: number,
@@ -654,6 +684,7 @@ export class PostgresEventRepository implements EventRepository {
          FROM events e
          CROSS JOIN db_clock
          LEFT JOIN reservations r ON r.event_id = e.id
+        WHERE e.deleted_at IS NULL
         GROUP BY e.id, db_clock.db_now
         ORDER BY e.starts_at DESC, e.id`,
     );
@@ -674,6 +705,7 @@ export class PostgresEventRepository implements EventRepository {
          CROSS JOIN db_clock
          LEFT JOIN reservations r ON r.event_id = e.id
         WHERE e.id = $1
+          AND e.deleted_at IS NULL
         GROUP BY e.id, db_clock.db_now`,
       [id],
     );
@@ -903,6 +935,7 @@ export class PostgresEventRepository implements EventRepository {
          FROM events e
          CROSS JOIN db_clock
         WHERE e.status <> 'DRAFT'
+          AND e.deleted_at IS NULL
           ${slugCondition}
         ORDER BY e.starts_at, e.id`,
       values,

@@ -33,6 +33,7 @@ import {
   closeEventNowAction,
   completeEventAction,
   createEventAction,
+  deleteEventAction,
   deleteEventImageAction,
   openEventNowAction,
   publishEventAction,
@@ -272,6 +273,23 @@ describe("admin event Server Actions", () => {
     await authorize();
     expect(await cancelEventAction(id, initialState, new FormData())).toMatchObject({ ok: true });
     expect(await statusOf(id)).toBe("CANCELLED");
+  });
+
+  it("protects and performs event deletion", async () => {
+    const id = await insertEvent("DRAFT", "delete-event");
+    expect(await deleteEventAction(id, initialState, new FormData())).toMatchObject({ ok: false });
+    await expect(
+      pool.query("SELECT deleted_at FROM events WHERE id = $1", [id]),
+    ).resolves.toMatchObject({ rows: [{ deleted_at: null }] });
+
+    await authorize();
+    expect(await deleteEventAction(id, initialState, new FormData())).toMatchObject({
+      ok: true,
+      message: "Experiencia eliminada.",
+    });
+    await expect(
+      pool.query("SELECT deleted_at FROM events WHERE id = $1", [id]),
+    ).resolves.toMatchObject({ rows: [{ deleted_at: expect.any(Date) }] });
   });
 
   it("protects and performs capacity changes", async () => {

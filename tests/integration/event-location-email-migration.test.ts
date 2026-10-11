@@ -129,7 +129,7 @@ describe("migration 0007 event location email", () => {
     });
   });
 
-  it("applies 0006 through 0008 together over a database at 0005", async () => {
+  it("applies 0006 through 0009 together over a database at 0005", async () => {
     const url = testDatabaseUrl();
     const database = `${url.pathname.slice(1)}_location_email_0005`;
     url.pathname = `/${database}`;
@@ -152,13 +152,13 @@ describe("migration 0007 event location email", () => {
       const eventColumns = await pool.query(
         `SELECT 1 FROM information_schema.columns
           WHERE table_name = 'events'
-            AND column_name IN ('location_revision', 'location_released_revision')`,
+            AND column_name IN ('location_revision', 'location_released_revision', 'deleted_at')`,
       );
-      expect(eventColumns.rowCount).toBe(2);
+      expect(eventColumns.rowCount).toBe(3);
       const applied = await pool.query(
         "SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(applied.rows[0]!.count).toBe(9);
+      expect(applied.rows[0]!.count).toBe(10);
     } finally {
       await pool.end();
       await maintenance(async (client) => {

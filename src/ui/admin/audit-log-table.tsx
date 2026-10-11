@@ -26,6 +26,7 @@ const actionLabels: Record<AuditLogItem["action"], string> = {
   EVENT_UPDATED: "Experiencia actualizada",
   EVENT_OPENED: "Experiencia abierta",
   EVENT_CLOSED: "Experiencia cerrada",
+  EVENT_DELETED: "Experiencia eliminada",
   CAPACITY_CHANGED: "Capacidad modificada",
   RESERVATION_CREATED: "Reservación creada",
   RESERVATION_CANCELLED: "Reservación cancelada",

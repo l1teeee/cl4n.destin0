@@ -66,6 +66,7 @@ export const auditAction = pgEnum("audit_action", [
   "WAITLIST_CANCELLED",
   "ADMIN_PASSWORD_RESET_REQUESTED",
   "ADMIN_PASSWORD_RESET_COMPLETED",
+  "EVENT_DELETED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -210,12 +211,15 @@ export const events = pgTable(
     waitlistCapacity: integer("waitlist_capacity").notNull().default(5),
     waitlistedCount: integer("waitlisted_count").notNull().default(0),
     lastWaitlistNumber: integer("last_waitlist_number").notNull().default(0),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     primaryKey({ name: "events_pkey", columns: [table.id] }),
-    unique("events_slug_uq").on(table.slug),
+    uniqueIndex("events_slug_live_uq")
+      .on(table.slug)
+      .where(sql`${table.deletedAt} IS NULL`),
     check("events_slug_format_chk", sql`${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
     check("events_slug_length_chk", sql`char_length(${table.slug}) <= 80`),
     check(

@@ -75,6 +75,7 @@ export class PostgresEventLocationEmailRepository implements EventLocationEmailR
             SET location_released_revision = location_revision,
                 updated_at = clock_timestamp()
           WHERE id = $1
+            AND deleted_at IS NULL
             AND location_status = 'CONFIRMED'
             AND location_revision = $2
             AND $3::event_location_status = 'CONFIRMED'
@@ -87,7 +88,8 @@ export class PostgresEventLocationEmailRepository implements EventLocationEmailR
         const current = await client.query<EventLocationRow>(
           `SELECT location_status, location_revision
              FROM events
-            WHERE id = $1`,
+            WHERE id = $1
+              AND deleted_at IS NULL`,
           [eventId],
         );
         event = current.rows[0];

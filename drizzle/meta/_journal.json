@@ -64,6 +64,13 @@
       "when": 1791832000000,
       "tag": "0008_location_release_coordinates",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791918400000,
+      "tag": "0009_event_soft_delete",
+      "breakpoints": true
     }
   ]
 }

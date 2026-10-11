@@ -16,11 +16,12 @@ import {
   type EmailOutboxStatus,
 } from "@/application/notifications/email-outbox";
 import type { AdminRole } from "@/domain/admin/admin-access";
+import { canDeleteEvent } from "@/domain/event/event-lifecycle";
 import type { EventPhase } from "@/domain/event/event-phase";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import type { BadgeVariant } from "@/ui/primitives/badge";
 
-export type DashboardAction = "OPEN_NOW" | "CLOSE_NOW" | "EDIT" | "RESERVATIONS";
+export type DashboardAction = "OPEN_NOW" | "CLOSE_NOW" | "EDIT" | "RESERVATIONS" | "DELETE";
 export type LifecycleAction = "PUBLISH" | "OPEN_NOW" | "CLOSE_NOW" | "COMPLETE" | "CANCEL";
 
 export interface ReservationSearchParams {
@@ -67,6 +68,9 @@ export function dashboardActions(event: AdminEventSummary, databaseTime: Date): 
     actions.push("CLOSE_NOW");
   }
   actions.push("EDIT", "RESERVATIONS");
+  if (canDeleteEvent(event.phase)) {
+    actions.push("DELETE");
+  }
   return actions;
 }
 

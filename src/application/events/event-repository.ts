@@ -38,6 +38,7 @@ export interface EventRepository {
   closeNow(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   complete(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   cancel(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
+  delete(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   changeCapacity(
     id: string,
     capacity: number,
