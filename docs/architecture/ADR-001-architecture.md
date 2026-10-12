@@ -262,7 +262,7 @@ All of these run in one transaction with their audit row.
 Enums:
 - `event_status`: DRAFT, SCHEDULED, CLOSED, COMPLETED, CANCELLED
 - `reservation_status`: SUBMITTED, CONFIRMED, FULL_REJECTED, CANCELLED, EXPIRED
-- `audit_action`: EVENT_CREATED, EVENT_UPDATED, EVENT_OPENED, EVENT_CLOSED, CAPACITY_CHANGED, RESERVATION_CREATED, RESERVATION_CANCELLED, ADMIN_SIGNED_IN, ADMIN_USER_DELETION_REQUESTED, ADMIN_USER_DELETED
+- `audit_action`: EVENT_CREATED, EVENT_UPDATED, EVENT_OPENED, EVENT_CLOSED, CAPACITY_CHANGED, RESERVATION_CREATED, RESERVATION_CANCELLED, ADMIN_SIGNED_IN, ADMIN_USER_DELETION_REQUESTED, ADMIN_USER_DELETED, EVENT_DELETED
 - `actor_type`: ADMIN, PUBLIC, SYSTEM
 
 ### Event state model
@@ -281,6 +281,15 @@ derivePhase(event, now):
 Opening and closing at an exact second therefore needs no cron job. The database clock decides at allocation time.
 
 Without auto-close, a FULL event becomes OPEN again if capacity grows or a cancellation frees seats while the window is open. With `auto_close_on_full`, the allocation that fills the event sets CLOSED in the same statement.
+
+### Event soft delete
+
+- Deleting an event sets `deleted_at`. Deletion is refused while the derived phase is OPEN, WAITLIST or FULL. The check runs under the event row lock using the database clock.
+- A deleted event disappears from the admin list, the detail pages and the public site.
+- The reservation engine and every admin mutation filter `deleted_at IS NULL`, so they ignore deleted events.
+- Reservations, waitlist entries, emails and audit history are kept. Already-queued emails are still delivered.
+- The slug can be reused by a new event, because uniqueness only covers live events.
+- Each deletion writes an `EVENT_DELETED` audit row with internalName, slug, status and reservedSeats, and no guest PII. The app has no undo.
 
 ### State transitions
 
@@ -353,7 +362,7 @@ Indexes: `(admin_user_id)`, `(expires_at)`.
 | Column | Notes |
 |---|---|
 | id | primary key |
-| slug | UNIQUE, CHECK `^[a-z0-9]+(-[a-z0-9]+)*$`, max 80 |
+| slug | unique among live events (partial unique index `events_slug_live_uq` WHERE `deleted_at IS NULL`), CHECK `^[a-z0-9]+(-[a-z0-9]+)*$`, max 80 |
 | internal_name | 1..120 |
 | starts_at | event date + time |
 | capacity | |
@@ -363,6 +372,7 @@ Indexes: `(admin_user_id)`, `(expires_at)`.
 | auto_close_on_full | default false |
 | status | event_status, default 'DRAFT' |
 | last_reservation_number | default 0 |
+| deleted_at | nullable; set by soft delete, hides the event everywhere and the engine ignores it |
 | created_at, updated_at | |
 
 CHECKs:

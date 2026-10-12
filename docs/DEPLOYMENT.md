@@ -77,6 +77,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
   - `SELECT has_table_privilege('clandestino_app', 'admin_password_reset_tokens', 'SELECT,INSERT,UPDATE');`
   - `SELECT has_table_privilege('clandestino_app', 'email_outbox', 'SELECT,INSERT,UPDATE,DELETE');`
   - `SELECT has_table_privilege('clandestino_app', 'event_images', 'SELECT,INSERT,DELETE');`
+- Migration 0009 (event soft delete) adds `events.deleted_at`, adds `EVENT_DELETED` to `audit_action` and replaces `events_slug_uq` with the partial unique index `events_slug_live_uq`. It takes an exclusive lock on `events` until commit, so run it only when no event is OPEN or WAITLIST. It adds no table. After applying it, verify the least-privilege role can use the new column with `SELECT has_column_privilege('clandestino_app', 'events', 'deleted_at', 'SELECT,UPDATE');`. It must return true.
 - **Deploy order:**
   1. Set the Vercel env vars.
   2. Migrate production BEFORE pushing `main`, because the push auto-deploys code that expects the new schema.
@@ -130,5 +131,10 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 - **App:** Vercel instant rollback to the previous deployment.
 - **Database:** Railway PITR restore to a timestamp, which creates a sibling service and needs a manual cutover. Migrations are forward-only, so prefer expand/contract changes.
 - **Admin deletion:** once any admin has been deleted, do not roll the app back to a deployment older than the admin-deletion change. Older code does not filter `deleted_at`, so sign-in can pick a deleted row that shares an email, and reactivating a deleted row violates `admin_users_deleted_inactive_chk`. Rolling forward is safe.
+- **Event deletion:** once any event has been deleted, do not roll the app back to a deployment older than the event-deletion change (commit 6627af1 and earlier, including 9f6749e and 02a7384). Older code does not filter `deleted_at`, so deleted events reappear in the admin and on the public home. If a deleted event is SCHEDULED, its window can open and the old engine would allocate seats to it. When a live event reuses the slug, the old slug lookup can pick either row. Rolling forward is safe.
+  - If a code-only rollback is unavoidable, first run these against production. The audit log keeps the original slug in the EVENT_DELETED metadata.
+    - `UPDATE events SET status = 'CANCELLED' WHERE deleted_at IS NOT NULL AND status <> 'CANCELLED';`
+    - `UPDATE events SET slug = 'd-' || replace(id::text, '-', '') WHERE deleted_at IS NOT NULL;`
+  - Undeleting an event is `UPDATE events SET deleted_at = NULL WHERE id = ...`. It only works if no live event has reused its slug.
 
 Never modify production silently after deployment. Every change goes through the same local gate and owner approval.
