@@ -59,6 +59,29 @@
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+@font-face {
+  font-family: "Quicksand";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/quicksand-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Quicksand";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/quicksand-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   color-scheme: dark;
   --clan-background: #11120d;
@@ -124,11 +147,14 @@ textarea {
 
 .public-page {
   --public-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --public-enter-offset: 12px;
   position: relative;
   isolation: isolate;
   min-height: 100svh;
   background: var(--clan-background);
   color: var(--clan-foreground);
+  font-family: "Quicksand", Arial, Helvetica, sans-serif;
+  font-weight: 400;
 }
 
 .public-header {
@@ -211,8 +237,8 @@ textarea {
 .public-home h1 {
   max-width: 14ch;
   font-size: clamp(3rem, 7vw, 6.5rem);
-  font-weight: 700;
-  letter-spacing: -0.065em;
+  font-weight: 600;
+  letter-spacing: -0.04em;
   line-height: 1;
 }
 
@@ -238,8 +264,8 @@ textarea {
 .public-reserve-link {
   margin-top: 0.5rem;
   font-size: clamp(1.5rem, 3vw, 2.5rem);
-  font-weight: 700;
-  letter-spacing: -0.05em;
+  font-weight: 600;
+  letter-spacing: -0.04em;
   line-height: 1;
   text-decoration: underline;
   text-underline-offset: 0.1em;
@@ -278,8 +304,8 @@ textarea {
 
 .concept-copy h1 {
   font-size: clamp(2.75rem, 5vw, 5rem);
-  font-weight: 700;
-  letter-spacing: -0.065em;
+  font-weight: 600;
+  letter-spacing: -0.04em;
   line-height: 1;
 }
 
@@ -520,81 +546,51 @@ textarea.reservation-input {
   color: var(--muted-foreground);
 }
 
-.public-home > :not(.public-home-mark, h1),
+.public-home > *,
+.concept-visual,
 .concept-copy > *,
 .reservation-intro > *,
 .reservation-form,
 .reservation-success {
-  animation: public-reveal 700ms var(--public-ease) backwards;
+  animation: public-reveal 800ms var(--public-ease) backwards;
 }
 
-.public-header,
-.public-home-mark {
-  animation: public-fade 800ms ease-out backwards;
-}
-
-.concept-visual {
-  animation: public-unveil 1400ms var(--public-ease) backwards;
-}
-
-.public-home > h1,
-.reservation-intro > h1,
-.concept-copy > h1 {
-  animation: public-emerge 1100ms var(--public-ease) backwards;
+.public-header {
+  animation: public-fade 500ms ease-out backwards;
 }
 
 .public-home > :nth-child(2),
 .concept-copy > :nth-child(1),
 .reservation-intro > :nth-child(1) {
-  animation-delay: 120ms;
+  animation-delay: 100ms;
 }
 
 .public-home > :nth-child(3),
 .concept-copy > :nth-child(2),
 .reservation-intro > :nth-child(2) {
-  animation-delay: 220ms;
+  animation-delay: 200ms;
 }
 
 .public-home > :nth-child(4),
 .concept-copy > :nth-child(3),
 .reservation-intro > :nth-child(3) {
-  animation-delay: 340ms;
+  animation-delay: 300ms;
 }
 
 .concept-copy > :nth-child(4),
 .reservation-intro > :nth-child(4),
 .reservation-form {
-  animation-delay: 440ms;
+  animation-delay: 400ms;
 }
 
 @keyframes public-reveal {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(var(--public-enter-offset));
   }
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes public-emerge {
-  from {
-    opacity: 0;
-    filter: blur(10px);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-  }
-}
-
-@keyframes public-unveil {
-  from {
-    clip-path: inset(0 0 100% 0);
-  }
-  to {
-    clip-path: inset(0);
   }
 }
 
@@ -641,6 +637,10 @@ textarea.reservation-input {
 }
 
 @media (max-width: 640px) {
+  .public-page {
+    --public-enter-offset: 8px;
+  }
+
   .public-header {
     min-height: 4.75rem;
     padding: 0.8rem 1rem;
