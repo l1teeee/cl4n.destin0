@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { deleteEventImageAction } from "@/app/admin/(protected)/events/actions";
 import type { EventImageItem } from "@/application/events/event-image-repository";
 import { MAX_EVENT_IMAGES } from "@/contracts/event-image";
+import { prepareImage } from "@/ui/admin/prepare-image";
 import { Alert } from "@/ui/primitives/alert";
 import {
   AlertDialog,
@@ -20,7 +21,6 @@ import {
 } from "@/ui/primitives/alert-dialog";
 import { Button } from "@/ui/primitives/button";
 
-const decodeError = "No se pudo leer la imagen. Usa una foto JPG, PNG o WebP.";
 const uploadErrorFallback = "No se pudo subir la imagen.";
 const initialDeleteState = { ok: false, message: "" };
 
@@ -41,41 +41,6 @@ export async function uploadErrorMessage(response: Response): Promise<string> {
     return typeof body.error === "string" ? body.error : uploadErrorFallback;
   } catch {
     return uploadErrorFallback;
-  }
-}
-
-function canvasBlob(
-  canvas: HTMLCanvasElement,
-  type: string,
-  quality: number,
-): Promise<Blob | null> {
-  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
-}
-
-async function prepareImage(file: File): Promise<Blob> {
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file);
-  } catch {
-    throw new Error(decodeError);
-  }
-
-  try {
-    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error(decodeError);
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-
-    const webp = await canvasBlob(canvas, "image/webp", 0.82);
-    if (webp?.type === "image/webp") return webp;
-    const jpeg = await canvasBlob(canvas, "image/jpeg", 0.85);
-    if (!jpeg) throw new Error(decodeError);
-    return jpeg;
-  } finally {
-    bitmap.close();
   }
 }
 

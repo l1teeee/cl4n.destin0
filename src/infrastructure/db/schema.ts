@@ -67,6 +67,9 @@ export const auditAction = pgEnum("audit_action", [
   "ADMIN_PASSWORD_RESET_REQUESTED",
   "ADMIN_PASSWORD_RESET_COMPLETED",
   "EVENT_DELETED",
+  "DRINK_CREATED",
+  "DRINK_UPDATED",
+  "DRINK_DELETED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -321,6 +324,32 @@ export const eventImages = pgTable(
     check("event_images_data_size_chk", sql`octet_length(${table.data}) = ${table.byteSize}`),
     check("event_images_public_token_length_chk", sql`char_length(${table.publicToken}) = 43`),
     index("event_images_event_created_at_idx").on(table.eventId, table.createdAt),
+  ],
+);
+
+export const eventClues = pgTable(
+  "event_clues",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    eventId: uuid("event_id").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "event_clues_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "event_clues_event_fk",
+      columns: [table.eventId],
+      foreignColumns: [events.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "event_clues_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    check("event_clues_body_length_chk", sql`char_length(${table.body}) BETWEEN 1 AND 500`),
+    index("event_clues_event_created_at_idx").on(table.eventId, table.createdAt),
   ],
 );
 
@@ -607,7 +636,7 @@ export const auditLogs = pgTable(
     ),
     check(
       "audit_logs_entity_type_chk",
-      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY')`,
+      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK')`,
     ),
     index("audit_logs_entity_occurred_at_idx").on(
       table.entityType,
@@ -631,5 +660,66 @@ export const rateLimitCounters = pgTable(
       columns: [table.bucketKey, table.windowStart],
     }),
     index("rate_limit_counters_window_start_idx").on(table.windowStart),
+  ],
+);
+
+export const drinks = pgTable(
+  "drinks",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    priceCents: integer("price_cents").notNull(),
+    isVisible: boolean("is_visible").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "drinks_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "drinks_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    check("drinks_name_length_chk", sql`char_length(${table.name}) BETWEEN 1 AND 80`),
+    check(
+      "drinks_description_length_chk",
+      sql`${table.description} IS NULL OR char_length(${table.description}) BETWEEN 1 AND 280`,
+    ),
+    check("drinks_price_cents_chk", sql`${table.priceCents} BETWEEN 1 AND 999999`),
+  ],
+);
+
+export const drinkImages = pgTable(
+  "drink_images",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    drinkId: uuid("drink_id").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "drink_images_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "drink_images_drink_fk",
+      columns: [table.drinkId],
+      foreignColumns: [drinks.id],
+    }).onDelete("cascade"),
+    unique("drink_images_drink_uq").on(table.drinkId),
+    foreignKey({
+      name: "drink_images_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    check(
+      "drink_images_content_type_chk",
+      sql`${table.contentType} IN ('image/jpeg', 'image/png', 'image/webp')`,
+    ),
+    check("drink_images_byte_size_chk", sql`${table.byteSize} BETWEEN 1 AND 2097152`),
+    check("drink_images_data_size_chk", sql`octet_length(${table.data}) = ${table.byteSize}`),
   ],
 );

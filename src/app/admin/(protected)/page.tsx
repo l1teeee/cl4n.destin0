@@ -5,6 +5,7 @@ import { getAdminEventList } from "@/application/events/event-use-cases";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
+import { LinkPendingIcon, LinkPendingIndicator } from "@/ui/admin/link-pending";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import {
   adminStatusBadgeVariant,
@@ -58,7 +59,10 @@ export default async function AdminPage() {
           <p className="admin-description">Control de eventos y reservaciones.</p>
         </div>
         <Button asChild>
-          <Link href="/admin/events/new">Nueva experiencia</Link>
+          <Link href="/admin/events/new">
+            Nueva experiencia
+            <LinkPendingIndicator />
+          </Link>
         </Button>
       </div>
       <ActionFeedbackProvider>
@@ -131,10 +135,12 @@ export default async function AdminPage() {
                             <TooltipTrigger asChild>
                               <Button variant="ghost" size="icon-sm" asChild>
                                 <Link
-                                  href={`/admin/events/${event.id}/edit`}
+                                  href={`/admin/events/${event.id}/edit?desde=experiencias`}
                                   aria-label="Editar experiencia"
                                 >
-                                  <Pencil />
+                                  <LinkPendingIcon>
+                                    <Pencil />
+                                  </LinkPendingIcon>
                                 </Link>
                               </Button>
                             </TooltipTrigger>
@@ -147,7 +153,9 @@ export default async function AdminPage() {
                                   href={`/admin/events/${event.id}`}
                                   aria-label="Ver reservaciones"
                                 >
-                                  <CalendarDays />
+                                  <LinkPendingIcon>
+                                    <CalendarDays />
+                                  </LinkPendingIcon>
                                 </Link>
                               </Button>
                             </TooltipTrigger>

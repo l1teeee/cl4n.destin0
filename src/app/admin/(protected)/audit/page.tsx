@@ -39,8 +39,8 @@ export default async function AuditPage({
         <h1 className="admin-title">Auditoría</h1>
         <p className="admin-description">Actividad global, de la más reciente a la más antigua.</p>
       </div>
-      <form className="flex items-end gap-3" method="get">
-        <Label className="grid gap-2">
+      <form className="flex flex-wrap items-end gap-3" method="get">
+        <Label className="grid w-full gap-2 sm:w-56">
           <span>Tipo de entidad</span>
           <Select name="entityType" defaultValue={query.entityType ?? "todos"}>
             <SelectTrigger>

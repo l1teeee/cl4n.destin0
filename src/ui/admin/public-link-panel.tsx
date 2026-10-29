@@ -8,9 +8,14 @@ import { Input } from "@/ui/primitives/input";
 interface PublicLinkPanelProps {
   url: string;
   hint: string | null;
+  revealLabel?: string;
 }
 
-export function PublicLinkPanel({ url, hint }: PublicLinkPanelProps) {
+export function PublicLinkPanel({
+  url,
+  hint,
+  revealLabel = "Generar link para público",
+}: PublicLinkPanelProps) {
   const [revealed, setRevealed] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
@@ -51,7 +56,7 @@ export function PublicLinkPanel({ url, hint }: PublicLinkPanelProps) {
         </div>
       ) : (
         <Button type="button" onClick={revealLink}>
-          Generar link para público
+          {revealLabel}
         </Button>
       )}
       {hint ? <p className="admin-muted">{hint}</p> : null}

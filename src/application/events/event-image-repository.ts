@@ -1,8 +1,8 @@
-import type { EventImageContentType } from "@/contracts/event-image";
+import type { ImageContentType } from "@/contracts/image-upload";
 
 export interface EventImageItem {
   id: string;
-  contentType: EventImageContentType;
+  contentType: ImageContentType;
   byteSize: number;
   createdAt: Date;
 }
@@ -18,7 +18,7 @@ export type AddEventImageResult =
 export interface EventImageRepository {
   add(input: {
     eventId: string;
-    contentType: EventImageContentType;
+    contentType: ImageContentType;
     data: Uint8Array;
     actorId: string;
   }): Promise<AddEventImageResult>;

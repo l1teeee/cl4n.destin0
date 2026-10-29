@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
+import { publishEventClue, removeEventClue } from "@/application/events/event-clues";
 import {
   cancelEvent,
   changeCapacity,
@@ -33,8 +34,10 @@ import {
   readCreateEventFormData,
   updateAdminEventSchema,
 } from "@/contracts/admin-event";
+import { eventClueSchema } from "@/contracts/event-clue";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { googleMapsLinkResolver } from "@/infrastructure/maps/google-maps-link-resolver";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
@@ -83,6 +86,9 @@ const locationStatusSchema = z
   .strict();
 const imageActionSchema = z
   .object({ eventId: z.string().uuid(), imageId: z.string().uuid() })
+  .strict();
+const clueActionSchema = z
+  .object({ eventId: z.string().uuid(), clueId: z.string().uuid() })
   .strict();
 // The budget is only checked before each claim; the 20 s margin inside maxDuration = 60 covers
 // one send (up to 8 s) plus the action and page re-render, so the function is never killed
@@ -178,6 +184,11 @@ function revalidateEventPaths(id: string, slug?: string): void {
     revalidatePath("/");
     revalidatePath(`/solicitar/${slug}`);
   }
+}
+
+function revalidateCluePaths(id: string): void {
+  revalidatePath(`/admin/events/${id}`);
+  revalidatePath("/admin/audit");
 }
 
 export async function createEventAction(
@@ -428,6 +439,68 @@ export async function deleteEventImageAction(
   if (!removed) return invalid("No se encontró la imagen.");
   revalidateEventPaths(parsed.data.eventId);
   return { ok: true, message: "Imagen eliminada." };
+}
+
+export async function publishEventClueAction(
+  id: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  if (!authorization.authorized) return unauthorized();
+
+  const parsedId = idSchema.safeParse({ id });
+  if (!parsedId.success) return formValidationError(parsedId.error);
+  const parsed = eventClueSchema.safeParse({ body: formData.get("body") });
+  if (!parsed.success) return formValidationError(parsed.error);
+
+  const result = await publishEventClue(postgresEventRepository, postgresEventClueRepository, {
+    eventId: parsedId.data.id,
+    body: parsed.data.body,
+    actorId: authorization.session.admin.id,
+  });
+  if (!result.ok) {
+    return invalid(
+      result.error === "EVENT_NOT_FOUND"
+        ? "No se encontró la experiencia."
+        : "Las pistas solo se pueden publicar o borrar mientras la experiencia está cerrada.",
+    );
+  }
+
+  revalidateCluePaths(parsedId.data.id);
+  return { ok: true, message: "Pista publicada." };
+}
+
+export async function deleteEventClueAction(
+  eventId: string,
+  clueId: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+
+  const parsed = clueActionSchema.safeParse({ eventId, clueId });
+  if (!parsed.success) return formValidationError(parsed.error);
+  const result = await removeEventClue(postgresEventRepository, postgresEventClueRepository, {
+    eventId: parsed.data.eventId,
+    clueId: parsed.data.clueId,
+    actorId: authorization.session.admin.id,
+  });
+  if (!result.ok) {
+    const messages = {
+      EVENT_NOT_FOUND: "No se encontró la experiencia.",
+      CLUE_NOT_FOUND: "No se encontró la pista.",
+      CLUES_CLOSED:
+        "Las pistas solo se pueden publicar o borrar mientras la experiencia está cerrada.",
+    } as const;
+    return invalid(messages[result.error]);
+  }
+
+  revalidateCluePaths(parsed.data.eventId);
+  return { ok: true, message: "Pista eliminada." };
 }
 
 export async function publishEventAction(

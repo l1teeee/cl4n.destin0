@@ -58,7 +58,7 @@ export default async function EmailsPage({
       </div>
 
       <form className="flex flex-wrap items-end gap-3" method="get">
-        <Label className="grid gap-2">
+        <Label className="grid w-full gap-2 sm:w-48">
           <span>Estado</span>
           <Select name="estado" defaultValue={filters.status ?? "todos"}>
             <SelectTrigger>
@@ -73,7 +73,7 @@ export default async function EmailsPage({
             </SelectContent>
           </Select>
         </Label>
-        <Label className="grid gap-2">
+        <Label className="grid w-full gap-2 sm:w-56">
           <span>Tipo</span>
           <Select name="tipo" defaultValue={filters.kind ?? "todos"}>
             <SelectTrigger>

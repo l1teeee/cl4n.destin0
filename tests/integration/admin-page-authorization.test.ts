@@ -56,7 +56,14 @@ describe("protected admin pages", () => {
           searchParams: Promise.resolve({}),
         }),
     ],
-    ["event edit", () => EditEventPage({ params: Promise.resolve({ id: randomUUID() }) })],
+    [
+      "event edit",
+      () =>
+        EditEventPage({
+          params: Promise.resolve({ id: randomUUID() }),
+          searchParams: Promise.resolve({}),
+        }),
+    ],
   ])("redirects %s to login when the cookie has no database session", async (_name, render) => {
     await expect(render()).rejects.toThrow("REDIRECT:/admin/login");
   });

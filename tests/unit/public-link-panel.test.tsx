@@ -29,6 +29,14 @@ describe("PublicLinkPanel", () => {
     expect(screen.queryByDisplayValue(url)).toBeNull();
   });
 
+  it("uses a custom label for the generate button", () => {
+    mockClipboard();
+    render(<PublicLinkPanel url={url} hint={null} revealLabel="Ver enlace de pistas" />);
+
+    expect(screen.getByRole("button", { name: "Ver enlace de pistas" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Generar link para público" })).toBeNull();
+  });
+
   it("reveals and copies the public URL", async () => {
     const writeText = mockClipboard();
     render(<PublicLinkPanel url={url} hint={null} />);

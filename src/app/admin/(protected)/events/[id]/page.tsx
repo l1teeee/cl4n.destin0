@@ -8,13 +8,17 @@ import {
   getEventRosterCounts,
 } from "@/application/events/event-use-cases";
 import { getEventLocationEmailSummary } from "@/application/events/event-location-email";
+import { areCluesVisible } from "@/domain/event/event-clues";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
+import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
+import { EventCluesSection } from "@/ui/admin/event-clues-section";
+import { LinkPendingIndicator } from "@/ui/admin/link-pending";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { StatGrid } from "@/ui/admin/stat-grid";
@@ -80,12 +84,15 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   if (!event) notFound();
 
   const view = parseRosterView((await searchParams).vista, "confirmadas");
-  const [roster, rosterCounts, audit, images, locationEmailSummary] = await Promise.all([
+  const [roster, rosterCounts, audit, images, locationEmailSummary, clues] = await Promise.all([
     getEventRoster(postgresEventRepository, id, view),
     getEventRosterCounts(postgresEventRepository, id),
     getAdminAuditLog(postgresEventRepository, { eventId: id, pageSize: 100 }),
     postgresEventImageRepository.list(id),
     getEventLocationEmailSummary(postgresEventLocationEmailRepository, id),
+    areCluesVisible(event.phase)
+      ? postgresEventClueRepository.listForEvent(id)
+      : Promise.resolve([]),
   ]);
   if (!locationEmailSummary) notFound();
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
@@ -101,7 +108,10 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Button variant="link" className="admin-muted" asChild>
-            <Link href="/admin">Volver a experiencias</Link>
+            <Link href="/admin">
+              Volver a experiencias
+              <LinkPendingIndicator />
+            </Link>
           </Button>
           <p className="admin-eyebrow mt-6">Experiencia</p>
           <h1 className="admin-title">{event.internalName}</h1>
@@ -110,7 +120,10 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           </p>
         </div>
         <Button variant="outline" asChild>
-          <Link href={`/admin/events/${id}/edit`}>Editar experiencia</Link>
+          <Link href={`/admin/events/${id}/edit`}>
+            Editar experiencia
+            <LinkPendingIndicator />
+          </Link>
         </Button>
       </div>
 
@@ -127,6 +140,16 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         ]}
       />
 
+      {areCluesVisible(event.phase) ? (
+        <EventCluesSection
+          appBaseUrl={env.APP_BASE_URL}
+          clues={clues}
+          eventId={id}
+          phase={event.phase}
+          slug={event.slug}
+        />
+      ) : null}
+
       <section className="admin-section space-y-4">
         <h2 className="admin-section-title">Enlace público</h2>
         <PublicLinkPanel
@@ -139,7 +162,10 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="admin-section-title">Ubicación</h2>
           <Button variant="outline" asChild>
-            <Link href={`/admin/events/${id}/edit`}>Editar ubicación</Link>
+            <Link href={`/admin/events/${id}/edit`}>
+              Editar ubicación
+              <LinkPendingIndicator />
+            </Link>
           </Button>
         </div>
         <Badge variant={event.location.status === "CONFIRMED" ? "confirmed" : "draft"}>

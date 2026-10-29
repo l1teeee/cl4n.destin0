@@ -44,6 +44,7 @@ const auditEntityTypes = new Set<AuditLogItem["entityType"]>([
   "RESERVATION",
   "ADMIN_USER",
   "WAITLIST_ENTRY",
+  "DRINK",
 ]);
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -115,6 +116,12 @@ export function formatCount(value: number): string {
 }
 
 export function formatAuditMetadata(metadata: Record<string, unknown>): string {
+  if (typeof metadata.clueAdded === "string") {
+    return `Pista publicada: ${metadata.clueAdded}`;
+  }
+  if (typeof metadata.clueRemoved === "string") {
+    return `Pista eliminada: ${metadata.clueRemoved}`;
+  }
   if (typeof metadata.imageAdded === "string") {
     return `Imagen agregada: ${metadata.imageAdded} (${String(metadata.contentType)}, ${String(metadata.byteSize)} bytes)`;
   }
@@ -156,6 +163,10 @@ export function publicEventUrl(appBaseUrl: string, slug: string): string {
   return `${appBaseUrl.replace(/\/+$/, "")}/solicitar/${encodeURIComponent(slug)}`;
 }
 
+export function publicCluesUrl(appBaseUrl: string, slug: string): string {
+  return `${appBaseUrl.replace(/\/+$/, "")}/pistas/${encodeURIComponent(slug)}`;
+}
+
 export function publicLinkHint(phase: EventPhase): string | null {
   switch (phase) {
     case "DRAFT":
@@ -172,6 +183,16 @@ export function publicLinkHint(phase: EventPhase): string | null {
     case "CANCELLED":
       return "El formulario ya cerró: el enlace mostrará el estado cerrado.";
   }
+}
+
+export function editEventBackLink(
+  eventId: string,
+  from: string | string[] | undefined,
+): { href: string; label: string } {
+  if (first(from) === "experiencias") {
+    return { href: "/admin", label: "Volver a experiencias" };
+  }
+  return { href: `/admin/events/${eventId}`, label: "Volver al detalle" };
 }
 
 export function reservationStatusLabel(status: ReservationStatus): string {

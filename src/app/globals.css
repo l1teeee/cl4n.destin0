@@ -385,6 +385,10 @@ textarea {
     background-color 200ms ease;
 }
 
+.reservation-form [data-slot="select-trigger"] {
+  display: flex;
+}
+
 .reservation-input:focus {
   border-color: #b9b7b0;
   background: #fffbf405;

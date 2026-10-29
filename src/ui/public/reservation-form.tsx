@@ -8,6 +8,13 @@ import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
 import SlideCommit from "@/ui/primitives/slide-commit";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/ui/primitives/select";
 
 import {
   getOrCreateAttemptKey,
@@ -394,19 +401,35 @@ export function ReservationForm({
 
       <div>
         <label htmlFor="partySize">Cantidad de personas</label>
-        <select
-          id="partySize"
-          className={inputClassName}
-          aria-invalid={Boolean(errors.partySize)}
-          {...register("partySize", { valueAsNumber: true })}
-        >
-          {Array.from({ length: maxPartySize }, (_, index) => index + 1).map((partySize) => (
-            <option key={partySize} value={partySize}>
-              {partySize}
-            </option>
-          ))}
-        </select>
-        <FieldError message={errors.partySize?.message} />
+        <Controller
+          control={control}
+          name="partySize"
+          render={({ field }) => (
+            <Select
+              value={String(field.value)}
+              onValueChange={(value) => field.onChange(Number(value))}
+            >
+              <SelectTrigger
+                id="partySize"
+                ref={field.ref}
+                className={inputClassName}
+                aria-invalid={Boolean(errors.partySize)}
+                aria-describedby={errors.partySize ? "partySize-error" : undefined}
+                onBlur={field.onBlur}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: maxPartySize }, (_, index) => index + 1).map((partySize) => (
+                  <SelectItem key={partySize} value={String(partySize)}>
+                    {formatPartySize(partySize)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <FieldError id="partySize-error" message={errors.partySize?.message} />
       </div>
 
       <fieldset

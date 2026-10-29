@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isAllowedGoogleMapsUrl } from "@/contracts/admin-event";
-import { detectEventImageContentType } from "@/contracts/event-image";
+import { detectImageContentType } from "@/contracts/image-upload";
 import { isEventLocationConfirmationValid } from "@/domain/event/event-location";
 
 describe("Google Maps URL allowlist", () => {
@@ -74,7 +74,7 @@ describe("event image magic bytes", () => {
     [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), "image/png"],
     [new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]), "image/webp"],
   ])("accepts supported bytes", (bytes, contentType) => {
-    expect(detectEventImageContentType(bytes)).toBe(contentType);
+    expect(detectImageContentType(bytes)).toBe(contentType);
   });
 
   it.each([
@@ -84,6 +84,6 @@ describe("event image magic bytes", () => {
     new Uint8Array([0x89, 0x50, 0x4e]),
     new Uint8Array([0x52, 0x49, 0x46, 0x46]),
   ])("rejects unsupported or truncated bytes", (bytes) => {
-    expect(detectEventImageContentType(bytes)).toBeNull();
+    expect(detectImageContentType(bytes)).toBeNull();
   });
 });

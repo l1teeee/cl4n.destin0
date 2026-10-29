@@ -9,6 +9,7 @@ import {
   PanelLeft,
   ScrollText,
   Users,
+  Wine,
   type LucideIcon,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
@@ -46,6 +47,7 @@ interface AdminNavItem {
 
 const navItems: AdminNavItem[] = [
   { href: "/admin", label: "Experiencias", icon: CalendarDays },
+  { href: "/admin/drinks", label: "Bebidas", icon: Wine },
   { href: "/admin/audit", label: "Auditoría", icon: ScrollText },
   { href: "/admin/emails", label: "Correos", icon: Mail },
   { href: "/admin/users", label: "Usuarios", icon: Users, requiresAdminManagement: true },

@@ -5,8 +5,10 @@ import {
   adminStatusBadgeVariant,
   auditPageSizeFor,
   dashboardActions,
+  editEventBackLink,
   eventPhaseLabel,
   formatAdminDate,
+  formatAuditMetadata,
   formatCount,
   formatReservationNumber,
   lifecycleActions,
@@ -18,6 +20,7 @@ import {
   parseRosterView,
   parseAuditSearchParams,
   parseReservationSearchParams,
+  publicCluesUrl,
   publicEventUrl,
   publicLinkHint,
   reservationStatusLabel,
@@ -28,6 +31,15 @@ import {
 const now = new Date("2026-10-05T12:00:00Z");
 
 describe("public event link", () => {
+  it("builds an absolute encoded clues URL with or without a trailing slash", () => {
+    expect(publicCluesUrl("https://clandestino.example", "cena privada")).toBe(
+      "https://clandestino.example/pistas/cena%20privada",
+    );
+    expect(publicCluesUrl("https://clandestino.example/", "cena/uno")).toBe(
+      "https://clandestino.example/pistas/cena%2Funo",
+    );
+  });
+
   it("builds an absolute encoded URL with or without a trailing slash", () => {
     expect(publicEventUrl("https://clandestino.example", "cena privada")).toBe(
       "https://clandestino.example/solicitar/cena%20privada",
@@ -141,6 +153,11 @@ describe("admin dashboard actions", () => {
 });
 
 describe("admin formatting and query parsing", () => {
+  it("formats clue audit metadata", () => {
+    expect(formatAuditMetadata({ clueAdded: "clue-1" })).toBe("Pista publicada: clue-1");
+    expect(formatAuditMetadata({ clueRemoved: "clue-2" })).toBe("Pista eliminada: clue-2");
+  });
+
   it("formats dates, counts, and reservation numbers", () => {
     expect(formatAdminDate(new Date("2026-11-21T01:30:00Z"))).toBe("20/11/2026 19:30");
     expect(formatAdminDate(null)).toBe("-");
@@ -207,5 +224,28 @@ describe("admin formatting and query parsing", () => {
       kind: "RESERVATION_CONFIRMED",
     });
     expect(parseEmailLogSearchParams({ estado: "INVALID", tipo: "INVALID" })).toEqual({});
+  });
+});
+
+describe("edit event back link", () => {
+  const eventId = "00000000-0000-4000-8000-000000000001";
+  const toExperiences = { href: "/admin", label: "Volver a experiencias" };
+  const toDetail = { href: `/admin/events/${eventId}`, label: "Volver al detalle" };
+
+  it("returns to the experiences list when the edit page was opened from it", () => {
+    expect(editEventBackLink(eventId, "experiencias")).toEqual(toExperiences);
+  });
+
+  it("returns to the event detail when there is no origin", () => {
+    expect(editEventBackLink(eventId, undefined)).toEqual(toDetail);
+  });
+
+  it("reads only the first value of a repeated origin", () => {
+    expect(editEventBackLink(eventId, ["experiencias", "desconocido"])).toEqual(toExperiences);
+    expect(editEventBackLink(eventId, ["desconocido", "experiencias"])).toEqual(toDetail);
+  });
+
+  it("returns to the event detail for an unknown origin", () => {
+    expect(editEventBackLink(eventId, "desconocido")).toEqual(toDetail);
   });
 });

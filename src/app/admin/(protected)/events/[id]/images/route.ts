@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 import {
-  detectEventImageContentType,
-  isEventImageSizeValid,
-  MAX_EVENT_IMAGE_REQUEST_BYTES,
-} from "@/contracts/event-image";
+  detectImageContentType,
+  isImageSizeValid,
+  MAX_IMAGE_REQUEST_BYTES,
+} from "@/contracts/image-upload";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 
@@ -27,7 +27,7 @@ export async function POST(
   }
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_EVENT_IMAGE_REQUEST_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_REQUEST_BYTES) {
     return error("La imagen es demasiado grande.", 413);
   }
 
@@ -42,10 +42,10 @@ export async function POST(
   }
   const image = formData.get("image");
   if (!(image instanceof File)) return error("Selecciona una imagen.", 400);
-  if (!isEventImageSizeValid(image.size)) return error("La imagen es demasiado grande.", 413);
+  if (!isImageSizeValid(image.size)) return error("La imagen es demasiado grande.", 413);
 
   const data = Buffer.from(await image.arrayBuffer());
-  const contentType = detectEventImageContentType(data);
+  const contentType = detectImageContentType(data);
   if (!contentType) return error("El archivo debe ser una imagen JPG, PNG o WebP.", 415);
 
   const result = await postgresEventImageRepository.add({

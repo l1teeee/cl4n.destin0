@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createEventAction } from "@/app/admin/(protected)/events/actions";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { EventForm } from "@/ui/admin/event-form";
+import { LinkPendingIndicator } from "@/ui/admin/link-pending";
 import { Button } from "@/ui/primitives/button";
 
 export default async function NewEventPage() {
@@ -10,7 +11,10 @@ export default async function NewEventPage() {
   return (
     <main className="admin-page space-y-8">
       <Button variant="link" className="admin-muted" asChild>
-        <Link href="/admin">Volver a experiencias</Link>
+        <Link href="/admin">
+          Volver a experiencias
+          <LinkPendingIndicator />
+        </Link>
       </Button>
       <div>
         <p className="admin-eyebrow">Administración</p>

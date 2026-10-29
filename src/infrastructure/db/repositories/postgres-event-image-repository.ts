@@ -8,14 +8,15 @@ import type {
   EventImageRepository,
   StoredEventImage,
 } from "@/application/events/event-image-repository";
-import { MAX_EVENT_IMAGES, type EventImageContentType } from "@/contracts/event-image";
+import { MAX_EVENT_IMAGES } from "@/contracts/event-image";
+import type { ImageContentType } from "@/contracts/image-upload";
 
 import { pool as applicationPool } from "../client";
 import { inTransaction } from "../transaction";
 
 interface EventImageRow extends QueryResultRow {
   id: string;
-  content_type: EventImageContentType;
+  content_type: ImageContentType;
   byte_size: number;
   data?: Buffer;
   created_at: Date;
@@ -61,7 +62,7 @@ export class PostgresEventImageRepository implements EventImageRepository {
 
   add(input: {
     eventId: string;
-    contentType: EventImageContentType;
+    contentType: ImageContentType;
     data: Uint8Array;
     actorId: string;
   }): Promise<AddEventImageResult> {

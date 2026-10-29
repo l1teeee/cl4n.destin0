@@ -9,10 +9,16 @@ import { postgresEventImageRepository } from "@/infrastructure/db/repositories/p
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import { EventForm } from "@/ui/admin/event-form";
 import { EventImagesManager } from "@/ui/admin/event-images-manager";
-import { locationMap } from "@/ui/admin/view-model";
+import { LinkPendingIndicator } from "@/ui/admin/link-pending";
+import { editEventBackLink, locationMap } from "@/ui/admin/view-model";
 import { Button } from "@/ui/primitives/button";
 
-export default async function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
+interface EditEventPageProps {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function EditEventPage({ params, searchParams }: EditEventPageProps) {
   await requireAdmin("page");
   const { id } = await params;
   const [result, images] = await Promise.all([
@@ -22,11 +28,15 @@ export default async function EditEventPage({ params }: { params: Promise<{ id: 
   const event = result.value;
   if (!event) notFound();
   const map = locationMap(event.location);
+  const backLink = editEventBackLink(id, (await searchParams).desde);
 
   return (
     <main className="admin-page space-y-8">
       <Button variant="link" className="admin-muted" asChild>
-        <Link href={`/admin/events/${id}`}>Volver al detalle</Link>
+        <Link href={backLink.href}>
+          {backLink.label}
+          <LinkPendingIndicator />
+        </Link>
       </Button>
       <div>
         <p className="admin-eyebrow">Administración</p>

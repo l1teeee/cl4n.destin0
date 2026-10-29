@@ -190,8 +190,11 @@ export interface AuditLogItem {
     | "WAITLIST_CANCELLED"
     | "ADMIN_PASSWORD_RESET_REQUESTED"
     | "ADMIN_PASSWORD_RESET_COMPLETED"
-    | "EVENT_DELETED";
-  entityType: "EVENT" | "RESERVATION" | "ADMIN_USER" | "WAITLIST_ENTRY";
+    | "EVENT_DELETED"
+    | "DRINK_CREATED"
+    | "DRINK_UPDATED"
+    | "DRINK_DELETED";
+  entityType: "EVENT" | "RESERVATION" | "ADMIN_USER" | "WAITLIST_ENTRY" | "DRINK";
   entityId: string;
   metadata: Record<string, unknown>;
 }

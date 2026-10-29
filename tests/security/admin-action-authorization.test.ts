@@ -168,8 +168,27 @@ describe("admin Server Action authorization", () => {
     expect(guards.get("sendEventLocationAction")).toBe("requireAdmin");
     expect(guards.get("processPendingLocationEmailsAction")).toBe("requireAdmin");
     expect(guards.get("deleteEventImageAction")).toBe("requireAdmin");
+    expect(guards.get("publishEventClueAction")).toBe("requireAdmin");
+    expect(guards.get("deleteEventClueAction")).toBe("requireAdmin");
     expect(guards.get("deleteEventAction")).toBe("requireAdmin");
     expect(guards.get("changeCapacityAction")).toBe("requireAdmin");
     expect(guards.get("changeWaitlistCapacityAction")).toBe("requireAdmin");
+  });
+
+  it("guards drink deletion with requireAdmin", () => {
+    const file = path.join(adminDirectory, "(protected)", "drinks", "actions.ts");
+    const sourceFile = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const guards = new Map(
+      exportedAsyncFunctions(sourceFile).map((action) => [
+        action.name,
+        firstAwaitedCallName(action.body),
+      ]),
+    );
+    expect(guards.get("deleteDrinkAction")).toBe("requireAdmin");
   });
 });

@@ -71,6 +71,20 @@
       "when": 1791918400000,
       "tag": "0009_event_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793246238144,
+      "tag": "0010_drinks_menu",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793280737057,
+      "tag": "0011_event_clues",
+      "breakpoints": true
     }
   ]
 }

@@ -65,9 +65,10 @@ function fillValidFields(partySize = "2") {
   fireEvent.change(screen.getByLabelText("Email"), {
     target: { value: "ana@example.com" },
   });
-  fireEvent.change(screen.getByLabelText("Cantidad de personas"), {
-    target: { value: partySize },
-  });
+  fireEvent.click(screen.getByRole("combobox", { name: "Cantidad de personas" }));
+  fireEvent.click(
+    screen.getByRole("option", { name: partySize === "1" ? "1 persona" : `${partySize} personas` }),
+  );
   fireEvent.click(screen.getByRole("radio", { name: "No" }));
   fireEvent.click(screen.getByRole("checkbox"));
 }
