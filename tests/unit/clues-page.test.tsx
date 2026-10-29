@@ -31,8 +31,8 @@ import CluesPage, { dynamic, metadata } from "@/app/pistas/[slug]/page";
 
 const startsAt = new Date("2026-11-21T01:30:00Z");
 const clues: EventClue[] = [
-  { id: "clue-1", body: "Primera pista", createdAt: new Date("2026-10-28T20:00:00Z") },
-  { id: "clue-2", body: "Segunda pista", createdAt: new Date("2026-10-28T21:00:00Z") },
+  { id: "clue-1", body: "Primera pista", createdAt: new Date("2026-10-28T20:00:00Z"), images: [] },
+  { id: "clue-2", body: "Segunda pista", createdAt: new Date("2026-10-28T21:00:00Z"), images: [] },
 ];
 
 function publicEvent(phase: EventPhase) {
@@ -110,10 +110,13 @@ describe("clues page", () => {
   );
 
   it("lists the newest clue first and refreshes itself every 30 seconds while closed", async () => {
-    loadEvent("CLOSED", clues);
+    loadEvent("CLOSED", [
+      { ...clues[0]!, images: [{ id: "image-1" }, { id: "image-2" }] },
+      clues[1]!,
+    ]);
     const { container } = render(await pageElement());
 
-    const items = screen.getAllByRole("listitem");
+    const items = Array.from(container.querySelectorAll(".clues-list > li"));
     expect(items.map((item) => item.querySelector(".clue-label")?.textContent)).toEqual([
       "PISTA 2",
       "PISTA 1",
@@ -123,6 +126,9 @@ describe("clues page", () => {
       "Primera pista",
     ]);
     expect(container.querySelector("ol.clues-list")).not.toBeNull();
+    const image = screen.getByAltText("Imagen 1 adjunta a la pista 1");
+    expect(image.getAttribute("src")).toBe("/pistas/cena-privada/imagenes/image-1");
+    expect(screen.getAllByRole("img")).toHaveLength(2);
     expect(listForSlug).toHaveBeenCalledWith("cena-privada");
 
     act(() => vi.advanceTimersByTime(30_000));

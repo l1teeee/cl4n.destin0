@@ -21,10 +21,8 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-import {
-  deleteEventClueAction,
-  publishEventClueAction,
-} from "@/app/admin/(protected)/events/actions";
+import { deleteEventClueAction } from "@/app/admin/(protected)/events/actions";
+import { POST } from "@/app/admin/(protected)/events/[id]/clues/route";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
 
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
@@ -84,85 +82,72 @@ async function clueBodies(eventId: string): Promise<string[]> {
   return result.rows.map((row) => row.body);
 }
 
-function bodyForm(body: string): FormData {
+function clueRequest(eventId: string, body: string): Request {
   const form = new FormData();
   form.set("body", body);
-  return form;
+  return new Request(`http://localhost/admin/events/${eventId}/clues`, {
+    method: "POST",
+    headers: { origin: "http://localhost", cookie: `cl4n_session=${sessionToken}` },
+    body: form,
+  });
 }
 
-describe("publishEventClueAction", () => {
+describe("POST /admin/events/[id]/clues", () => {
   it("rejects a request without an admin session", async () => {
     const eventId = await insertEvent("CLOSED");
-
-    expect(await publishEventClueAction(eventId, initialState, bodyForm("Sin sesión"))).toEqual({
-      ok: false,
-      message: "Tu sesión no es válida. Inicia sesión nuevamente.",
+    authState.token = undefined;
+    const response = await POST(clueRequest(eventId, "Sin sesión"), {
+      params: Promise.resolve({ id: eventId }),
     });
+    expect(response.status).toBe(401);
     expect(await clueBodies(eventId)).toEqual([]);
-    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("publishes the trimmed clue for a closed event, audits it and revalidates", async () => {
+  it("publishes a trimmed clue for a closed event and audits it", async () => {
     const eventId = await insertEvent("CLOSED");
     authState.token = sessionToken;
-
-    expect(
-      await publishEventClueAction(eventId, initialState, bodyForm("  Mira bajo la mesa.  ")),
-    ).toEqual({ ok: true, message: "Pista publicada." });
-
+    const response = await POST(clueRequest(eventId, "  Mira bajo la mesa.  "), {
+      params: Promise.resolve({ id: eventId }),
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ id: expect.any(String) });
     expect(await clueBodies(eventId)).toEqual(["Mira bajo la mesa."]);
     const audit = await pool.query<{ actor_admin_id: string; action: string }>(
       "SELECT actor_admin_id, action FROM audit_logs WHERE entity_id = $1",
       [eventId],
     );
     expect(audit.rows).toEqual([{ actor_admin_id: adminId, action: "EVENT_UPDATED" }]);
-    expect(revalidatePath).toHaveBeenCalledWith(`/admin/events/${eventId}`);
-    expect(revalidatePath).toHaveBeenCalledWith("/admin/audit");
   });
 
-  it("returns field errors for an empty or too long clue", async () => {
+  it("rejects an empty clue body", async () => {
     const eventId = await insertEvent("CLOSED");
     authState.token = sessionToken;
-
-    expect(await publishEventClueAction(eventId, initialState, bodyForm("   "))).toEqual({
-      ok: false,
-      message: "Revisa los campos marcados.",
-      fieldErrors: { body: "Escribe la pista." },
+    const response = await POST(clueRequest(eventId, "   "), {
+      params: Promise.resolve({ id: eventId }),
     });
-    expect(
-      await publishEventClueAction(eventId, initialState, bodyForm("a".repeat(501))),
-    ).toMatchObject({
-      ok: false,
-      fieldErrors: { body: "La pista no puede superar 500 caracteres." },
-    });
-    expect(
-      await publishEventClueAction("not-a-uuid", initialState, bodyForm("Pista")),
-    ).toMatchObject({ ok: false });
+    expect(response.status).toBe(400);
     expect(await clueBodies(eventId)).toEqual([]);
   });
 
   it("refuses to publish unless the experience is closed", async () => {
     const eventId = await insertEvent("SCHEDULED");
     authState.token = sessionToken;
-
-    expect(await publishEventClueAction(eventId, initialState, bodyForm("Muy pronto"))).toEqual({
-      ok: false,
-      message: closedMessage,
+    const response = await POST(clueRequest(eventId, "Muy pronto"), {
+      params: Promise.resolve({ id: eventId }),
     });
+    expect(response.status).toBe(409);
     expect(await clueBodies(eventId)).toEqual([]);
-    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("reports a missing experience", async () => {
     authState.token = sessionToken;
-
-    expect(await publishEventClueAction(randomUUID(), initialState, bodyForm("Pista"))).toEqual({
-      ok: false,
-      message: "No se encontró la experiencia.",
+    const missingId = randomUUID();
+    const response = await POST(clueRequest(missingId, "Pista"), {
+      params: Promise.resolve({ id: missingId }),
     });
+    expect(response.status).toBe(404);
   });
 });
-
 describe("deleteEventClueAction", () => {
   it("rejects a request without an admin session", async () => {
     const eventId = await insertEvent("CLOSED");

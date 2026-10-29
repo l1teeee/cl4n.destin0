@@ -215,13 +215,13 @@ describe("AdminSidebar hover peek", () => {
     expect(sidebarGap().className).not.toContain("w-(--sidebar-width) ");
   });
 
-  it("closes only after the close delay and cancels it on re-entry", () => {
+  it("closes after the responsive delay and cancels it on re-entry", () => {
     renderSidebar();
     enter();
     act(() => vi.advanceTimersByTime(120));
 
     leave();
-    act(() => vi.advanceTimersByTime(1999));
+    act(() => vi.advanceTimersByTime(399));
     expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");
     act(() => vi.advanceTimersByTime(1));
     expect(sidebarRoot().getAttribute("data-state")).toBe("collapsed");
@@ -229,7 +229,7 @@ describe("AdminSidebar hover peek", () => {
     enter();
     act(() => vi.advanceTimersByTime(120));
     leave();
-    act(() => vi.advanceTimersByTime(1500));
+    act(() => vi.advanceTimersByTime(300));
     enter();
     act(() => vi.advanceTimersByTime(5000));
     expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");

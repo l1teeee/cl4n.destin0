@@ -47,6 +47,19 @@ export default async function CluesPage({ params }: { params: Promise<{ slug: st
               <li className="clue-item" key={clue.id}>
                 <p className="clue-label">PISTA {clue.number}</p>
                 <p className="clue-body">{clue.body}</p>
+                {clue.images.length > 0 ? (
+                  <ul className="clue-images" aria-label={`Imágenes de la pista ${clue.number}`}>
+                    {clue.images.map((image, index) => (
+                      <li key={image.id}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/pistas/${encodeURIComponent(slug)}/imagenes/${encodeURIComponent(image.id)}`}
+                          alt={`Imagen ${index + 1} adjunta a la pista ${clue.number}`}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </li>
             ))}
           </ol>

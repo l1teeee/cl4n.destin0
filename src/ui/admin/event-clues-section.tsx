@@ -1,22 +1,14 @@
 import { ChevronDown, Trash2 } from "lucide-react";
 
-import {
-  deleteEventClueAction,
-  publishEventClueAction,
-} from "@/app/admin/(protected)/events/actions";
+import { deleteEventClueAction } from "@/app/admin/(protected)/events/actions";
 import type { EventClue } from "@/application/events/event-clue-repository";
-import {
-  MAX_EVENT_CLUE_LENGTH,
-  canPublishClues,
-  numberCluesNewestFirst,
-} from "@/domain/event/event-clues";
+import { canPublishClues, numberCluesNewestFirst } from "@/domain/event/event-clues";
 import type { EventPhase } from "@/domain/event/event-phase";
 import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
+import { EventClueComposer } from "@/ui/admin/event-clue-composer";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { formatAdminDate, publicCluesUrl } from "@/ui/admin/view-model";
-import { Label } from "@/ui/primitives/label";
-import { Textarea } from "@/ui/primitives/textarea";
 
 interface EventCluesSectionProps {
   appBaseUrl: string;
@@ -49,18 +41,15 @@ export function EventCluesSection({
         hint={null}
         revealLabel="Ver enlace de pistas"
       />
-      {publishingAllowed ? (
-        <MutationForm
-          action={publishEventClueAction.bind(null, eventId)}
-          label="Generar pista"
-          confirmation="Escribe la pista. Los comensales la verán en la página de pistas."
-        >
-          <Label className="grid gap-2">
-            <span>Pista</span>
-            <Textarea name="body" rows={4} maxLength={MAX_EVENT_CLUE_LENGTH} required />
-          </Label>
-        </MutationForm>
-      ) : null}
+      <a
+        className="inline-flex min-h-11 items-center rounded-full border border-primary px-5 text-sm font-bold tracking-[0.08em]"
+        href={publicCluesUrl(appBaseUrl, slug)}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Vista previa pública
+      </a>
+      {publishingAllowed ? <EventClueComposer eventId={eventId} /> : null}
       {/* The provider also wraps the empty state so the message for deleting the last clue stays. */}
       <ActionFeedbackProvider>
         {numberedClues.length > 0 ? (
@@ -80,7 +69,27 @@ export function EventCluesSection({
                       className="size-4 shrink-0 transition-transform group-open:rotate-180"
                     />
                   </summary>
-                  <p className="mt-4 whitespace-pre-line break-words">{clue.body}</p>
+                  <div className="mt-4 grid gap-3">
+                    <p className="whitespace-pre-line break-words">{clue.body}</p>
+                    {clue.images.length > 0 ? (
+                      <ul
+                        className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                        aria-label={`Imágenes de Pista ${clue.number}`}
+                      >
+                        {clue.images.map((image, index) => (
+                          <li key={image.id} className="min-w-0">
+                            {/* Stored clue images use the same-origin public image route. */}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              className="aspect-square w-full rounded-md object-cover"
+                              src={`/pistas/${encodeURIComponent(slug)}/imagenes/${encodeURIComponent(image.id)}`}
+                              alt={`Imagen ${index + 1} adjunta a la pista ${clue.number}`}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
                 </details>
                 {publishingAllowed ? (
                   <MutationForm

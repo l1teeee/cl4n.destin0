@@ -1,12 +1,14 @@
 import { canPublishClues } from "@/domain/event/event-clues";
 
 import type { EventClueRepository } from "./event-clue-repository";
+import type { StoredEventClueImage } from "./event-clue-repository";
 import type { EventRepository } from "./event-repository";
 
 interface PublishEventClueInput {
   eventId: string;
   body: string;
   actorId: string;
+  images?: StoredEventClueImage[];
 }
 
 interface RemoveEventClueInput {

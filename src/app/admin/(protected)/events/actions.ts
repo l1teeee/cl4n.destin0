@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
-import { publishEventClue, removeEventClue } from "@/application/events/event-clues";
+import { removeEventClue } from "@/application/events/event-clues";
 import {
   cancelEvent,
   changeCapacity,
@@ -34,7 +34,6 @@ import {
   readCreateEventFormData,
   updateAdminEventSchema,
 } from "@/contracts/admin-event";
-import { eventClueSchema } from "@/contracts/event-clue";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
@@ -439,36 +438,6 @@ export async function deleteEventImageAction(
   if (!removed) return invalid("No se encontró la imagen.");
   revalidateEventPaths(parsed.data.eventId);
   return { ok: true, message: "Imagen eliminada." };
-}
-
-export async function publishEventClueAction(
-  id: string,
-  _previousState: AdminActionState,
-  formData: FormData,
-): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
-  if (!authorization.authorized) return unauthorized();
-
-  const parsedId = idSchema.safeParse({ id });
-  if (!parsedId.success) return formValidationError(parsedId.error);
-  const parsed = eventClueSchema.safeParse({ body: formData.get("body") });
-  if (!parsed.success) return formValidationError(parsed.error);
-
-  const result = await publishEventClue(postgresEventRepository, postgresEventClueRepository, {
-    eventId: parsedId.data.id,
-    body: parsed.data.body,
-    actorId: authorization.session.admin.id,
-  });
-  if (!result.ok) {
-    return invalid(
-      result.error === "EVENT_NOT_FOUND"
-        ? "No se encontró la experiencia."
-        : "Las pistas solo se pueden publicar o borrar mientras la experiencia está cerrada.",
-    );
-  }
-
-  revalidateCluePaths(parsedId.data.id);
-  return { ok: true, message: "Pista publicada." };
 }
 
 export async function deleteEventClueAction(

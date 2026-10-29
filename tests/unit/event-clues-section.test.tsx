@@ -8,8 +8,11 @@ import type { EventClue } from "@/application/events/event-clue-repository";
 import { EventCluesSection } from "@/ui/admin/event-clues-section";
 import { TooltipProvider } from "@/ui/primitives/tooltip";
 
+const refresh = vi.fn();
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+
 vi.mock("@/app/admin/(protected)/events/actions", () => ({
-  publishEventClueAction: vi.fn(async () => ({ ok: true, message: "Pista publicada." })),
   deleteEventClueAction: vi.fn(async () => ({ ok: true, message: "Pista eliminada." })),
 }));
 
@@ -22,9 +25,9 @@ beforeAll(() => {
 afterEach(cleanup);
 
 const clues: EventClue[] = [
-  { id: "clue-1", body: "Primera pista", createdAt: new Date("2026-10-28T20:00:00Z") },
-  { id: "clue-2", body: "Segunda\npista", createdAt: new Date("2026-10-28T21:30:00Z") },
-  { id: "clue-3", body: "Tercera pista", createdAt: new Date("2026-10-28T22:45:00Z") },
+  { id: "clue-1", body: "Primera pista", createdAt: new Date("2026-10-28T20:00:00Z"), images: [] },
+  { id: "clue-2", body: "Segunda\npista", createdAt: new Date("2026-10-28T21:30:00Z"), images: [] },
+  { id: "clue-3", body: "Tercera pista", createdAt: new Date("2026-10-28T22:45:00Z"), images: [] },
 ];
 
 function section(overrides: Partial<ComponentProps<typeof EventCluesSection>> = {}) {
@@ -103,19 +106,18 @@ describe("EventCluesSection while the experience is closed", () => {
     await screen.findByText("Enlace copiado.");
   });
 
-  it("asks for the clue text inside the publish confirmation", async () => {
+  it("provides clue text and optional image fields", () => {
     render(section());
 
-    fireEvent.click(screen.getByRole("button", { name: "Generar pista" }));
-
-    const dialog = await screen.findByRole("alertdialog");
-    expect(
-      within(dialog).getByText("Escribe la pista. Los comensales la verán en la página de pistas."),
-    ).toBeDefined();
-    const textarea = within(dialog).getByRole("textbox") as HTMLTextAreaElement;
+    const textarea = screen.getByRole("textbox", { name: "Pista" }) as HTMLTextAreaElement;
     expect(textarea.name).toBe("body");
     expect(textarea.maxLength).toBe(500);
     expect(textarea.required).toBe(true);
+    expect(screen.getByLabelText(/Imágenes/).getAttribute("multiple")).not.toBeNull();
+    const preview = screen.getByRole("link", { name: "Vista previa pública" });
+    expect(preview.getAttribute("href")).toBe("https://clandestino.example/pistas/cena%20privada");
+    expect(preview.getAttribute("target")).toBe("_blank");
+    expect(preview.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
   it("shows the empty state when there are no clues", () => {
@@ -141,6 +143,12 @@ describe("EventCluesSection while the experience is closed", () => {
 
     expect(screen.getByText("Pista eliminada.")).toBeDefined();
     expect(screen.getByText("Todavía no hay pistas.")).toBeDefined();
+  });
+
+  it("shows attached clue images in the admin history", () => {
+    render(section({ clues: [{ ...clues[0]!, images: [{ id: "image-1" }] }] }));
+    const image = screen.getByAltText("Imagen 1 adjunta a la pista 1");
+    expect(image.getAttribute("src")).toBe("/pistas/cena%20privada/imagenes/image-1");
   });
 });
 

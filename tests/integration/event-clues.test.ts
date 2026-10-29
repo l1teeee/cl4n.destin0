@@ -69,6 +69,37 @@ function add(eventId: string, body: string) {
 }
 
 describe("event clue repository", () => {
+  it("stores clue images atomically and serves them only through their visible event slug", async () => {
+    const event = await createEvent();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+    const clue = await clueRepository.add({
+      eventId: event.id,
+      body: "Mira la imagen.",
+      actorId: adminId,
+      images: [{ contentType: "image/png", data: png }],
+    });
+    if (!clue.ok) throw new Error("Expected clue to be added");
+
+    const listed = await clueRepository.listForSlug(event.slug);
+    expect(listed[0]?.images).toHaveLength(1);
+    expect(clue.value.images).toEqual(listed[0]!.images);
+    expect((await clueRepository.listForEvent(event.id))[0]?.images).toEqual(listed[0]!.images);
+    const imageId = listed[0]!.images[0]!.id;
+    await expect(clueRepository.getImageForSlug(event.slug, imageId)).resolves.toEqual({
+      contentType: "image/png",
+      data: png,
+    });
+    await expect(clueRepository.getImageForSlug("another-event", imageId)).resolves.toBeNull();
+
+    await pool.query("UPDATE events SET status = 'COMPLETED' WHERE id = $1", [event.id]);
+    await expect(clueRepository.getImageForSlug(event.slug, imageId)).resolves.toEqual({
+      contentType: "image/png",
+      data: png,
+    });
+    await pool.query("UPDATE events SET status = 'CANCELLED' WHERE id = $1", [event.id]);
+    await expect(clueRepository.getImageForSlug(event.slug, imageId)).resolves.toBeNull();
+  });
+
   it("adds, lists, removes, and audits clues", async () => {
     const event = await createEvent();
     const first = await add(event.id, "Primera pista");

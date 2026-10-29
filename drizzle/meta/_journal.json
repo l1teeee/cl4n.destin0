@@ -85,6 +85,13 @@
       "when": 1793280737057,
       "tag": "0011_event_clues",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793318400000,
+      "tag": "0012_event_clue_images",
+      "breakpoints": true
     }
   ]
 }

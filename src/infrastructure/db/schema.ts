@@ -12,6 +12,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -350,6 +351,35 @@ export const eventClues = pgTable(
     }).onDelete("no action"),
     check("event_clues_body_length_chk", sql`char_length(${table.body}) BETWEEN 1 AND 500`),
     index("event_clues_event_created_at_idx").on(table.eventId, table.createdAt),
+  ],
+);
+
+export const eventClueImages = pgTable(
+  "event_clue_images",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    clueId: uuid("clue_id").notNull(),
+    position: smallint("position").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "event_clue_images_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "event_clue_images_clue_fk",
+      columns: [table.clueId],
+      foreignColumns: [eventClues.id],
+    }).onDelete("cascade"),
+    unique("event_clue_images_clue_position_uq").on(table.clueId, table.position),
+    check("event_clue_images_position_chk", sql`${table.position} BETWEEN 0 AND 2`),
+    check(
+      "event_clue_images_content_type_chk",
+      sql`${table.contentType} IN ('image/jpeg', 'image/png', 'image/webp')`,
+    ),
+    check("event_clue_images_byte_size_chk", sql`${table.byteSize} BETWEEN 1 AND 1048576`),
+    check("event_clue_images_data_size_chk", sql`octet_length(${table.data}) = ${table.byteSize}`),
   ],
 );
 
