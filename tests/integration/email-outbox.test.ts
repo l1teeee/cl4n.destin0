@@ -238,10 +238,15 @@ describe("email outbox repository", () => {
     await outbox.markFailed(failedId, claimed!.lockedUntil!, "HTTP_400");
 
     const all = await outbox.listRecent({ limit: 10 });
+    const secondPage = await outbox.listRecent({ limit: 1, offset: 1 });
     const failed = await outbox.listRecent({ limit: 10, status: "FAILED" });
     const byKind = await outbox.listRecent({ limit: 10, kind: "ADMIN_SIGNED_IN" });
 
     expect(all).toHaveLength(2);
+    expect(secondPage).toHaveLength(1);
+    expect(secondPage[0]?.id).not.toBe(all[0]?.id);
+    await expect(outbox.countRecent({})).resolves.toBe(2);
+    await expect(outbox.countRecent({ status: "FAILED" })).resolves.toBe(1);
     expect(all.every((item) => item.recipientEmail === admin.email)).toBe(true);
     expect(failed).toEqual([
       expect.objectContaining({

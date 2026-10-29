@@ -6,6 +6,7 @@ import {
   isImageSizeValid,
   MAX_IMAGE_REQUEST_BYTES,
 } from "@/contracts/image-upload";
+import { isSameOriginRequest } from "@/infrastructure/http/same-origin-request";
 
 export interface DrinkSaveResponse {
   ok: boolean;
@@ -38,8 +39,7 @@ function error(
 }
 
 export async function readDrinkRequest(request: Request): Promise<ReadDrinkRequestResult> {
-  const origin = request.headers.get("origin");
-  if (!origin || origin !== new URL(request.url).origin) {
+  if (!isSameOriginRequest(request)) {
     return error("Origen no permitido.", 403);
   }
 

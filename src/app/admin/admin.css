@@ -84,6 +84,14 @@
   text-transform: uppercase;
 }
 
+.admin-event-detail-stats dd {
+  font-size: 1.25rem;
+}
+
+.admin-event-detail-page .admin-tab-section {
+  border-top: 0;
+}
+
 .admin-brand {
   display: inline-flex;
   width: 2.75rem;

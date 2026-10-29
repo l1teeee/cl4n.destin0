@@ -108,6 +108,36 @@ describe("admin drink routes", () => {
     expect(state.createInput).toBeNull();
   });
 
+  it.each([
+    ["local", "http://127.0.0.1:3000", "127.0.0.1:3000", "http"],
+    ["production", "https://clandestino-nine.vercel.app", "clandestino-nine.vercel.app", "https"],
+  ])(
+    "accepts the %s browser origin when Next normalizes the request URL",
+    async (_label, origin, host, protocol) => {
+      const response = await createDrink(
+        request("/admin/drinks/save", {
+          headers: { origin, host, "x-forwarded-proto": protocol },
+        }),
+      );
+      expect(response.status).toBe(201);
+      expect(state.createInput).not.toBeNull();
+    },
+  );
+
+  it("rejects a foreign origin even when Host identifies the site", async () => {
+    const response = await createDrink(
+      request("/admin/drinks/save", {
+        headers: {
+          origin: "https://evil.example",
+          host: "clandestino-nine.vercel.app",
+          "x-forwarded-proto": "https",
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(state.createInput).toBeNull();
+  });
+
   it("returns 413 before reading an oversized request", async () => {
     const response = await createDrink(
       request("/admin/drinks/save", { headers: { "content-length": "2621441" } }),

@@ -93,7 +93,10 @@ export function lifecycleActions(event: AdminEventSummary, databaseTime: Date): 
   ) {
     actions.push("OPEN_NOW");
   }
-  if (event.status === "SCHEDULED" && event.phase !== "SCHEDULED") {
+  if (
+    event.status === "SCHEDULED" &&
+    (event.phase === "OPEN" || event.phase === "WAITLIST" || event.phase === "FULL")
+  ) {
     actions.push("CLOSE_NOW");
   }
   if (event.status === "CLOSED") {

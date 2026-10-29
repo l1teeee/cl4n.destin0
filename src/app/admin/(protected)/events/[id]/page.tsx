@@ -9,6 +9,7 @@ import {
 } from "@/application/events/event-use-cases";
 import { getEventLocationEmailSummary } from "@/application/events/event-location-email";
 import { areCluesVisible } from "@/domain/event/event-clues";
+import { auditPageSizeFor } from "@/ui/admin/view-model";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
@@ -83,16 +84,37 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const event = eventResult.value;
   if (!event) notFound();
 
-  const view = parseRosterView((await searchParams).vista, "confirmadas");
+  const query = await searchParams;
+  const view = parseRosterView(query.vista, "confirmadas");
+  const auditPageValue = Number(Array.isArray(query.page) ? query.page[0] : query.page);
+  const auditPage = Number.isInteger(auditPageValue) && auditPageValue > 0 ? auditPageValue : 1;
+  const cluesVisible = areCluesVisible(event.phase);
+  const requestedSection = query.seccion;
+  const section =
+    requestedSection === "ubicacion" ||
+    requestedSection === "gestion" ||
+    requestedSection === "auditoria" ||
+    (requestedSection === "pistas" && cluesVisible)
+      ? requestedSection
+      : "reservaciones";
+  const sections = [
+    { id: "reservaciones", label: "Reservaciones" },
+    ...(cluesVisible ? [{ id: "pistas", label: "Pistas" }] : []),
+    { id: "ubicacion", label: "Ubicación" },
+    { id: "gestion", label: "Gestión" },
+    { id: "auditoria", label: "Auditoría" },
+  ];
   const [roster, rosterCounts, audit, images, locationEmailSummary, clues] = await Promise.all([
     getEventRoster(postgresEventRepository, id, view),
     getEventRosterCounts(postgresEventRepository, id),
-    getAdminAuditLog(postgresEventRepository, { eventId: id, pageSize: 100 }),
+    getAdminAuditLog(postgresEventRepository, {
+      eventId: id,
+      page: auditPage,
+      pageSize: auditPageSizeFor("desktop"),
+    }),
     postgresEventImageRepository.list(id),
     getEventLocationEmailSummary(postgresEventLocationEmailRepository, id),
-    areCluesVisible(event.phase)
-      ? postgresEventClueRepository.listForEvent(id)
-      : Promise.resolve([]),
+    cluesVisible ? postgresEventClueRepository.listForEvent(id) : Promise.resolve([]),
   ]);
   if (!locationEmailSummary) notFound();
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
@@ -104,10 +126,10 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   );
 
   return (
-    <main className="admin-page space-y-10">
+    <main className="admin-page admin-event-detail-page space-y-10">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Button variant="link" className="admin-muted" asChild>
+          <Button variant="outline" asChild>
             <Link href="/admin">
               Volver a experiencias
               <LinkPendingIndicator />
@@ -127,20 +149,41 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         </Button>
       </div>
 
-      <StatGrid
-        items={[
-          { label: "Estado", value: eventPhaseLabel(event.phase) },
-          { label: "Capacidad", value: event.capacity },
-          { label: "Reservados", value: event.reservedSeats },
-          { label: "Disponibles", value: event.availableSeats },
-          { label: "En cola", value: `${event.waitlistedCount} / ${event.waitlistCapacity}` },
-          { label: "Reservaciones", value: event.confirmedReservationCount },
-          { label: "Abre", value: formatAdminDate(event.opensAt) },
-          { label: "Cierra", value: formatAdminDate(event.closesAt) },
-        ]}
-      />
+      <div className="admin-event-detail-stats">
+        <StatGrid
+          items={[
+            { label: "Estado", value: eventPhaseLabel(event.phase) },
+            { label: "Capacidad", value: event.capacity },
+            { label: "Reservados", value: event.reservedSeats },
+            { label: "Disponibles", value: event.availableSeats },
+            { label: "En cola", value: `${event.waitlistedCount} / ${event.waitlistCapacity}` },
+            { label: "Reservaciones", value: event.confirmedReservationCount },
+            { label: "Abre", value: formatAdminDate(event.opensAt) },
+            { label: "Cierra", value: formatAdminDate(event.closesAt) },
+          ]}
+        />
+      </div>
 
-      {areCluesVisible(event.phase) ? (
+      <nav aria-label="Secciones de la experiencia" className="max-w-full overflow-x-auto">
+        <div className="flex min-w-max gap-6 border-b border-border">
+          {sections.map((item) => (
+            <Link
+              key={item.id}
+              href={`/admin/events/${id}?seccion=${item.id}&vista=${view}`}
+              aria-current={section === item.id ? "page" : undefined}
+              className={`border-b-2 px-1 pb-3 text-sm whitespace-nowrap transition-colors ${
+                section === item.id
+                  ? "border-[#fffbf4] text-[#fffbf4]"
+                  : "border-transparent text-[#8d8b85] hover:text-[#fffbf4]"
+              }`}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      {section === "pistas" && cluesVisible ? (
         <EventCluesSection
           appBaseUrl={env.APP_BASE_URL}
           clues={clues}
@@ -150,15 +193,19 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         />
       ) : null}
 
-      <section className="admin-section space-y-4">
+      <section className="admin-section admin-tab-section space-y-4" hidden={section !== "gestion"}>
         <h2 className="admin-section-title">Enlace público</h2>
         <PublicLinkPanel
           url={publicEventUrl(env.APP_BASE_URL, event.slug)}
           hint={publicLinkHint(event.phase)}
+          disabled={event.phase !== "OPEN" && event.phase !== "WAITLIST"}
         />
       </section>
 
-      <section className="admin-section space-y-5">
+      <section
+        className="admin-section admin-tab-section space-y-5"
+        hidden={section !== "ubicacion"}
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="admin-section-title">Ubicación</h2>
           <Button variant="outline" asChild>
@@ -310,7 +357,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         </div>
       </section>
 
-      <section className="admin-section space-y-4">
+      <section className="admin-section space-y-4" hidden={section !== "gestion"}>
         <h2 className="admin-section-title">Ciclo de vida</h2>
         <div className="flex flex-wrap gap-3">
           {controls.includes("PUBLISH") ? (
@@ -344,7 +391,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         </div>
       </section>
 
-      <section className="admin-section space-y-4">
+      <section className="admin-section space-y-4" hidden={section !== "gestion"}>
         <h2 className="admin-section-title">Cupos y cola</h2>
         <p className="admin-muted">
           Capacidad {event.capacity} · Reservados {event.reservedSeats} · Disponibles{" "}
@@ -396,7 +443,10 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         ) : null}
       </section>
 
-      <section className="admin-section space-y-4">
+      <section
+        className="admin-section admin-tab-section space-y-4"
+        hidden={section !== "reservaciones"}
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="admin-section-title">Listado de asistentes</h2>
           <Button variant="outline" asChild>
@@ -407,7 +457,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           <nav className="flex flex-wrap gap-3" aria-label="Vistas del listado">
             {rosterViews.map((item) => (
               <Button variant={item.view === view ? "default" : "outline"} asChild key={item.view}>
-                <Link href={`/admin/events/${id}?vista=${item.view}`}>
+                <Link href={`/admin/events/${id}?seccion=reservaciones&vista=${item.view}`}>
                   {item.label} ({rosterCounts[item.view]})
                 </Link>
               </Button>
@@ -507,14 +557,60 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         </ActionFeedbackProvider>
       </section>
 
-      <section className="admin-section space-y-4">
+      <section
+        className="admin-section admin-tab-section space-y-4"
+        hidden={section !== "auditoria"}
+      >
         <h2 className="admin-section-title">Auditoría de la experiencia</h2>
         <AuditLogTable items={audit.value.items} />
+        <AuditPagination
+          eventId={id}
+          page={audit.value.page}
+          pageSize={audit.value.pageSize}
+          total={audit.value.total}
+          view={view}
+        />
       </section>
     </main>
   );
 }
 
+function AuditPagination({
+  eventId,
+  page,
+  pageSize,
+  total,
+  view,
+}: {
+  eventId: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  view: string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <nav className="admin-muted flex items-center gap-4" aria-label="Paginación de auditoría">
+      <span className="admin-secondary">
+        Página {page} de {pages}
+      </span>
+      {page > 1 ? (
+        <Button variant="link" asChild>
+          <Link href={`/admin/events/${eventId}?seccion=auditoria&vista=${view}&page=${page - 1}`}>
+            Anterior
+          </Link>
+        </Button>
+      ) : null}
+      {page < pages ? (
+        <Button variant="link" asChild>
+          <Link href={`/admin/events/${eventId}?seccion=auditoria&vista=${view}&page=${page + 1}`}>
+            Siguiente
+          </Link>
+        </Button>
+      ) : null}
+    </nav>
+  );
+}
 function LocationCell({ cell }: { cell: RosterLocationCell }) {
   return (
     <span className={cell.failed ? "text-destructive" : undefined} title={cell.title ?? undefined}>

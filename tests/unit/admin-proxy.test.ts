@@ -12,7 +12,7 @@ describe("content security policy", () => {
         sentryDsn: "https://public-key@o123.ingest.sentry.io/456",
       }),
     ).toBe(
-      "default-src 'self'; script-src 'self' 'nonce-production-nonce' 'strict-dynamic' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://o123.ingest.sentry.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' 'nonce-production-nonce' 'strict-dynamic' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://o123.ingest.sentry.io; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
     );
   });
 

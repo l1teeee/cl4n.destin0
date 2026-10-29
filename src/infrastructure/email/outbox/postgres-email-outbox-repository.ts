@@ -140,6 +140,7 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
 
   async listRecent(input: {
     limit: number;
+    offset?: number;
     status?: EmailOutboxStatus;
     kind?: EmailOutboxKind;
   }): Promise<RecentEmailOutboxItem[]> {
@@ -154,8 +155,8 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
         WHERE ($2::text IS NULL OR o.status = $2)
           AND ($3::text IS NULL OR o.kind = $3)
         ORDER BY o.created_at DESC, o.id
-        LIMIT $1`,
-      [input.limit, input.status ?? null, input.kind ?? null],
+        LIMIT $1 OFFSET $4`,
+      [input.limit, input.status ?? null, input.kind ?? null, input.offset ?? 0],
     );
     return result.rows.map((record) => ({
       id: record.id,
@@ -168,6 +169,20 @@ export class PostgresEmailOutboxRepository implements EmailOutboxRepository {
       nextAttemptAt: record.next_attempt_at,
       recipientEmail: record.recipient_email ?? "",
     }));
+  }
+
+  async countRecent(input: {
+    status?: EmailOutboxStatus;
+    kind?: EmailOutboxKind;
+  }): Promise<number> {
+    const result = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total
+         FROM email_outbox o
+        WHERE ($1::text IS NULL OR o.status = $1)
+          AND ($2::text IS NULL OR o.kind = $2)`,
+      [input.status ?? null, input.kind ?? null],
+    );
+    return result.rows[0]?.total ?? 0;
   }
 
   async countByStatusSince(days: number): Promise<Record<EmailOutboxStatus, number>> {

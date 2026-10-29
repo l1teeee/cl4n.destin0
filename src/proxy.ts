@@ -26,7 +26,7 @@ export function buildContentSecurityPolicy(options: ContentSecurityPolicyOptions
     `script-src 'self' 'nonce-${options.nonce}' 'strict-dynamic' https://challenges.cloudflare.com${localScriptSource}`,
     `frame-src https://challenges.cloudflare.com${mapsFrameSource}`,
     `connect-src 'self'${sentryConnectSource}`,
-    "img-src 'self' data:",
+    "img-src 'self' data: blob:",
     "style-src 'self' 'unsafe-inline'",
     "object-src 'none'",
     "base-uri 'self'",

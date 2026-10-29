@@ -89,6 +89,16 @@ describe("admin event image routes", () => {
     expect(response.status).toBe(403);
   });
 
+  it("accepts the browser Host when Next normalizes the request URL", async () => {
+    const request = postRequest(webp, {
+      origin: "http://127.0.0.1:3000",
+      host: "127.0.0.1:3000",
+      "x-forwarded-proto": "http",
+    });
+    const response = await POST(request, { params: Promise.resolve({ id: eventId }) });
+    expect(response.status).toBe(201);
+  });
+
   it("returns 413 before reading an oversized request", async () => {
     const response = await POST(postRequest(webp, { "content-length": "2621441" }), {
       params: Promise.resolve({ id: eventId }),

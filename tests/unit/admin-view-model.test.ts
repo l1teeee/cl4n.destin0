@@ -143,6 +143,16 @@ describe("admin dashboard actions", () => {
       "CLOSE_NOW",
       "CANCEL",
     ]);
+    expect(
+      lifecycleActions(
+        event({
+          status: "SCHEDULED",
+          phase: "CLOSED",
+          closesAt: new Date("2026-10-05T11:59:00Z"),
+        }),
+        now,
+      ),
+    ).toEqual(["CANCEL"]);
     expect(lifecycleActions(event({ status: "CLOSED", phase: "CLOSED" }), now)).toEqual([
       "OPEN_NOW",
       "COMPLETE",

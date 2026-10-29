@@ -7,6 +7,7 @@ import {
 } from "@/contracts/image-upload";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
+import { isSameOriginRequest } from "@/infrastructure/http/same-origin-request";
 
 const paramsSchema = z.object({ id: z.string().uuid() });
 
@@ -21,8 +22,7 @@ export async function POST(
   const authorization = await requireAdmin("route");
   if (!authorization.authorized) return error("No autorizado.", 401);
 
-  const origin = request.headers.get("origin");
-  if (!origin || origin !== new URL(request.url).origin) {
+  if (!isSameOriginRequest(request)) {
     return error("Origen no permitido.", 403);
   }
 

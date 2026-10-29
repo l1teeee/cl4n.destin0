@@ -1,14 +1,13 @@
 import Link from "next/link";
-import { Pencil, Trash2 } from "lucide-react";
+import { ArrowUpRight, Pencil, Trash2 } from "lucide-react";
 
 import { deleteDrinkAction } from "@/app/admin/(protected)/drinks/actions";
 import { formatDrinkPrice } from "@/domain/drink/drink-price";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
-import { env } from "@/infrastructure/config/env";
 import { postgresDrinkRepository } from "@/infrastructure/db/repositories/postgres-drink-repository";
 import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
 import { MutationForm } from "@/ui/admin/mutation-form";
-import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
+import { DrinkDetailsDialog } from "@/ui/drink-details-dialog";
 import { Badge } from "@/ui/primitives/badge";
 import { Button } from "@/ui/primitives/button";
 import {
@@ -33,14 +32,23 @@ export default async function DrinksPage() {
           <h1 className="admin-title">Bebidas</h1>
           <p className="admin-description">Menú de bebidas que ven los comensales.</p>
         </div>
-        <Button asChild>
-          <Link href="/admin/drinks/new">Nueva bebida</Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="outline"
+            className="border-primary/60 bg-primary/10 px-5 text-[#fffbf4] shadow-[0_0_24px_rgba(217,165,86,0.12)] hover:bg-primary/20 hover:opacity-100 focus-visible:bg-primary/20 focus-visible:opacity-100"
+            asChild
+          >
+            <Link href="/bebidas" target="_blank" rel="noopener noreferrer">
+              <ArrowUpRight aria-hidden="true" />
+              Ver menú público
+              <span className="sr-only"> (se abre en una pestaña nueva)</span>
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/admin/drinks/new">Nueva bebida</Link>
+          </Button>
+        </div>
       </div>
-      <section className="admin-section space-y-4">
-        <h2 className="admin-section-title">Menú público</h2>
-        <PublicLinkPanel url={new URL("/bebidas", env.APP_BASE_URL).href} hint={null} />
-      </section>
       <ActionFeedbackProvider>
         {drinks.length === 0 ? (
           <p className="admin-empty">Todavía no hay bebidas.</p>
@@ -70,7 +78,23 @@ export default async function DrinksPage() {
                       "-"
                     )}
                   </TableCell>
-                  <TableCell className="font-medium">{drink.name}</TableCell>
+                  <TableCell>
+                    <DrinkDetailsDialog
+                      name={drink.name}
+                      description={drink.description}
+                      price={formatDrinkPrice(drink.priceCents)}
+                      imageUrl={drink.imageId ? `/bebidas/imagen/${drink.imageId}` : null}
+                      visibility={drink.isVisible ? "Visible" : "Oculta"}
+                    >
+                      <button
+                        type="button"
+                        className="cursor-pointer text-left font-medium text-[#fffbf4] underline-offset-4 hover:underline focus-visible:underline"
+                      >
+                        {drink.name}
+                        <span className="sr-only">: ver detalles</span>
+                      </button>
+                    </DrinkDetailsDialog>
+                  </TableCell>
                   <TableCell className="max-w-sm whitespace-normal">
                     {drink.description ?? "-"}
                   </TableCell>

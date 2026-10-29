@@ -58,9 +58,11 @@ export interface EmailOutboxRepository {
   markFailed(id: string, lease: Date, errorCode: string): Promise<boolean>;
   listRecent(input: {
     limit: number;
+    offset?: number;
     status?: EmailOutboxStatus;
     kind?: EmailOutboxKind;
   }): Promise<RecentEmailOutboxItem[]>;
+  countRecent(input: { status?: EmailOutboxStatus; kind?: EmailOutboxKind }): Promise<number>;
   countByStatusSince(days: number): Promise<Record<EmailOutboxStatus, number>>;
   retry(id: string): Promise<boolean>;
   deleteSentOlderThan(days: number): Promise<number>;

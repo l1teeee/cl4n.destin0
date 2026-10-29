@@ -9,12 +9,14 @@ interface PublicLinkPanelProps {
   url: string;
   hint: string | null;
   revealLabel?: string;
+  disabled?: boolean;
 }
 
 export function PublicLinkPanel({
   url,
   hint,
   revealLabel = "Generar link para público",
+  disabled = false,
 }: PublicLinkPanelProps) {
   const [revealed, setRevealed] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export function PublicLinkPanel({
 
   return (
     <div className="space-y-3">
-      {revealed ? (
+      {revealed && !disabled ? (
         <div className="flex flex-wrap items-center gap-3">
           <Input
             className="w-full max-w-xl"
@@ -55,7 +57,7 @@ export function PublicLinkPanel({
           </Button>
         </div>
       ) : (
-        <Button type="button" onClick={revealLink}>
+        <Button type="button" onClick={revealLink} disabled={disabled}>
           {revealLabel}
         </Button>
       )}

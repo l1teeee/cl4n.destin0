@@ -47,7 +47,7 @@ describe("EventCluesSection while the experience is closed", () => {
     render(section());
 
     const items = screen.getAllByRole("listitem");
-    expect(items.map((item) => item.querySelector("span")?.textContent)).toEqual([
+    expect(items.map((item) => item.querySelector("summary span span")?.textContent)).toEqual([
       "Pista 3",
       "Pista 2",
       "Pista 1",
@@ -55,6 +55,23 @@ describe("EventCluesSection while the experience is closed", () => {
     expect(within(items[0]!).getByText("Tercera pista")).toBeDefined();
     expect(within(items[0]!).getByText("28/10/2026 16:45")).toBeDefined();
     expect(within(items[2]!).getByText("Primera pista")).toBeDefined();
+  });
+
+  it("reveals and hides a clue when its heading is clicked", () => {
+    render(section());
+
+    const item = screen.getAllByRole("listitem")[2]!;
+    const details = item.querySelector("details")!;
+    const summary = item.querySelector("summary")!;
+    expect(summary.textContent).toContain("Pista 1");
+    expect(details.open).toBe(false);
+
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+    expect(within(item).getByText("Primera pista")).toBeDefined();
+
+    fireEvent.click(summary);
+    expect(details.open).toBe(false);
   });
 
   it("offers the publish form, the clues link and one delete button per clue", () => {

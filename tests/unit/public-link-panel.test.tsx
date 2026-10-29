@@ -88,4 +88,22 @@ describe("PublicLinkPanel", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
     expect(writeText).toHaveBeenLastCalledWith(url);
   });
+
+  it("hides revealed controls and keeps the hint when disabled", async () => {
+    mockClipboard();
+    const hint = "Form is closed.";
+    const { rerender } = render(
+      <PublicLinkPanel url={url} hint={hint} revealLabel="Reveal link" />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal link" }));
+    expect(screen.getByDisplayValue(url)).toBeDefined();
+
+    rerender(<PublicLinkPanel url={url} hint={hint} revealLabel="Reveal link" disabled />);
+
+    expect(screen.queryByDisplayValue(url)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Abrir enlace" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reveal link" })).toHaveProperty("disabled", true);
+    expect(screen.getByText(hint)).toBeDefined();
+  });
 });

@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 
 import {
   deleteEventClueAction,
@@ -37,7 +37,7 @@ export function EventCluesSection({
   const numberedClues = numberCluesNewestFirst(clues);
 
   return (
-    <section className="admin-section space-y-4">
+    <section className="admin-section admin-tab-section space-y-4">
       <h2 className="admin-section-title">Pistas</h2>
       <p className="admin-muted">
         {publishingAllowed
@@ -67,15 +67,21 @@ export function EventCluesSection({
           <ol className="divide-y divide-border border-y border-border">
             {numberedClues.map((clue) => (
               <li className="flex items-start justify-between gap-4 py-4" key={clue.id}>
-                <div className="min-w-0 space-y-2">
-                  <p className="admin-muted flex flex-wrap items-baseline gap-x-3 text-xs">
-                    <span className="font-semibold tracking-wider uppercase">
-                      Pista {clue.number}
+                <details className="group min-w-0 flex-1">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fffbf4] [&::-webkit-details-marker]:hidden">
+                    <span className="admin-muted flex flex-wrap items-baseline gap-x-3 text-xs">
+                      <span className="font-semibold tracking-wider uppercase">
+                        Pista {clue.number}
+                      </span>
+                      <span>{formatAdminDate(clue.createdAt)}</span>
                     </span>
-                    <span>{formatAdminDate(clue.createdAt)}</span>
-                  </p>
-                  <p className="whitespace-pre-line break-words">{clue.body}</p>
-                </div>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="size-4 shrink-0 transition-transform group-open:rotate-180"
+                    />
+                  </summary>
+                  <p className="mt-4 whitespace-pre-line break-words">{clue.body}</p>
+                </details>
                 {publishingAllowed ? (
                   <MutationForm
                     action={deleteEventClueAction.bind(null, eventId, clue.id)}

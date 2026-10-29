@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { userAgent } from "next/server";
 
 import { getAdminAuditLog } from "@/application/events/event-use-cases";
@@ -25,12 +26,38 @@ export default async function AuditPage({
   await requireAdmin("page");
   const query = parseAuditSearchParams(await searchParams);
   const { device } = userAgent({ headers: await headers() });
-  const result = await getAdminAuditLog(postgresEventRepository, {
+  let result = await getAdminAuditLog(postgresEventRepository, {
     ...query,
     pageSize: auditPageSizeFor(device.type),
   });
+  if (query.page > 1 && result.value.items.length === 0) {
+    const firstPage = await getAdminAuditLog(postgresEventRepository, {
+      ...query,
+      page: 1,
+      pageSize: result.value.pageSize,
+    });
+    const lastPage = Math.max(1, Math.ceil(firstPage.value.total / firstPage.value.pageSize));
+    if (query.page > lastPage) {
+      const params = new URLSearchParams({ page: String(lastPage) });
+      if (query.entityType) params.set("entityType", query.entityType);
+      redirect(`/admin/audit?${params.toString()}`);
+    }
+    result = firstPage;
+  }
   const pages = Math.max(1, Math.ceil(result.value.total / result.value.pageSize));
-  const filter = query.entityType ? `&entityType=${query.entityType}` : "";
+  const page = result.value.page;
+  const firstVisiblePage = Math.max(1, Math.min(page - 2, pages - 4));
+  const visiblePages = Array.from(
+    { length: Math.min(5, pages) },
+    (_, index) => firstVisiblePage + index,
+  );
+  const pageHref = (targetPage: number) => {
+    const params = new URLSearchParams({ page: String(targetPage) });
+    if (query.entityType) params.set("entityType", query.entityType);
+    return `/admin/audit?${params.toString()}`;
+  };
+  const firstItem = result.value.total === 0 ? 0 : (page - 1) * result.value.pageSize + 1;
+  const lastItem = Math.min(page * result.value.pageSize, result.value.total);
 
   return (
     <main className="admin-page space-y-8">
@@ -59,18 +86,44 @@ export default async function AuditPage({
         </Button>
       </form>
       <AuditLogTable items={result.value.items} />
-      <nav className="admin-muted flex items-center gap-4" aria-label="Paginación">
-        <span className="admin-secondary">
-          Página {result.value.page} de {pages}
+      <nav
+        className="admin-muted flex flex-wrap items-center gap-x-4 gap-y-2"
+        aria-label="Paginación"
+      >
+        <span className="admin-secondary" aria-live="polite">
+          Mostrando {firstItem}-{lastItem} de {result.value.total} actividades. Página {page} de{" "}
+          {pages}.
         </span>
-        {result.value.page > 1 ? (
+        {page > 1 ? (
           <Button variant="link" asChild>
-            <Link href={`/admin/audit?page=${result.value.page - 1}${filter}`}>Anterior</Link>
+            <Link href={pageHref(1)}>Primera</Link>
           </Button>
         ) : null}
-        {result.value.page < pages ? (
+        {page > 1 ? (
           <Button variant="link" asChild>
-            <Link href={`/admin/audit?page=${result.value.page + 1}${filter}`}>Siguiente</Link>
+            <Link href={pageHref(page - 1)}>Anterior</Link>
+          </Button>
+        ) : null}
+        {visiblePages.map((pageNumber) => (
+          <Button key={pageNumber} variant="link" asChild>
+            <Link
+              href={pageHref(pageNumber)}
+              aria-current={pageNumber === page ? "page" : undefined}
+              aria-label={`Página ${pageNumber}`}
+              className={pageNumber === page ? "font-bold text-primary" : undefined}
+            >
+              {pageNumber}
+            </Link>
+          </Button>
+        ))}
+        {page < pages ? (
+          <Button variant="link" asChild>
+            <Link href={pageHref(page + 1)}>Siguiente</Link>
+          </Button>
+        ) : null}
+        {page < pages ? (
+          <Button variant="link" asChild>
+            <Link href={pageHref(pages)}>Última</Link>
           </Button>
         ) : null}
       </nav>

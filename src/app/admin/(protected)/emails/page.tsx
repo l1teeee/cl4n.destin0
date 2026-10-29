@@ -40,11 +40,35 @@ export default async function EmailsPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requireAdmin("page");
-  const filters = parseEmailLogSearchParams(await searchParams);
-  const [emails, totals] = await Promise.all([
-    postgresEmailOutboxRepository.listRecent({ limit: 200, ...filters }),
+  const params = await searchParams;
+  const filters = parseEmailLogSearchParams(params);
+  const rawPage = Number(Array.isArray(params.page) ? params.page[0] : params.page);
+  const requestedPage = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
+  const pageSize = 25;
+  const [total, totals] = await Promise.all([
+    postgresEmailOutboxRepository.countRecent(filters),
     postgresEmailOutboxRepository.countByStatusSince(7),
   ]);
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, pages);
+  const emails = await postgresEmailOutboxRepository.listRecent({
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    ...filters,
+  });
+  const firstVisiblePage = Math.max(1, Math.min(page - 2, pages - 4));
+  const visiblePages = Array.from(
+    { length: Math.min(5, pages) },
+    (_, index) => firstVisiblePage + index,
+  );
+  const pageHref = (targetPage: number) => {
+    const query = new URLSearchParams({ page: String(targetPage) });
+    if (filters.status) query.set("estado", filters.status);
+    if (filters.kind) query.set("tipo", filters.kind);
+    return `/admin/emails?${query.toString()}`;
+  };
+  const firstItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastItem = Math.min(page * pageSize, total);
 
   return (
     <main className="admin-page space-y-8">
@@ -154,6 +178,46 @@ export default async function EmailsPage({
           </TableBody>
         </Table>
       )}
+      <nav
+        className="admin-muted flex flex-wrap items-center gap-x-4 gap-y-2"
+        aria-label="Paginación"
+      >
+        <span className="admin-secondary" aria-live="polite">
+          Mostrando {firstItem}-{lastItem} de {total} correos. Página {page} de {pages}.
+        </span>
+        {page > 1 ? (
+          <Button variant="link" asChild>
+            <Link href={pageHref(1)}>Primera</Link>
+          </Button>
+        ) : null}
+        {page > 1 ? (
+          <Button variant="link" asChild>
+            <Link href={pageHref(page - 1)}>Anterior</Link>
+          </Button>
+        ) : null}
+        {visiblePages.map((pageNumber) => (
+          <Button key={pageNumber} variant="link" asChild>
+            <Link
+              href={pageHref(pageNumber)}
+              aria-current={pageNumber === page ? "page" : undefined}
+              aria-label={`Página ${pageNumber}`}
+              className={pageNumber === page ? "font-bold text-primary" : undefined}
+            >
+              {pageNumber}
+            </Link>
+          </Button>
+        ))}
+        {page < pages ? (
+          <Button variant="link" asChild>
+            <Link href={pageHref(page + 1)}>Siguiente</Link>
+          </Button>
+        ) : null}
+        {page < pages ? (
+          <Button variant="link" asChild>
+            <Link href={pageHref(pages)}>Última</Link>
+          </Button>
+        ) : null}
+      </nav>
     </main>
   );
 }

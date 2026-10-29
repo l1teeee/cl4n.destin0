@@ -124,13 +124,22 @@ describe("AdminSidebar", () => {
     expect(button.closest("form")).not.toBeNull();
   });
 
-  it("switches the collapse toggle label", () => {
+  it("removes the desktop expand and collapse menu option", () => {
     renderSidebar();
-    const toggle = screen.getByRole("button", { name: "Expandir menú" });
 
-    fireEvent.click(toggle);
+    expect(screen.queryByRole("button", { name: "Expandir menú" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Contraer menú" })).toBeNull();
+  });
 
-    expect(screen.getByRole("button", { name: "Contraer menú" })).toBeDefined();
+  it("shows pending feedback immediately after a section link is clicked", () => {
+    renderSidebar();
+    const link = screen.getByRole("link", { name: "Correos" });
+    link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+
+    fireEvent.click(link);
+
+    expect(link.getAttribute("aria-busy")).toBe("true");
+    expect(link.querySelector("span.animate-pulse")).not.toBeNull();
   });
 
   it("opens and closes the mobile sheet", () => {
@@ -144,7 +153,9 @@ describe("AdminSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Abrir menú" }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("link", { name: "Correos" }));
+    const emailsLink = within(dialog).getByRole("link", { name: "Correos" });
+    emailsLink.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    fireEvent.click(emailsLink);
 
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -152,7 +163,7 @@ describe("AdminSidebar", () => {
   it("centers each collapsed icon in its button", () => {
     renderSidebar();
 
-    for (const name of ["Experiencias", "Cerrar sesión", "Expandir menú"]) {
+    for (const name of ["Experiencias", "Cerrar sesión"]) {
       const button = screen.getByRole(name === "Experiencias" ? "link" : "button", { name });
       expect(button.className).toContain("group-data-[collapsible=icon]:justify-center");
       expect(button.className).toContain("group-data-[collapsible=icon]:gap-0");
@@ -233,20 +244,6 @@ describe("AdminSidebar hover peek", () => {
     act(() => vi.advanceTimersByTime(5000));
 
     expect(sidebarRoot().getAttribute("data-state")).toBe("collapsed");
-  });
-
-  it("pins open when the toggle is clicked while peeking", () => {
-    renderSidebar();
-    enter();
-    act(() => vi.advanceTimersByTime(120));
-
-    fireEvent.click(screen.getByRole("button", { name: "Expandir menú" }));
-    leave();
-    act(() => vi.advanceTimersByTime(5000));
-
-    expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");
-    expect(sidebarGap().className).not.toContain("w-(--sidebar-width-icon) ");
-    expect(screen.getByRole("button", { name: "Contraer menú" })).toBeDefined();
   });
 
   it("ignores hover when the sidebar is pinned open", () => {
