@@ -35,7 +35,7 @@ export default async function DrinksPage() {
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="outline"
-            className="border-primary/60 bg-primary/10 px-5 text-[#fffbf4] shadow-[0_0_24px_rgba(217,165,86,0.12)] hover:bg-primary/20 hover:opacity-100 focus-visible:bg-primary/20 focus-visible:opacity-100"
+            className="border-primary/60 bg-primary/10 px-5 text-[#fffbf4] hover:bg-primary/20 hover:opacity-100 focus-visible:bg-primary/20 focus-visible:opacity-100"
             asChild
           >
             <Link href="/bebidas" target="_blank" rel="noopener noreferrer">
