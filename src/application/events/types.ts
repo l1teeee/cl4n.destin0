@@ -193,8 +193,24 @@ export interface AuditLogItem {
     | "EVENT_DELETED"
     | "DRINK_CREATED"
     | "DRINK_UPDATED"
-    | "DRINK_DELETED";
-  entityType: "EVENT" | "RESERVATION" | "ADMIN_USER" | "WAITLIST_ENTRY" | "DRINK";
+    | "DRINK_DELETED"
+    | "RESERVATION_ON_LIST"
+    | "RESERVATION_PAID"
+    | "RESERVATION_REJECTED"
+    | "RESERVATION_REFUNDED"
+    | "RESERVATION_UPDATED"
+    | "WAITLIST_UPDATED"
+    | "WAITLIST_REORDERED"
+    | "MESSAGE_TEMPLATE_UPDATED"
+    | "MESSAGING_CONTACT_LINKED";
+  entityType:
+    | "EVENT"
+    | "RESERVATION"
+    | "ADMIN_USER"
+    | "WAITLIST_ENTRY"
+    | "DRINK"
+    | "MESSAGE_TEMPLATE"
+    | "MESSAGING_CONTACT";
   entityId: string;
   metadata: Record<string, unknown>;
 }

@@ -78,6 +78,11 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
   - `SELECT has_table_privilege('clandestino_app', 'email_outbox', 'SELECT,INSERT,UPDATE,DELETE');`
   - `SELECT has_table_privilege('clandestino_app', 'event_images', 'SELECT,INSERT,DELETE');`
 - Migration 0009 (event soft delete) adds `events.deleted_at`, adds `EVENT_DELETED` to `audit_action` and replaces `events_slug_uq` with the partial unique index `events_slug_live_uq`. It takes an exclusive lock on `events` until commit, so run it only when no event is OPEN or WAITLIST. It adds no table. After applying it, verify the least-privilege role can use the new column with `SELECT has_column_privilege('clandestino_app', 'events', 'deleted_at', 'SELECT,UPDATE');`. It must return true.
+- Migration 0013 alters `events`, `reservations`, `waitlist_entries` and `audit_logs`, taking ACCESS EXCLUSIVE locks, so run it outside any reservation window. It adds `messaging_contacts`, `messages`, `message_attachments` and `message_templates` with grants for `clandestino_app`, adds the staged-flow and messaging audit enum values, and backfills legacy CONFIRMED reservations to stage PAID. Verify every query returns true:
+  - `SELECT has_table_privilege('clandestino_app', 'messaging_contacts', 'SELECT,INSERT,UPDATE,DELETE');`
+  - `SELECT has_table_privilege('clandestino_app', 'messages', 'SELECT,INSERT,UPDATE,DELETE');`
+  - `SELECT has_table_privilege('clandestino_app', 'message_attachments', 'SELECT,INSERT,UPDATE,DELETE');`
+  - `SELECT has_table_privilege('clandestino_app', 'message_templates', 'SELECT,INSERT,UPDATE');`
 - **Deploy order:**
   1. Set the Vercel env vars.
   2. Migrate production BEFORE pushing `main`, because the push auto-deploys code that expects the new schema.

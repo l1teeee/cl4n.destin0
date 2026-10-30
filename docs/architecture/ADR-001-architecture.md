@@ -659,6 +659,7 @@ Parallel worktrees use distinct test database names on the same local server.
 
 ## Changelog
 
+- 2026-10-30: staged guest flow (review, list, payment) and Instagram DM messaging (ADR-009). Migration 0013.
 - 2026-10-28: Added event clues for closed and completed experiences (ADR-007).
 - 2026-10-28: added the public and admin drinks menu with transactional PostgreSQL image storage (ADR-006).
 - 2026-10-08: section 9. Added optional allergy information to reservations and waitlist entries for kitchen preparation, without including it in audit metadata or logs.
