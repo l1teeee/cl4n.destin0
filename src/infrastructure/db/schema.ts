@@ -71,6 +71,15 @@ export const auditAction = pgEnum("audit_action", [
   "DRINK_CREATED",
   "DRINK_UPDATED",
   "DRINK_DELETED",
+  "RESERVATION_ON_LIST",
+  "RESERVATION_PAID",
+  "RESERVATION_REJECTED",
+  "RESERVATION_REFUNDED",
+  "RESERVATION_UPDATED",
+  "WAITLIST_UPDATED",
+  "WAITLIST_REORDERED",
+  "MESSAGE_TEMPLATE_UPDATED",
+  "MESSAGING_CONTACT_LINKED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -211,6 +220,7 @@ export const events = pgTable(
     locationReleasedRevision: integer("location_released_revision"),
     locationLatitude: doublePrecision("location_latitude"),
     locationLongitude: doublePrecision("location_longitude"),
+    paymentInstructions: text("payment_instructions"),
     lastReservationNumber: integer("last_reservation_number").notNull().default(0),
     waitlistCapacity: integer("waitlist_capacity").notNull().default(5),
     waitlistedCount: integer("waitlisted_count").notNull().default(0),
@@ -287,6 +297,10 @@ export const events = pgTable(
     check(
       "events_location_longitude_chk",
       sql`${table.locationLongitude} IS NULL OR ${table.locationLongitude} BETWEEN -180 AND 180`,
+    ),
+    check(
+      "events_payment_instructions_length_chk",
+      sql`${table.paymentInstructions} IS NULL OR char_length(${table.paymentInstructions}) BETWEEN 1 AND 600`,
     ),
     index("events_status_opens_at_idx").on(table.status, table.opensAt),
   ],
@@ -383,6 +397,37 @@ export const eventClueImages = pgTable(
   ],
 );
 
+export const messagingContacts = pgTable(
+  "messaging_contacts",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    instagramScopedId: text("instagram_scoped_id").notNull(),
+    username: text("username"),
+    displayName: text("display_name"),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+    adminReadAt: timestamp("admin_read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "messaging_contacts_pkey", columns: [table.id] }),
+    unique("messaging_contacts_instagram_scoped_id_uq").on(table.instagramScopedId),
+    check(
+      "messaging_contacts_instagram_scoped_id_chk",
+      sql`${table.instagramScopedId} ~ '^[0-9]{1,32}$'`,
+    ),
+    check(
+      "messaging_contacts_username_chk",
+      sql`${table.username} IS NULL OR ${table.username} ~ '^[a-z0-9._]{1,30}$'`,
+    ),
+    check(
+      "messaging_contacts_display_name_chk",
+      sql`${table.displayName} IS NULL OR char_length(${table.displayName}) BETWEEN 1 AND 120`,
+    ),
+    index("messaging_contacts_username_idx").on(table.username),
+  ],
+);
+
 export const reservations = pgTable(
   "reservations",
   {
@@ -392,13 +437,26 @@ export const reservations = pgTable(
     status: reservationStatus("status").notNull(),
     fullName: text("full_name").notNull(),
     instagramHandle: text("instagram_handle").notNull(),
-    phoneE164: text("phone_e164").notNull(),
-    email: text("email").notNull(),
-    emailNormalized: text("email_normalized").notNull(),
+    guest2FullName: text("guest2_full_name"),
+    guest2InstagramHandle: text("guest2_instagram_handle"),
+    phoneE164: text("phone_e164"),
+    email: text("email"),
+    emailNormalized: text("email_normalized"),
     partySize: integer("party_size").notNull(),
     notes: text("notes"),
     allergies: text("allergies"),
-    termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }).notNull(),
+    termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
+    linkCode: text("link_code"),
+    contactId: uuid("contact_id"),
+    source: text("source").notNull().default("PUBLIC"),
+    createdBy: uuid("created_by"),
+    stage: text("stage").notNull().default("IN_REVIEW"),
+    onListAt: timestamp("on_list_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    paymentNote: text("payment_note"),
+    releaseReason: text("release_reason"),
+    refundStatus: text("refund_status"),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
     idempotencyKey: uuid("idempotency_key").notNull(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
@@ -413,6 +471,16 @@ export const reservations = pgTable(
       columns: [table.eventId],
       foreignColumns: [events.id],
     }).onDelete("restrict"),
+    foreignKey({
+      name: "reservations_contact_fk",
+      columns: [table.contactId],
+      foreignColumns: [messagingContacts.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "reservations_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
     unique("reservations_event_number_uq").on(table.eventId, table.reservationNumber),
     unique("reservations_idempotency_key_uq").on(table.idempotencyKey),
     check(
@@ -420,6 +488,56 @@ export const reservations = pgTable(
       sql`char_length(${table.fullName}) BETWEEN 1 AND 120`,
     ),
     check("reservations_party_size_positive_chk", sql`${table.partySize} >= 1`),
+    check(
+      "reservations_guest2_pair_chk",
+      sql`(${table.guest2FullName} IS NULL) = (${table.guest2InstagramHandle} IS NULL)`,
+    ),
+    check(
+      "reservations_guest2_party_chk",
+      sql`${table.guest2FullName} IS NULL OR (${table.partySize} = 2 AND char_length(${table.guest2FullName}) BETWEEN 1 AND 120)`,
+    ),
+    check(
+      "reservations_guest2_instagram_chk",
+      sql`${table.guest2InstagramHandle} IS NULL OR ${table.guest2InstagramHandle} ~ '^[a-z0-9._]{1,30}$'`,
+    ),
+    check(
+      "reservations_link_code_chk",
+      sql`${table.linkCode} IS NULL OR ${table.linkCode} ~ '^[A-HJ-NP-Z2-9]{6}$'`,
+    ),
+    check("reservations_source_chk", sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
+    check(
+      "reservations_admin_source_chk",
+      sql`(${table.source} = 'ADMIN') = (${table.createdBy} IS NOT NULL)`,
+    ),
+    check(
+      "reservations_terms_chk",
+      sql`${table.source} = 'ADMIN' OR ${table.termsAcceptedAt} IS NOT NULL`,
+    ),
+    check("reservations_stage_chk", sql`${table.stage} IN ('IN_REVIEW', 'ON_LIST', 'PAID')`),
+    check(
+      "reservations_payment_note_chk",
+      sql`${table.paymentNote} IS NULL OR char_length(${table.paymentNote}) BETWEEN 1 AND 200`,
+    ),
+    check(
+      "reservations_on_list_timestamp_chk",
+      sql`${table.stage} = 'IN_REVIEW' OR ${table.onListAt} IS NOT NULL`,
+    ),
+    check(
+      "reservations_paid_timestamp_chk",
+      sql`${table.stage} <> 'PAID' OR ${table.paidAt} IS NOT NULL`,
+    ),
+    check(
+      "reservations_release_reason_chk",
+      sql`${table.releaseReason} IS NULL OR (${table.releaseReason} IN ('REJECTED', 'CANCELLED') AND ${table.status} = 'CANCELLED')`,
+    ),
+    check(
+      "reservations_refund_status_chk",
+      sql`${table.refundStatus} IS NULL OR (${table.refundStatus} IN ('PENDING', 'REFUNDED') AND ${table.status} = 'CANCELLED' AND ${table.stage} = 'PAID')`,
+    ),
+    check(
+      "reservations_refunded_timestamp_chk",
+      sql`${table.refundStatus} IS DISTINCT FROM 'REFUNDED' OR ${table.refundedAt} IS NOT NULL`,
+    ),
     check(
       "reservations_notes_length_chk",
       sql`${table.notes} IS NULL OR char_length(${table.notes}) <= 500`,
@@ -446,6 +564,10 @@ export const reservations = pgTable(
     uniqueIndex("reservations_one_confirmed_per_phone_uq")
       .on(table.eventId, table.phoneE164)
       .where(sql`${table.status} = 'CONFIRMED'`),
+    uniqueIndex("reservations_link_code_uq")
+      .on(table.linkCode)
+      .where(sql`${table.linkCode} IS NOT NULL`),
+    index("reservations_contact_id_idx").on(table.contactId),
     index("reservations_event_status_idx").on(table.eventId, table.status),
     index("reservations_event_submitted_at_idx").on(table.eventId, table.submittedAt),
   ],
@@ -460,13 +582,19 @@ export const waitlistEntries = pgTable(
     status: text("status").notNull(),
     fullName: text("full_name").notNull(),
     instagramHandle: text("instagram_handle").notNull(),
-    phoneE164: text("phone_e164").notNull(),
-    email: text("email").notNull(),
-    emailNormalized: text("email_normalized").notNull(),
+    guest2FullName: text("guest2_full_name"),
+    guest2InstagramHandle: text("guest2_instagram_handle"),
+    phoneE164: text("phone_e164"),
+    email: text("email"),
+    emailNormalized: text("email_normalized"),
     partySize: integer("party_size").notNull(),
     notes: text("notes"),
     allergies: text("allergies"),
-    termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }).notNull(),
+    termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
+    linkCode: text("link_code"),
+    contactId: uuid("contact_id"),
+    source: text("source").notNull().default("PUBLIC"),
+    createdBy: uuid("created_by"),
     idempotencyKey: uuid("idempotency_key").notNull(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
     promotedReservationId: uuid("promoted_reservation_id"),
@@ -487,6 +615,16 @@ export const waitlistEntries = pgTable(
       columns: [table.promotedReservationId],
       foreignColumns: [reservations.id],
     }).onDelete("no action"),
+    foreignKey({
+      name: "waitlist_entries_contact_fk",
+      columns: [table.contactId],
+      foreignColumns: [messagingContacts.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "waitlist_entries_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
     unique("waitlist_entries_event_number_uq").on(table.eventId, table.waitlistNumber),
     unique("waitlist_entries_idempotency_key_uq").on(table.idempotencyKey),
     unique("waitlist_entries_promoted_reservation_id_uq").on(table.promotedReservationId),
@@ -499,6 +637,31 @@ export const waitlistEntries = pgTable(
       sql`char_length(${table.fullName}) BETWEEN 1 AND 120`,
     ),
     check("waitlist_entries_party_size_positive_chk", sql`${table.partySize} >= 1`),
+    check(
+      "waitlist_entries_guest2_pair_chk",
+      sql`(${table.guest2FullName} IS NULL) = (${table.guest2InstagramHandle} IS NULL)`,
+    ),
+    check(
+      "waitlist_entries_guest2_party_chk",
+      sql`${table.guest2FullName} IS NULL OR (${table.partySize} = 2 AND char_length(${table.guest2FullName}) BETWEEN 1 AND 120)`,
+    ),
+    check(
+      "waitlist_entries_guest2_instagram_chk",
+      sql`${table.guest2InstagramHandle} IS NULL OR ${table.guest2InstagramHandle} ~ '^[a-z0-9._]{1,30}$'`,
+    ),
+    check(
+      "waitlist_entries_link_code_chk",
+      sql`${table.linkCode} IS NULL OR ${table.linkCode} ~ '^[A-HJ-NP-Z2-9]{6}$'`,
+    ),
+    check("waitlist_entries_source_chk", sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
+    check(
+      "waitlist_entries_admin_source_chk",
+      sql`(${table.source} = 'ADMIN') = (${table.createdBy} IS NOT NULL)`,
+    ),
+    check(
+      "waitlist_entries_terms_chk",
+      sql`${table.source} = 'ADMIN' OR ${table.termsAcceptedAt} IS NOT NULL`,
+    ),
     check(
       "waitlist_entries_notes_length_chk",
       sql`${table.notes} IS NULL OR char_length(${table.notes}) <= 500`,
@@ -521,11 +684,222 @@ export const waitlistEntries = pgTable(
     uniqueIndex("waitlist_entries_one_waiting_per_phone_uq")
       .on(table.eventId, table.phoneE164)
       .where(sql`${table.status} = 'WAITING'`),
+    uniqueIndex("waitlist_entries_link_code_uq")
+      .on(table.linkCode)
+      .where(sql`${table.linkCode} IS NOT NULL`),
+    index("waitlist_entries_contact_id_idx").on(table.contactId),
     index("waitlist_entries_event_status_number_idx").on(
       table.eventId,
       table.status,
       table.waitlistNumber,
     ),
+  ],
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    contactId: uuid("contact_id"),
+    reservationId: uuid("reservation_id"),
+    waitlistEntryId: uuid("waitlist_entry_id"),
+    eventId: uuid("event_id"),
+    direction: text("direction").notNull(),
+    kind: text("kind").notNull(),
+    source: text("source").notNull(),
+    status: text("status").notNull(),
+    body: text("body"),
+    attachmentUrls: text("attachment_urls").array(),
+    externalMessageId: text("external_message_id"),
+    locationRevision: integer("location_revision"),
+    clueId: uuid("clue_id"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdBy: uuid("created_by"),
+    handledBy: uuid("handled_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "messages_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "messages_contact_fk",
+      columns: [table.contactId],
+      foreignColumns: [messagingContacts.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "messages_reservation_fk",
+      columns: [table.reservationId],
+      foreignColumns: [reservations.id],
+    }).onDelete("no action"),
+    foreignKey({
+      name: "messages_waitlist_entry_fk",
+      columns: [table.waitlistEntryId],
+      foreignColumns: [waitlistEntries.id],
+    }).onDelete("no action"),
+    foreignKey({
+      name: "messages_event_fk",
+      columns: [table.eventId],
+      foreignColumns: [events.id],
+    }).onDelete("no action"),
+    foreignKey({
+      name: "messages_clue_fk",
+      columns: [table.clueId],
+      foreignColumns: [eventClues.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "messages_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    foreignKey({
+      name: "messages_handled_by_admin_fk",
+      columns: [table.handledBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    check("messages_direction_chk", sql`${table.direction} IN ('OUTBOUND', 'INBOUND')`),
+    check(
+      "messages_kind_chk",
+      sql`${table.kind} IN ('REQUEST_RECEIVED', 'WAITLISTED', 'PROMOTED', 'ON_LIST', 'PAID', 'REJECTED', 'CANCELLED_UNPAID', 'CANCELLED_PAID', 'REFUNDED', 'LOCATION', 'CLUE', 'FREE_TEXT', 'INBOUND')`,
+    ),
+    check(
+      "messages_source_chk",
+      sql`${table.source} IN ('SYSTEM', 'ADMIN', 'INSTAGRAM_APP', 'GUEST')`,
+    ),
+    check(
+      "messages_status_chk",
+      sql`${table.status} IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'SENT', 'READ', 'FAILED', 'SENT_MANUALLY', 'DISCARDED', 'RECEIVED')`,
+    ),
+    check(
+      "messages_inbound_kind_chk",
+      sql`(${table.direction} = 'INBOUND') = (${table.kind} = 'INBOUND')`,
+    ),
+    check(
+      "messages_inbound_status_chk",
+      sql`(${table.direction} = 'INBOUND') = (${table.status} = 'RECEIVED')`,
+    ),
+    check(
+      "messages_inbound_source_chk",
+      sql`(${table.direction} = 'INBOUND') = (${table.source} = 'GUEST')`,
+    ),
+    check(
+      "messages_inbound_contact_chk",
+      sql`${table.direction} = 'OUTBOUND' OR ${table.contactId} IS NOT NULL`,
+    ),
+    check(
+      "messages_delivery_contact_chk",
+      sql`${table.status} NOT IN ('WAITING_WINDOW', 'QUEUED', 'SENT', 'READ') OR ${table.contactId} IS NOT NULL`,
+    ),
+    check(
+      "messages_single_subject_chk",
+      sql`num_nonnulls(${table.reservationId}, ${table.waitlistEntryId}) <= 1`,
+    ),
+    check(
+      "messages_sent_timestamp_chk",
+      sql`${table.status} NOT IN ('SENT', 'READ', 'SENT_MANUALLY') OR ${table.sentAt} IS NOT NULL`,
+    ),
+    check(
+      "messages_read_timestamp_chk",
+      sql`${table.status} <> 'READ' OR ${table.readAt} IS NOT NULL`,
+    ),
+    check(
+      "messages_body_length_chk",
+      sql`${table.body} IS NULL OR char_length(${table.body}) BETWEEN 1 AND 2000`,
+    ),
+    check(
+      "messages_attachment_urls_chk",
+      sql`${table.attachmentUrls} IS NULL OR cardinality(${table.attachmentUrls}) BETWEEN 1 AND 10`,
+    ),
+    check(
+      "messages_content_chk",
+      sql`${table.body} IS NOT NULL OR ${table.attachmentUrls} IS NOT NULL`,
+    ),
+    check(
+      "messages_location_revision_chk",
+      sql`(${table.kind} = 'LOCATION') = (${table.locationRevision} IS NOT NULL)`,
+    ),
+    check("messages_attempts_chk", sql`${table.attempts} >= 0`),
+    check(
+      "messages_last_error_chk",
+      sql`${table.lastError} IS NULL OR char_length(${table.lastError}) <= 200`,
+    ),
+    uniqueIndex("messages_external_message_id_uq")
+      .on(table.externalMessageId)
+      .where(sql`${table.externalMessageId} IS NOT NULL`),
+    index("messages_contact_created_at_idx").on(table.contactId, table.createdAt),
+    index("messages_reservation_created_at_idx").on(table.reservationId, table.createdAt),
+    index("messages_waitlist_entry_created_at_idx").on(table.waitlistEntryId, table.createdAt),
+    index("messages_event_kind_idx").on(table.eventId, table.kind),
+    index("messages_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} = 'QUEUED'`),
+    index("messages_waiting_idx")
+      .on(table.status)
+      .where(sql`${table.status} IN ('WAITING_CONTACT', 'WAITING_WINDOW')`),
+    uniqueIndex("messages_location_revision_uq")
+      .on(table.reservationId, table.locationRevision)
+      .where(sql`${table.kind} = 'LOCATION'`),
+    uniqueIndex("messages_clue_uq")
+      .on(table.reservationId, table.clueId)
+      .where(sql`${table.kind} = 'CLUE'`),
+  ],
+);
+
+export const messageAttachments = pgTable(
+  "message_attachments",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    messageId: uuid("message_id").notNull(),
+    position: smallint("position").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "message_attachments_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "message_attachments_message_fk",
+      columns: [table.messageId],
+      foreignColumns: [messages.id],
+    }).onDelete("cascade"),
+    unique("message_attachments_message_position_uq").on(table.messageId, table.position),
+    check("message_attachments_position_chk", sql`${table.position} BETWEEN 0 AND 9`),
+    check(
+      "message_attachments_content_type_chk",
+      sql`${table.contentType} IN ('image/jpeg', 'image/png', 'image/webp', 'image/gif')`,
+    ),
+    check("message_attachments_byte_size_chk", sql`${table.byteSize} BETWEEN 1 AND 8388608`),
+    check(
+      "message_attachments_data_size_chk",
+      sql`octet_length(${table.data}) = ${table.byteSize}`,
+    ),
+  ],
+);
+
+export const messageTemplates = pgTable(
+  "message_templates",
+  {
+    key: text("key").notNull(),
+    body: text("body").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: uuid("updated_by"),
+  },
+  (table) => [
+    primaryKey({ name: "message_templates_pkey", columns: [table.key] }),
+    foreignKey({
+      name: "message_templates_updated_by_admin_fk",
+      columns: [table.updatedBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("no action"),
+    check(
+      "message_templates_key_chk",
+      sql`${table.key} IN ('REQUEST_RECEIVED', 'WAITLISTED', 'PROMOTED', 'ON_LIST', 'PAID', 'REJECTED', 'CANCELLED_UNPAID', 'CANCELLED_PAID', 'REFUNDED', 'LOCATION')`,
+    ),
+    check("message_templates_body_chk", sql`char_length(${table.body}) BETWEEN 1 AND 1000`),
   ],
 );
 
@@ -666,7 +1040,7 @@ export const auditLogs = pgTable(
     ),
     check(
       "audit_logs_entity_type_chk",
-      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK')`,
+      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT')`,
     ),
     index("audit_logs_entity_occurred_at_idx").on(
       table.entityType,
