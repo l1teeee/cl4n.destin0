@@ -1,0 +1,181 @@
+import { z } from "zod";
+
+import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
+
+export type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
+
+const idSchema = z.string().regex(/^\d+$/);
+const actorSchema = z.object({ id: idSchema }).passthrough();
+const attachmentSchema = z
+  .object({
+    type: z.string(),
+    payload: z.object({ url: z.string().url().optional() }).passthrough().optional(),
+  })
+  .passthrough();
+const messagingItemSchema = z
+  .object({
+    sender: actorSchema,
+    recipient: actorSchema,
+    timestamp: z.number().finite(),
+    message: z
+      .object({
+        mid: z.string().min(1).optional(),
+        text: z.string().optional(),
+        attachments: z.array(z.unknown()).optional(),
+        is_echo: z.boolean().optional(),
+        is_deleted: z.boolean().optional(),
+        quick_reply: z.object({ payload: z.string() }).passthrough().optional(),
+        referral: z.object({ ref: z.string().optional() }).passthrough().optional(),
+      })
+      .passthrough()
+      .optional(),
+    read: z
+      .object({ mid: z.string().min(1) })
+      .passthrough()
+      .optional(),
+    referral: z.object({ ref: z.string() }).passthrough().optional(),
+    reaction: z
+      .object({ mid: z.string().min(1) })
+      .passthrough()
+      .optional(),
+    postback: z
+      .object({ mid: z.string().min(1) })
+      .passthrough()
+      .optional(),
+    message_edit: z
+      .object({
+        mid: z.string().min(1),
+        text: z.string(),
+        num_edit: z.union([z.string(), z.number()]),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+const payloadSchema = z
+  .object({
+    object: z.literal("instagram"),
+    entry: z.array(
+      z
+        .object({
+          id: idSchema,
+          messaging: z.array(z.unknown()).optional(),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
+export interface ParsedInstagramWebhook {
+  events: InstagramWebhookEvent[];
+  skipped: number;
+}
+
+function eventDate(value: number): Date {
+  return new Date(value < 1_000_000_000_000 ? value * 1000 : value);
+}
+
+function attachments(message: z.infer<typeof messagingItemSchema>["message"]) {
+  const supported = (message?.attachments ?? [])
+    .flatMap((candidate) => {
+      const parsed = attachmentSchema.safeParse(candidate);
+      if (!parsed.success || !parsed.data.payload?.url) return [];
+      try {
+        const url = new URL(parsed.data.payload.url);
+        return url.protocol === "https:" || url.protocol === "http:"
+          ? [{ type: parsed.data.type, url: parsed.data.payload.url }]
+          : [];
+      } catch {
+        return [];
+      }
+    })
+    .slice(0, 10);
+  return {
+    urls: supported.map((attachment) => attachment.url),
+    imageUrls: supported
+      .filter((attachment) => attachment.type === "image")
+      .map((attachment) => attachment.url),
+  };
+}
+
+function normalizeItem(item: z.infer<typeof messagingItemSchema>): InstagramWebhookEvent | null {
+  const timestamp = eventDate(item.timestamp);
+  if (Number.isNaN(timestamp.getTime())) return null;
+
+  if (item.message_edit) {
+    return {
+      type: "message_edit",
+      timestamp,
+      externalMessageId: item.message_edit.mid,
+      text: item.message_edit.text,
+    };
+  }
+
+  if (item.message?.mid) {
+    if (item.message.is_deleted) {
+      return { type: "deleted", timestamp, externalMessageId: item.message.mid };
+    }
+    const media = attachments(item.message);
+    if (item.message.is_echo) {
+      return {
+        type: "echo",
+        timestamp,
+        externalMessageId: item.message.mid,
+        recipientId: item.recipient.id,
+        text: item.message.text ?? null,
+        attachmentUrls: media.urls,
+      };
+    }
+    return {
+      type: "inbound_message",
+      timestamp,
+      externalMessageId: item.message.mid,
+      senderId: item.sender.id,
+      text: item.message.text ?? null,
+      attachmentUrls: media.urls,
+      imageAttachmentUrls: media.imageUrls,
+      quickReplyPayload: item.message.quick_reply?.payload ?? null,
+      referralRef: item.message.referral?.ref ?? null,
+    };
+  }
+  if (item.read) {
+    return {
+      type: "read",
+      timestamp,
+      senderId: item.sender.id,
+      externalMessageId: item.read.mid,
+    };
+  }
+  if (item.referral) {
+    return { type: "referral", timestamp, senderId: item.sender.id, ref: item.referral.ref };
+  }
+  if (item.reaction || item.postback) {
+    return { type: "window_signal", timestamp, senderId: item.sender.id };
+  }
+  return null;
+}
+
+export function parseInstagramWebhook(payload: unknown, accountId: string): ParsedInstagramWebhook {
+  const parsed = payloadSchema.safeParse(payload);
+  if (!parsed.success) return { events: [], skipped: 1 };
+
+  const events: InstagramWebhookEvent[] = [];
+  let skipped = 0;
+  for (const entry of parsed.data.entry) {
+    if (entry.id !== accountId) {
+      skipped += entry.messaging?.length ?? 0;
+      continue;
+    }
+    for (const candidate of entry.messaging ?? []) {
+      const item = messagingItemSchema.safeParse(candidate);
+      if (!item.success) {
+        skipped += 1;
+        continue;
+      }
+      const normalized = normalizeItem(item.data);
+      if (normalized) events.push(normalized);
+      else skipped += 1;
+    }
+  }
+  return { events, skipped };
+}
