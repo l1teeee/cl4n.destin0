@@ -1,11 +1,12 @@
 import type { ReservationErrorCode } from "@/domain/reservation/reservation-outcome";
 
+// The order is the visual order of the form: the first invalid field in this list receives focus.
 export const reservationFormFields = [
-  "fullName",
-  "instagram",
-  "phone",
-  "email",
   "partySize",
+  "guest1Name",
+  "guest1Instagram",
+  "guest2Name",
+  "guest2Instagram",
   "hasAllergies",
   "allergies",
   "notes",
@@ -22,14 +23,16 @@ export interface ReservationResponseData {
 
 export type ReservationFormState =
   | {
-      kind: "success";
-      reservationNumber: number;
+      kind: "received";
+      requestNumber: number;
       partySize: number;
+      linkCode: string;
     }
   | {
       kind: "waitlisted";
       position: number;
       partySize: number;
+      linkCode: string;
     }
   | { kind: "full"; reason: "full-rejected" | "event-full" }
   | { kind: "closed" }
@@ -99,23 +102,33 @@ function errorState(
 export function toFormState(response: ReservationResponseData): ReservationFormState {
   const body = record(response.body);
   if (response.status === 201) {
-    const reservation = record(body?.reservation);
-    if (typeof reservation?.number === "number" && typeof reservation.partySize === "number") {
+    const request = record(body?.request);
+    if (
+      typeof request?.number === "number" &&
+      typeof request.partySize === "number" &&
+      typeof request.linkCode === "string"
+    ) {
       return {
-        kind: "success",
-        reservationNumber: reservation.number,
-        partySize: reservation.partySize,
+        kind: "received",
+        requestNumber: request.number,
+        partySize: request.partySize,
+        linkCode: request.linkCode,
       };
     }
   }
 
   if (response.status === 202) {
     const waitlist = record(body?.waitlist);
-    if (typeof waitlist?.position === "number" && typeof waitlist.partySize === "number") {
+    if (
+      typeof waitlist?.position === "number" &&
+      typeof waitlist.partySize === "number" &&
+      typeof waitlist.linkCode === "string"
+    ) {
       return {
         kind: "waitlisted",
         position: waitlist.position,
         partySize: waitlist.partySize,
+        linkCode: waitlist.linkCode,
       };
     }
   }
@@ -128,10 +141,7 @@ export function toFormState(response: ReservationResponseData): ReservationFormS
     return { kind: "full", reason: "full-rejected" };
   }
   if (response.status === 409 && error.code === "DUPLICATE_RESERVATION") {
-    return errorState(
-      "Ya existe una reservación o un lugar en la cola con este email o teléfono.",
-      error,
-    );
+    return errorState("Ya existe una solicitud con este usuario de Instagram.", error);
   }
   if (response.status === 409 && error.code === "EVENT_NOT_OPEN") {
     return { kind: "closed" };

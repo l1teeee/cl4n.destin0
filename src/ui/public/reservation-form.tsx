@@ -7,14 +7,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
+import { Button } from "@/ui/primitives/button";
+import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmented-control";
 import SlideCommit from "@/ui/primitives/slide-commit";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/ui/primitives/select";
 
 import {
   getOrCreateAttemptKey,
@@ -42,7 +37,7 @@ interface ReservationFormProps {
 
 type ConfirmedReservationState = Extract<
   ReservationFormState,
-  { kind: "success" | "waitlisted" | "full" | "closed" }
+  { kind: "received" | "waitlisted" | "full" | "closed" }
 >;
 
 const inputClassName = "reservation-input";
@@ -55,6 +50,19 @@ function formatPartySize(partySize: number): string {
   return partySize === 1 ? "1 persona" : `${partySize} personas`;
 }
 
+// Blank means not configured. A leading @ is dropped so the chat link stays valid.
+function configuredInstagramUsername(): string | undefined {
+  const username = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME?.trim().replace(/^@/, "");
+  return username ? username : undefined;
+}
+
+function allergiesDescription(isCouple: boolean, hasError: boolean): string | undefined {
+  const ids: string[] = [];
+  if (isCouple) ids.push("allergies-help");
+  if (hasError) ids.push("allergies-error");
+  return ids.length > 0 ? ids.join(" ") : undefined;
+}
+
 export function FieldError({ message, id }: { message?: string; id?: string }) {
   return (
     <p
@@ -64,6 +72,44 @@ export function FieldError({ message, id }: { message?: string; id?: string }) {
     >
       {message ?? ""}
     </p>
+  );
+}
+
+function InstagramLastStep({
+  username,
+  linkCode,
+}: {
+  username: string | undefined;
+  linkCode: string;
+}) {
+  return (
+    <div className="reservation-last-step">
+      <h3>Último paso</h3>
+      {username ? (
+        <>
+          <p>Para poder escribirte, envíanos un mensaje por Instagram a @{username}.</p>
+          <Button asChild>
+            <a
+              href={`https://ig.me/m/${encodeURIComponent(username)}?ref=${encodeURIComponent(linkCode)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Abrir chat en Instagram
+            </a>
+          </Button>
+        </>
+      ) : null}
+      <div className="reservation-link-code">
+        <p>
+          Tu código: <code>{linkCode}</code>
+        </p>
+        <p className="reservation-help">
+          {username
+            ? "Si escribes desde la computadora, envíanos este código en el mensaje."
+            : "Envíanos este código por mensaje directo en Instagram."}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -81,6 +127,8 @@ export function ReservationForm({
   const [confirmedState, setConfirmedState] = useState<ConfirmedReservationState | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const instagramUsername = configuredInstagramUsername();
+  const canChoosePartySize = maxPartySize >= 2;
   const {
     register,
     handleSubmit,
@@ -94,10 +142,12 @@ export function ReservationForm({
     formState: { errors, isSubmitting, isValid },
   } = useForm<ReservationFormInput, unknown, ReservationFormValues>({
     resolver: zodResolver(reservationFormSchema(maxPartySize)),
-    defaultValues: { partySize: 1 },
+    defaultValues: canChoosePartySize ? {} : { partySize: 1 },
     mode: "onTouched",
   });
+  const partySize = useWatch({ control, name: "partySize" });
   const hasAllergies = useWatch({ control, name: "hasAllergies" });
+  const isCouple = partySize === 2;
 
   useEffect(() => {
     let key: string;
@@ -117,6 +167,12 @@ export function ReservationForm({
       unregister("allergies");
     }
   }, [hasAllergies, unregister]);
+
+  useEffect(() => {
+    if (partySize === 1) {
+      unregister(["guest2Name", "guest2Instagram"]);
+    }
+  }, [partySize, unregister]);
 
   useEffect(
     () => () => {
@@ -156,7 +212,7 @@ export function ReservationForm({
     token: string,
     alreadyRetried: boolean,
   ): Promise<ReservationFormState> {
-    const { allergies, ...requestFields } = fields;
+    const { guest2Name, guest2Instagram, allergies, ...requestFields } = fields;
     let response: Response;
     try {
       response = await fetch("/api/reservations", {
@@ -167,6 +223,7 @@ export function ReservationForm({
         },
         body: JSON.stringify({
           ...requestFields,
+          ...(fields.partySize === 2 ? { guest2Name, guest2Instagram } : {}),
           ...(fields.hasAllergies ? { allergies } : {}),
           eventSlug,
           turnstileToken: token,
@@ -203,7 +260,7 @@ export function ReservationForm({
     });
 
     if (
-      nextState.kind === "success" ||
+      nextState.kind === "received" ||
       nextState.kind === "waitlisted" ||
       nextState.kind === "full" ||
       nextState.kind === "closed"
@@ -273,16 +330,17 @@ export function ReservationForm({
     confirmationTimer.current = setTimeout(() => setShowConfirmation(true), 700);
   }
 
-  if (showConfirmation && confirmedState?.kind === "success") {
-    const reservationNumber = String(confirmedState.reservationNumber).padStart(3, "0");
+  if (showConfirmation && confirmedState?.kind === "received") {
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>REGISTRO COMPLETADO</h2>
-        <p className="reservation-success-lead">Confirmamos tu reserva. No le digas a nadie.</p>
-        <p>La ubicación llegará a tu correo cuando el clan la revele.</p>
-        <p className="reservation-success-details">
-          #{reservationNumber} · {formatPartySize(confirmedState.partySize)} · {formattedDate}
+        <h2>¡FELICIDADES!</h2>
+        <p className="reservation-success-lead">
+          Completaste el formulario. Te confirmaremos por Instagram para saber si estás en la lista.
         </p>
+        <p className="reservation-success-details">
+          {formatPartySize(confirmedState.partySize)} · {formattedDate}
+        </p>
+        <InstagramLastStep username={instagramUsername} linkCode={confirmedState.linkCode} />
       </section>
     );
   }
@@ -292,13 +350,14 @@ export function ReservationForm({
       <section className="reservation-success" aria-live="polite">
         <h2>ESTÁS EN LA COLA</h2>
         <p className="reservation-success-lead">
-          Registramos tu solicitud, pero los lugares ya se llenaron. Quedaste en la posición #
+          Completaste el formulario, pero el cupo ya se llenó. Quedaste en la posición #
           {confirmedState.position} de la cola.
         </p>
-        <p>Si se libera un lugar te escribiremos. No le digas a nadie.</p>
+        <p>Si se libera un lugar te escribiremos por Instagram.</p>
         <p className="reservation-success-details">
           {formatPartySize(confirmedState.partySize)} · {formattedDate}
         </p>
+        <InstagramLastStep username={instagramUsername} linkCode={confirmedState.linkCode} />
       </section>
     );
   }
@@ -349,88 +408,98 @@ export function ReservationForm({
 
   return (
     <form onSubmit={(event) => event.preventDefault()} className="reservation-form" noValidate>
-      <div>
-        <label htmlFor="fullName">Nombre completo</label>
-        <input
-          id="fullName"
-          autoComplete="name"
-          className={inputClassName}
-          aria-invalid={Boolean(errors.fullName)}
-          {...register("fullName")}
-        />
-        <FieldError message={errors.fullName?.message} />
-      </div>
-
-      <div>
-        <label htmlFor="instagram">Usuario de Instagram</label>
-        <input
-          id="instagram"
-          autoComplete="off"
-          className={inputClassName}
-          aria-invalid={Boolean(errors.instagram)}
-          {...register("instagram")}
-        />
-        <FieldError message={errors.instagram?.message} />
-      </div>
-
-      <div>
-        <label htmlFor="phone">Teléfono</label>
-        <input
-          id="phone"
-          type="tel"
-          autoComplete="tel"
-          className={inputClassName}
-          aria-invalid={Boolean(errors.phone)}
-          {...register("phone")}
-        />
-        <FieldError message={errors.phone?.message} />
-      </div>
-
-      <div>
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          type="email"
-          autoComplete="email"
-          className={inputClassName}
-          aria-invalid={Boolean(errors.email)}
-          {...register("email")}
-        />
-        <FieldError message={errors.email?.message} />
-      </div>
-
-      <div>
-        <label htmlFor="partySize">Cantidad de personas</label>
-        <Controller
-          control={control}
-          name="partySize"
-          render={({ field }) => (
-            <Select
-              value={String(field.value)}
-              onValueChange={(value) => field.onChange(Number(value))}
-            >
-              <SelectTrigger
-                id="partySize"
+      {canChoosePartySize ? (
+        <fieldset className="reservation-party">
+          <legend id="partySize-legend">¿Cuántas personas?</legend>
+          <Controller
+            control={control}
+            name="partySize"
+            render={({ field }) => (
+              <SegmentedControl
                 ref={field.ref}
-                className={inputClassName}
+                className="reservation-choice"
+                value={field.value ? String(field.value) : ""}
+                onValueChange={(value) => field.onChange(Number(value))}
+                onBlur={field.onBlur}
+                required
+                aria-labelledby="partySize-legend"
                 aria-invalid={Boolean(errors.partySize)}
                 aria-describedby={errors.partySize ? "partySize-error" : undefined}
-                onBlur={field.onBlur}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Array.from({ length: maxPartySize }, (_, index) => index + 1).map((partySize) => (
-                  <SelectItem key={partySize} value={String(partySize)}>
-                    {formatPartySize(partySize)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
-        <FieldError id="partySize-error" message={errors.partySize?.message} />
+                <SegmentedControlItem className="reservation-choice-item" value="1">
+                  Solo
+                </SegmentedControlItem>
+                <SegmentedControlItem className="reservation-choice-item" value="2">
+                  En pareja
+                </SegmentedControlItem>
+              </SegmentedControl>
+            )}
+          />
+          <FieldError id="partySize-error" message={errors.partySize?.message} />
+        </fieldset>
+      ) : null}
+
+      <div role="group" aria-labelledby="guest1-heading" className="reservation-guest">
+        <h2 id="guest1-heading" className="reservation-guest-heading">
+          {isCouple ? "Invitado 1" : "Tus datos"}
+        </h2>
+
+        <div>
+          <label htmlFor="guest1Name">Nombre completo</label>
+          <input
+            id="guest1Name"
+            autoComplete="name"
+            className={inputClassName}
+            aria-invalid={Boolean(errors.guest1Name)}
+            {...register("guest1Name")}
+          />
+          <FieldError message={errors.guest1Name?.message} />
+        </div>
+
+        <div>
+          <label htmlFor="guest1Instagram">Usuario de Instagram</label>
+          <input
+            id="guest1Instagram"
+            autoComplete="off"
+            className={inputClassName}
+            aria-invalid={Boolean(errors.guest1Instagram)}
+            {...register("guest1Instagram")}
+          />
+          <FieldError message={errors.guest1Instagram?.message} />
+        </div>
       </div>
+
+      {isCouple ? (
+        <div role="group" aria-labelledby="guest2-heading" className="reservation-guest">
+          <h2 id="guest2-heading" className="reservation-guest-heading">
+            Invitado 2
+          </h2>
+
+          <div>
+            <label htmlFor="guest2Name">Nombre completo</label>
+            <input
+              id="guest2Name"
+              autoComplete="off"
+              className={inputClassName}
+              aria-invalid={Boolean(errors.guest2Name)}
+              {...register("guest2Name")}
+            />
+            <FieldError message={errors.guest2Name?.message} />
+          </div>
+
+          <div>
+            <label htmlFor="guest2Instagram">Usuario de Instagram</label>
+            <input
+              id="guest2Instagram"
+              autoComplete="off"
+              className={inputClassName}
+              aria-invalid={Boolean(errors.guest2Instagram)}
+              {...register("guest2Instagram")}
+            />
+            <FieldError message={errors.guest2Instagram?.message} />
+          </div>
+        </div>
+      ) : null}
 
       <fieldset
         className="reservation-allergies"
@@ -438,7 +507,7 @@ export function ReservationForm({
         aria-invalid={Boolean(errors.hasAllergies)}
         aria-describedby={errors.hasAllergies ? "hasAllergies-error" : undefined}
       >
-        <legend>¿Tienes alergias?</legend>
+        <legend>{isCouple ? "¿Alguno de los dos tiene alergias?" : "¿Tienes alergias?"}</legend>
         <Controller
           control={control}
           name="hasAllergies"
@@ -475,21 +544,21 @@ export function ReservationForm({
 
       {hasAllergies ? (
         <div>
-          <label htmlFor="allergies">¿A qué?</label>
+          <label htmlFor="allergies">{isCouple ? "¿Quién y a qué?" : "¿A qué?"}</label>
           <textarea
             id="allergies"
             rows={3}
             maxLength={300}
             className={inputClassName}
             aria-invalid={Boolean(errors.allergies)}
-            aria-describedby={
-              errors.allergies ? "allergies-help allergies-error" : "allergies-help"
-            }
+            aria-describedby={allergiesDescription(isCouple, Boolean(errors.allergies))}
             {...register("allergies")}
           />
-          <p id="allergies-help" className="reservation-help">
-            Incluye las de tu grupo si vienes acompañado.
-          </p>
+          {isCouple ? (
+            <p id="allergies-help" className="reservation-help">
+              Indica de quién es cada alergia.
+            </p>
+          ) : null}
           <FieldError id="allergies-error" message={errors.allergies?.message} />
         </div>
       ) : null}

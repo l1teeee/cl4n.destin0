@@ -1,30 +1,111 @@
 import { describe, expect, it } from "vitest";
 
-import { toFormState } from "@/ui/public/reservation-form-state";
+import { reservationFormFields, toFormState } from "@/ui/public/reservation-form-state";
 
 function errorBody(code: string, message = "Mensaje del servidor", fields?: unknown) {
   return { error: { code, message, ...(fields ? { fields } : {}) } };
 }
 
+function receivedBody(partySize = 2) {
+  return {
+    status: "RECEIVED",
+    request: {
+      number: 7,
+      partySize,
+      eventStartsAt: "2026-11-22T01:30:00.000Z",
+      linkCode: "K7M2QX",
+    },
+  };
+}
+
+function waitlistedBody() {
+  return {
+    status: "WAITLISTED",
+    waitlist: {
+      position: 3,
+      partySize: 2,
+      eventStartsAt: "2026-11-22T01:30:00.000Z",
+      linkCode: "R4T9HB",
+    },
+  };
+}
+
+describe("reservationFormFields", () => {
+  it("follows the visual order of the form so the first invalid field gets focus", () => {
+    expect(reservationFormFields).toEqual([
+      "partySize",
+      "guest1Name",
+      "guest1Instagram",
+      "guest2Name",
+      "guest2Instagram",
+      "hasAllergies",
+      "allergies",
+      "notes",
+      "acceptTerms",
+    ]);
+  });
+});
+
 describe("toFormState", () => {
-  it("maps a 201 response and an idempotent replay to the same success", () => {
-    const response = {
-      status: 201,
-      body: {
-        status: "CONFIRMED",
-        reservation: { number: 7, partySize: 2, eventStartsAt: "2026-11-22T01:30:00.000Z" },
-      },
-    };
+  it("maps a 201 response and an idempotent replay to the same received state", () => {
+    const response = { status: 201, body: receivedBody() };
 
     expect(toFormState(response)).toEqual({
-      kind: "success",
-      reservationNumber: 7,
+      kind: "received",
+      requestNumber: 7,
       partySize: 2,
+      linkCode: "K7M2QX",
     });
     expect(toFormState(response)).toEqual(toFormState(response));
   });
 
+  it("keeps the party size of a single guest", () => {
+    expect(toFormState({ status: 201, body: receivedBody(1) })).toMatchObject({
+      kind: "received",
+      partySize: 1,
+    });
+  });
+
+  it("does not treat a 201 without a link code as received", () => {
+    expect(
+      toFormState({
+        status: 201,
+        body: {
+          status: "RECEIVED",
+          request: { number: 7, partySize: 2, eventStartsAt: "2026-11-22T01:30:00.000Z" },
+        },
+      }),
+    ).toMatchObject({ kind: "error" });
+  });
+
+  it("does not treat the retired reservation body as received", () => {
+    expect(
+      toFormState({
+        status: 201,
+        body: {
+          status: "CONFIRMED",
+          reservation: { number: 7, partySize: 2, eventStartsAt: "2026-11-22T01:30:00.000Z" },
+        },
+      }),
+    ).toMatchObject({ kind: "error" });
+  });
+
   it("maps a 202 WAITLISTED response to the queue state", () => {
+    expect(toFormState({ status: 202, body: waitlistedBody() })).toEqual({
+      kind: "waitlisted",
+      position: 3,
+      partySize: 2,
+      linkCode: "R4T9HB",
+    });
+  });
+
+  it("does not treat a malformed 202 as a queue state", () => {
+    expect(toFormState({ status: 202, body: { status: "WAITLISTED" } })).toMatchObject({
+      kind: "error",
+    });
+  });
+
+  it("does not treat a 202 without a link code as a queue state", () => {
     expect(
       toFormState({
         status: 202,
@@ -33,13 +114,7 @@ describe("toFormState", () => {
           waitlist: { position: 3, partySize: 2, eventStartsAt: "2026-11-22T01:30:00.000Z" },
         },
       }),
-    ).toEqual({ kind: "waitlisted", position: 3, partySize: 2 });
-  });
-
-  it("does not treat a malformed 202 as a queue state", () => {
-    expect(toFormState({ status: 202, body: { status: "WAITLISTED" } })).toMatchObject({
-      kind: "error",
-    });
+    ).toMatchObject({ kind: "error" });
   });
 
   it("maps EVENT_FULL to the terminal full outcome", () => {
@@ -56,9 +131,12 @@ describe("toFormState", () => {
     });
   });
 
-  it("maps DUPLICATE_RESERVATION", () => {
+  it("maps DUPLICATE_RESERVATION to the Instagram user message", () => {
     expect(toFormState({ status: 409, body: errorBody("DUPLICATE_RESERVATION") })).toMatchObject({
-      message: "Ya existe una reservación o un lugar en la cola con este email o teléfono.",
+      kind: "error",
+      message: "Ya existe una solicitud con este usuario de Instagram.",
+      code: "DUPLICATE_RESERVATION",
+      automaticRetry: false,
     });
   });
 
@@ -74,19 +152,25 @@ describe("toFormState", () => {
     });
   });
 
-  it("maps matching VALIDATION_FAILED fields and ignores unknown fields", () => {
+  it("maps matching VALIDATION_FAILED fields and ignores unknown or retired fields", () => {
     expect(
       toFormState({
         status: 422,
         body: errorBody("VALIDATION_FAILED", "Revisa estos datos.", {
-          email: ["Email inválido."],
+          guest1Instagram: ["Usuario inválido."],
+          guest2Name: ["Falta el nombre."],
+          email: ["Ya no se pide."],
+          phone: ["Ya no se pide."],
           eventSlug: ["No debe mostrarse."],
         }),
       }),
     ).toEqual({
       kind: "error",
       message: "Revisa estos datos.",
-      fieldErrors: { email: ["Email inválido."] },
+      fieldErrors: {
+        guest1Instagram: ["Usuario inválido."],
+        guest2Name: ["Falta el nombre."],
+      },
       code: "VALIDATION_FAILED",
       automaticRetry: false,
     });
@@ -97,14 +181,14 @@ describe("toFormState", () => {
       toFormState({
         status: 422,
         body: errorBody("VALIDATION_FAILED", "Revisa estos datos.", {
-          hasAllergies: ["Indica si tienes alergias."],
-          allergies: ["Cuéntanos a qué eres alérgico."],
+          hasAllergies: ["Indica si hay alergias."],
+          allergies: ["Cuéntanos quién y a qué es alérgico."],
         }),
       }),
     ).toMatchObject({
       fieldErrors: {
-        hasAllergies: ["Indica si tienes alergias."],
-        allergies: ["Cuéntanos a qué eres alérgico."],
+        hasAllergies: ["Indica si hay alergias."],
+        allergies: ["Cuéntanos quién y a qué es alérgico."],
       },
     });
   });
