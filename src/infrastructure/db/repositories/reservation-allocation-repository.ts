@@ -29,6 +29,11 @@ interface DatabaseError {
 
 class DuplicateUnderEventLockError extends Error {}
 
+// The unique index of each table cannot see the other table, but promoting a waitlist entry
+// copies its link code into a new reservation. Each public insert therefore also checks that
+// the code is unused in the other table and throws this error when it is taken.
+class LinkCodeCollisionError extends Error {}
+
 interface EventRow {
   id: string;
   status: "DRAFT" | "SCHEDULED" | "CLOSED" | "COMPLETED" | "CANCELLED";
@@ -231,12 +236,12 @@ async function insertWaitlistEntry(
        phone_e164, email, email_normalized, party_size, notes, allergies,
        terms_accepted_at, link_code, source, idempotency_key, submitted_at
      )
-     VALUES (
+     SELECT
        $1, $2, 'WAITING', $3, $4,
        $5, $6,
        NULL, NULL, NULL, $7, $8, $9,
        transaction_timestamp(), $10, 'PUBLIC', $11, transaction_timestamp()
-     )
+     WHERE NOT EXISTS (SELECT 1 FROM reservations WHERE link_code = $10)
      RETURNING id`,
     [
       eventId,
@@ -252,7 +257,13 @@ async function insertWaitlistEntry(
       command.idempotencyKey,
     ],
   );
-  return result.rows[0]!.id;
+  const entry = result.rows[0];
+
+  if (!entry) {
+    throw new LinkCodeCollisionError();
+  }
+
+  return entry.id;
 }
 
 async function recordWaitlisting(
@@ -528,12 +539,12 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
            phone_e164, email, email_normalized, party_size, notes, allergies,
            terms_accepted_at, link_code, source, idempotency_key, submitted_at, accepted_at
          )
-         VALUES (
+         SELECT
            $1, $2, 'CONFIRMED', $3, $4,
            $5, $6,
            NULL, NULL, NULL, $7, $8, $9,
            transaction_timestamp(), $10, 'PUBLIC', $11, transaction_timestamp(), $12
-         )
+         WHERE NOT EXISTS (SELECT 1 FROM waitlist_entries WHERE link_code = $10)
          RETURNING id`,
         [
           event.id,
@@ -550,7 +561,13 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           allocation.accepted_at,
         ],
       );
-      const reservationId = reservation.rows[0]!.id;
+      const insertedReservation = reservation.rows[0];
+
+      if (!insertedReservation) {
+        throw new LinkCodeCollisionError();
+      }
+
+      const reservationId = insertedReservation.id;
 
       await client.query(
         `INSERT INTO audit_logs (
@@ -611,7 +628,11 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         };
       }
 
-      if (details.code === "23505" && linkCodeConstraints.has(details.constraint ?? "")) {
+      const isLinkCodeCollision =
+        error instanceof LinkCodeCollisionError ||
+        (details.code === "23505" && linkCodeConstraints.has(details.constraint ?? ""));
+
+      if (isLinkCodeCollision) {
         return {
           ...command.mapOutcome({ code: "TRY_AGAIN" }),
           replayed: false,

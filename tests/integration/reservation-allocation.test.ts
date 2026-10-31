@@ -399,9 +399,14 @@ describe("reservation allocation repository", () => {
     expect(state.rows[0]).toEqual({ reservations: 0, idempotency: 0, reserved_seats: 0 });
   });
 
-  it.each(["seat", "waitlist"] as const)(
-    "returns unstored TRY_AGAIN for a %s link-code collision and generates a new code on retry",
-    async (path) => {
+  // Each case has its own codes: a code left in one table by an earlier case would otherwise
+  // be caught by the cross-table check instead of the unique index under test.
+  it.each([
+    { path: "seat", collidingCode: "AB23CD", retryCode: "EF45GH" },
+    { path: "waitlist", collidingCode: "JK67MN", retryCode: "PQ89RS" },
+  ] as const)(
+    "returns unstored TRY_AGAIN for a $path link-code collision and generates a new code on retry",
+    async ({ path, collidingCode, retryCode }) => {
       const event = await insertTestEvent(pool, {
         capacity: 1,
         maxPartySize: 1,
@@ -415,8 +420,8 @@ describe("reservation allocation repository", () => {
              party_size, terms_accepted_at, link_code, idempotency_key,
              submitted_at, cancelled_at
            ) VALUES ($1, 999, 'CANCELLED', 'Old Guest', 'old.waiter', 1,
-                     now(), 'AB23CD', $2, now(), now())`,
-          [event.id, randomUUID()],
+                     now(), $3, $2, now(), now())`,
+          [event.id, randomUUID(), collidingCode],
         );
       } else {
         await pool.query(
@@ -424,12 +429,12 @@ describe("reservation allocation repository", () => {
              event_id, status, full_name, instagram_handle, party_size,
              terms_accepted_at, link_code, idempotency_key, submitted_at, cancelled_at
            ) VALUES ($1, 'CANCELLED', 'Old Guest', 'old.seat', 1,
-                     now(), 'AB23CD', $2, now(), now())`,
-          [event.id, randomUUID()],
+                     now(), $3, $2, now(), now())`,
+          [event.id, randomUUID(), collidingCode],
         );
       }
 
-      const generatedCodes = ["AB23CD", "EF45GH"];
+      const generatedCodes = [collidingCode, retryCode];
       const collisionSubmit = createSubmitReservation({
         repository,
         rateLimiter: allowAllRateLimiter,
@@ -462,7 +467,97 @@ describe("reservation allocation repository", () => {
 
       const retry = await collisionSubmit(input);
       expect(retry.status).toBe(path === "waitlist" ? 202 : 201);
-      expect(JSON.stringify(retry.body)).toContain("EF45GH");
+      expect(JSON.stringify(retry.body)).toContain(retryCode);
+    },
+  );
+
+  it.each([
+    {
+      path: "waitlist",
+      holder: "CANCELLED reservation",
+      collidingCode: "KM47PQ",
+      retryCode: "TV56WX",
+    },
+    {
+      path: "seat",
+      holder: "WAITING waitlist entry",
+      collidingCode: "YZ23BC",
+      retryCode: "DF89GH",
+    },
+  ] as const)(
+    "returns unstored TRY_AGAIN when the $path path draws a code held by a $holder of another event",
+    async ({ path, collidingCode, retryCode }) => {
+      const event = await insertTestEvent(pool, {
+        capacity: 1,
+        maxPartySize: 1,
+        waitlistCapacity: path === "waitlist" ? 1 : 0,
+      });
+      const otherEvent = await insertTestEvent(pool);
+      const seatsTakenBeforeCollision = path === "waitlist" ? 1 : 0;
+      if (path === "waitlist") {
+        await submit(event.slug, 470);
+        await pool.query(
+          `INSERT INTO reservations (
+             event_id, status, full_name, instagram_handle, party_size,
+             terms_accepted_at, link_code, idempotency_key, submitted_at, cancelled_at
+           ) VALUES ($1, 'CANCELLED', 'Old Guest', 'old.seat', 1,
+                     now(), $3, $2, now(), now())`,
+          [otherEvent.id, randomUUID(), collidingCode],
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO waitlist_entries (
+             event_id, waitlist_number, status, full_name, instagram_handle,
+             party_size, terms_accepted_at, link_code, idempotency_key, submitted_at
+           ) VALUES ($1, 1, 'WAITING', 'Old Guest', 'old.waiter', 1,
+                     now(), $3, $2, now())`,
+          [otherEvent.id, randomUUID(), collidingCode],
+        );
+      }
+
+      const generatedCodes = [collidingCode, retryCode];
+      const collisionSubmit = createSubmitReservation({
+        repository,
+        rateLimiter: allowAllRateLimiter,
+        botVerifier: allowAllBotVerifier,
+        computeFingerprint: requestFingerprint,
+        generateLinkCode: () => generatedCodes.shift()!,
+      });
+      const key = randomUUID();
+      const input = {
+        idempotencyKey: key,
+        body: reservationBody(event.slug, 471),
+        remoteIp: null,
+        rateLimitSubject: "unknown",
+      };
+
+      const collision = await collisionSubmit(input);
+      expect(collision.status).toBe(503);
+      expect(collision.body).toMatchObject({ error: { code: "TRY_AGAIN" } });
+      const afterCollision = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM idempotency_records WHERE key = $1) AS idempotency,
+           (SELECT COUNT(*)::int FROM reservations WHERE event_id = $2) AS reservations,
+           (SELECT COUNT(*)::int FROM waitlist_entries WHERE event_id = $2) AS waitlist_entries,
+           (SELECT COUNT(*)::int FROM messages WHERE event_id = $2) AS messages,
+           reserved_seats, last_reservation_number, waitlisted_count, last_waitlist_number
+         FROM events WHERE id = $2`,
+        [key, event.id],
+      );
+      expect(afterCollision.rows[0]).toEqual({
+        idempotency: 0,
+        reservations: seatsTakenBeforeCollision,
+        waitlist_entries: 0,
+        messages: seatsTakenBeforeCollision,
+        reserved_seats: seatsTakenBeforeCollision,
+        last_reservation_number: seatsTakenBeforeCollision,
+        waitlisted_count: 0,
+        last_waitlist_number: 0,
+      });
+
+      const retry = await collisionSubmit(input);
+      expect(retry.status).toBe(path === "waitlist" ? 202 : 201);
+      expect(JSON.stringify(retry.body)).toContain(retryCode);
     },
   );
 
