@@ -17,7 +17,6 @@ interface HandlerObservability {
 
 export interface ReservationHandlerDependencies extends SubmitReservationDependencies {
   observability: HandlerObservability;
-  onReservationAccepted?(): void;
 }
 
 const MAXIMUM_BODY_BYTES = 16 * 1024;
@@ -60,8 +59,8 @@ async function readBody(request: Request): Promise<BodyReadResult> {
 }
 
 function outcomeCode(body: Record<string, unknown>): string {
-  if (body.status === "CONFIRMED") {
-    return "CONFIRMED";
+  if (body.status === "RECEIVED") {
+    return "RECEIVED";
   }
   if (body.status === "WAITLISTED") {
     return "WAITLISTED";
@@ -169,17 +168,6 @@ export function createReservationHandler(dependencies: ReservationHandlerDepende
         outcome,
         durationMs: Math.round(performance.now() - startedAt),
       });
-      if (result.acceptedReservation) {
-        try {
-          dependencies.onReservationAccepted?.();
-        } catch (error) {
-          dependencies.observability.log("error", "reservation_confirmation_schedule_failed", {
-            requestId,
-          });
-          dependencies.observability.captureException?.(error);
-        }
-      }
-
       return jsonResponse(result.status, result.body, {
         replayed: result.replayed,
         retryAfterSeconds: result.retryAfterSeconds,

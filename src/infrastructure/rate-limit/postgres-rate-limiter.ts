@@ -15,14 +15,8 @@ export const RESERVATION_IP_RATE_LIMIT = {
   windowSeconds: 60,
 } as const satisfies RateLimitDefinition;
 
-export const RESERVATION_EMAIL_RATE_LIMIT = {
-  scope: "reservation:email",
-  limit: 5,
-  windowSeconds: 600,
-} as const satisfies RateLimitDefinition;
-
-export const RESERVATION_PHONE_RATE_LIMIT = {
-  scope: "reservation:phone",
+export const RESERVATION_INSTAGRAM_RATE_LIMIT = {
+  scope: "reservation:instagram",
   limit: 5,
   windowSeconds: 600,
 } as const satisfies RateLimitDefinition;
@@ -41,8 +35,7 @@ export const ADMIN_LOGIN_EMAIL_RATE_LIMIT = {
 
 export const RATE_LIMITS = {
   reservationIp: RESERVATION_IP_RATE_LIMIT,
-  reservationEmail: RESERVATION_EMAIL_RATE_LIMIT,
-  reservationPhone: RESERVATION_PHONE_RATE_LIMIT,
+  reservationInstagram: RESERVATION_INSTAGRAM_RATE_LIMIT,
   adminLoginIp: ADMIN_LOGIN_IP_RATE_LIMIT,
   adminLoginEmail: ADMIN_LOGIN_EMAIL_RATE_LIMIT,
 } as const;

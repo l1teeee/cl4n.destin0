@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { deliverPendingEmails } from "@/application/notifications/deliver-pending-emails";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { PostgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { PostgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
@@ -135,6 +136,7 @@ function reservationSubmitter() {
     rateLimiter: allowAllRateLimiter,
     botVerifier: allowAllBotVerifier,
     computeFingerprint: requestFingerprint,
+    generateLinkCode,
   });
 }
 
@@ -374,8 +376,8 @@ describe("event location email resend and version binding", () => {
   });
 });
 
-describe("confirmed location email for new confirmations", () => {
-  it("queues a promoted guest once and drains location after the promotion notice", async () => {
+describe("location email bulk send after new public requests", () => {
+  it("queues a promoted guest only when the bulk send runs", async () => {
     const event = await fullEventWithWaiting(400);
     await confirmLocation(event.id);
     await send(event.id);
@@ -386,6 +388,7 @@ describe("confirmed location email for new confirmations", () => {
       ok: true,
     });
     const [promotedId] = await promotedReservationIds(event.id);
+    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 1 });
     const location = await pool.query<{
       reservation_id: string;
       payload: { isUpdate: boolean };
@@ -401,10 +404,10 @@ describe("confirmed location email for new confirmations", () => {
     const claimed = await new PostgresEmailOutboxRepository(pool).claimDue(10);
     expect(
       claimed.filter((row) => row.reservationId === promotedId).map((row) => row.kind),
-    ).toEqual(["WAITLIST_PROMOTED", "EVENT_LOCATION"]);
+    ).toEqual(["EVENT_LOCATION"]);
   });
 
-  it("auto-queues the next FIFO guest when cancelling a blocking waitlist head", async () => {
+  it("bulk-queues the next FIFO guest after cancelling a blocking waitlist head", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 3,
       maxPartySize: 2,
@@ -456,6 +459,7 @@ describe("confirmed location email for new confirmations", () => {
           AND status = 'PROMOTED'`,
       [waiting.rows[1]!.id],
     );
+    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 1 });
     await expect(
       pool.query(
         `SELECT payload
@@ -467,13 +471,14 @@ describe("confirmed location email for new confirmations", () => {
     ).resolves.toMatchObject({ rows: [{ payload: { isUpdate: false } }] });
   });
 
-  it("auto-queues promotions for confirmed revisions but not pending locations", async () => {
+  it("bulk-queues promotions for confirmed revisions but not pending locations", async () => {
     const eventRepository = new PostgresEventRepository(pool);
 
     const neverReleased = await fullEventWithWaiting(410);
     await confirmLocation(neverReleased.id);
     await eventRepository.changeCapacity(neverReleased.id, 2, actorId);
     const neverReleasedPromotion = (await promotedReservationIds(neverReleased.id))[0]!;
+    await expect(send(neverReleased.id)).resolves.toMatchObject({ ok: true, queued: 2 });
 
     const staleRelease = await fullEventWithWaiting(420);
     await confirmLocation(staleRelease.id);
@@ -487,6 +492,7 @@ describe("confirmed location email for new confirmations", () => {
     );
     await eventRepository.changeCapacity(staleRelease.id, 2, actorId);
     const stalePromotion = (await promotedReservationIds(staleRelease.id))[0]!;
+    await expect(send(staleRelease.id)).resolves.toMatchObject({ ok: true, queued: 2 });
 
     const pending = await fullEventWithWaiting(430);
     await confirmLocation(pending.id);
@@ -529,7 +535,7 @@ describe("confirmed location email for new confirmations", () => {
     ).resolves.toMatchObject({ rows: [{ location_released_revision: null }] });
   });
 
-  it("auto-queues a direct confirmation without a prior bulk send but not a waitlisted reservation", async () => {
+  it("does not auto-queue a direct request and bulk-queues only the seat holder", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 1,
       maxPartySize: 1,
@@ -539,6 +545,16 @@ describe("confirmed location email for new confirmations", () => {
 
     expect((await submit(event.slug, 440)).status).toBe(201);
     expect((await submit(event.slug, 441)).status).toBe(202);
+
+    const beforeBulk = await pool.query(
+      `SELECT 1
+         FROM email_outbox o
+         JOIN reservations r ON r.id = o.reservation_id
+        WHERE o.kind = 'EVENT_LOCATION' AND r.event_id = $1`,
+      [event.id],
+    );
+    expect(beforeBulk.rowCount).toBe(0);
+    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 1 });
 
     const rows = await pool.query<{
       status: string;
@@ -561,7 +577,7 @@ describe("confirmed location email for new confirmations", () => {
     ]);
   });
 
-  it("keeps one row when a bulk send follows an automatic direct-confirmation row", async () => {
+  it("creates one row when a bulk send follows a public request", async () => {
     const event = await insertTestEvent(pool, { capacity: 2, maxPartySize: 1 });
     await confirmLocation(event.id);
 
@@ -575,7 +591,7 @@ describe("confirmed location email for new confirmations", () => {
     );
     const reservationId = confirmed.rows[0]!.id;
 
-    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 0 });
+    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 1 });
     await expect(
       pool.query(
         `SELECT location_revision, payload
@@ -602,7 +618,7 @@ describe("confirmed location email for new confirmations", () => {
     });
     const promotedIds = await promotedReservationIds(event.id);
     expect(promotedIds).toHaveLength(2);
-    const autoQueued = await pool.query<{ reservation_id: string }>(
+    const beforeBulk = await pool.query<{ reservation_id: string }>(
       `SELECT reservation_id
          FROM email_outbox
         WHERE kind = 'EVENT_LOCATION'
@@ -610,7 +626,8 @@ describe("confirmed location email for new confirmations", () => {
           AND location_revision = 0`,
       [promotedIds],
     );
-    expect(autoQueued.rows).toHaveLength(2);
+    expect(beforeBulk.rows).toHaveLength(0);
+    await expect(send(event.id)).resolves.toMatchObject({ ok: true, queued: 2 });
 
     await pool.query(
       `UPDATE events

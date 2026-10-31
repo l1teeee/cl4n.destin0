@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   requestFingerprint,
-  type NormalizedReservationFingerprintInput,
+  type NormalizedGuestRequestFingerprintInput,
 } from "@/infrastructure/crypto/request-fingerprint";
 
-const normalizedRequest: NormalizedReservationFingerprintInput = {
+const normalizedRequest: NormalizedGuestRequestFingerprintInput = {
   eventSlug: "cena-clandestino",
-  fullName: "Ana López",
-  instagram: "ana.lopez",
-  phone: "+50371234567",
-  email: "ana@example.com",
+  guest1Name: "Ana López",
+  guest1Instagram: "ana.lopez",
+  guest2Name: "Luis Pérez",
+  guest2Instagram: "luis.perez",
   partySize: 2,
   hasAllergies: false,
   allergies: null,
@@ -28,10 +28,10 @@ describe("requestFingerprint", () => {
       allergies: normalizedRequest.allergies,
       hasAllergies: normalizedRequest.hasAllergies,
       partySize: normalizedRequest.partySize,
-      email: normalizedRequest.email,
-      phone: normalizedRequest.phone,
-      instagram: normalizedRequest.instagram,
-      fullName: normalizedRequest.fullName,
+      guest2Instagram: normalizedRequest.guest2Instagram,
+      guest2Name: normalizedRequest.guest2Name,
+      guest1Instagram: normalizedRequest.guest1Instagram,
+      guest1Name: normalizedRequest.guest1Name,
       eventSlug: normalizedRequest.eventSlug,
     };
 
@@ -40,10 +40,10 @@ describe("requestFingerprint", () => {
 
   it.each([
     ["eventSlug", "otra-cena"],
-    ["fullName", "Luis Pérez"],
-    ["instagram", "luis.perez"],
-    ["phone", "+50322223333"],
-    ["email", "luis@example.com"],
+    ["guest1Name", "María López"],
+    ["guest1Instagram", "maria.lopez"],
+    ["guest2Name", "Mario Pérez"],
+    ["guest2Instagram", "mario.perez"],
     ["partySize", 1],
     ["notes", "Vegetariano"],
     ["hasAllergies", true],

@@ -45,7 +45,7 @@ export async function insertTestEvent(
       slug,
       options.capacity ?? 20,
       options.reservedSeats ?? 0,
-      options.maxPartySize ?? 4,
+      options.maxPartySize ?? 2,
       options.opensOffset ?? "-1 hour",
       options.closesOffset ?? "1 hour",
       options.autoCloseOnFull ?? false,
@@ -62,18 +62,23 @@ export function reservationBody(
   sequence = 1,
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const phone = `7${String(10_000_000 + sequence).slice(-7)}`;
+  const couple =
+    overrides.partySize === 2
+      ? {
+          guest2Name: `Guest ${sequence} Companion`,
+          guest2Instagram: `guest.${sequence}.companion`,
+        }
+      : {};
   return {
     eventSlug,
-    fullName: `Guest ${sequence}`,
-    instagram: `guest.${sequence}`,
-    phone,
-    email: `Guest.${sequence}@Example.com`,
+    guest1Name: `Guest ${sequence}`,
+    guest1Instagram: `guest.${sequence}`,
     partySize: 1,
     hasAllergies: false,
-    notes: "Sin alergias",
+    notes: "Sin observaciones",
     acceptTerms: true,
     turnstileToken: "test-token",
+    ...couple,
     ...overrides,
   };
 }

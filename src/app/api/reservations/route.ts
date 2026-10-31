@@ -4,7 +4,7 @@ import { createBotVerifier } from "@/infrastructure/bot-protection/turnstile-ver
 import { env } from "@/infrastructure/config/env";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
-import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { log } from "@/infrastructure/observability/logger";
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
@@ -19,7 +19,7 @@ export const POST = createReservationHandler({
   rateLimiter: { consume },
   botVerifier: createBotVerifier(),
   computeFingerprint: requestFingerprint,
-  onReservationAccepted: scheduleEmailDelivery,
+  generateLinkCode,
   observability: {
     log,
     ...(env.SENTRY_DSN

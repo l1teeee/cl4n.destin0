@@ -55,7 +55,7 @@ const responseDefinitions: Record<ReservationErrorCode, { status: number; messag
   },
   DUPLICATE_RESERVATION: {
     status: 409,
-    message: "Ya existe una reservación o un lugar en la cola con este email o teléfono.",
+    message: "Ya existe una solicitud con este usuario de Instagram.",
   },
   EVENT_FULL: {
     status: 409,
@@ -74,15 +74,16 @@ const responseDefinitions: Record<ReservationErrorCode, { status: number; messag
 export function mapReservationOutcome(
   outcome: AllocationOutcome | ReservationResponseOutcome,
 ): ReservationResponse {
-  if (outcome.code === "CONFIRMED") {
+  if (outcome.code === "RECEIVED") {
     return {
       status: 201,
       body: {
-        status: "CONFIRMED",
-        reservation: {
+        status: "RECEIVED",
+        request: {
           number: outcome.number,
           partySize: outcome.partySize,
           eventStartsAt: outcome.eventStartsAt.toISOString(),
+          linkCode: outcome.linkCode,
         },
       },
     };
@@ -97,6 +98,7 @@ export function mapReservationOutcome(
           position: outcome.position,
           partySize: outcome.partySize,
           eventStartsAt: outcome.eventStartsAt.toISOString(),
+          linkCode: outcome.linkCode,
         },
       },
     };
