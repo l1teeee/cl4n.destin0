@@ -3,12 +3,14 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type {
   AddEventClueResult,
   EventClue,
+  EventClueDelivery,
   EventClueRepository,
 } from "@/application/events/event-clue-repository";
 import type { ImageContentType } from "@/contracts/image-upload";
 
 import { pool as applicationPool } from "../client";
 import { inTransaction } from "../transaction";
+import { enqueueClueMessages, queryClueDelivery } from "./clue-messages";
 
 interface EventClueRow extends QueryResultRow {
   id: string;
@@ -56,11 +58,12 @@ export class PostgresEventClueRepository implements EventClueRepository {
     images?: Array<{ contentType: ImageContentType; data: Uint8Array }>;
   }): Promise<AddEventClueResult> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
-      const event = await client.query(
-        "SELECT 1 FROM events WHERE id = $1 AND deleted_at IS NULL",
+      const event = await client.query<{ slug: string }>(
+        "SELECT slug FROM events WHERE id = $1 AND deleted_at IS NULL",
         [input.eventId],
       );
-      if (event.rowCount === 0) return { ok: false, error: "EVENT_NOT_FOUND" };
+      const eventSlug = event.rows[0]?.slug;
+      if (!eventSlug) return { ok: false, error: "EVENT_NOT_FOUND" };
 
       const inserted = await client.query<EventClueRow>(
         `INSERT INTO event_clues (event_id, body, created_by)
@@ -80,8 +83,16 @@ export class PostgresEventClueRepository implements EventClueRepository {
         imageIds.push(insertedImage.rows[0]!.id);
       }
       clue.images = imageIds.map((id) => ({ id }));
+      const messageIds = await enqueueClueMessages(client, {
+        eventId: input.eventId,
+        eventSlug,
+        clueId: clue.id,
+        body: clue.body,
+        imageIds,
+        actorId: input.actorId,
+      });
       await insertAudit(client, input.actorId, input.eventId, { clueAdded: clue.id });
-      return { ok: true, value: clue };
+      return { ok: true, value: clue, messageIds };
     });
   }
 
@@ -109,6 +120,10 @@ export class PostgresEventClueRepository implements EventClueRepository {
       [eventId],
     );
     return result.rows.map(eventClue);
+  }
+
+  getDeliveryForEvent(eventId: string): Promise<Record<string, EventClueDelivery>> {
+    return queryClueDelivery(this.pool, eventId);
   }
 
   async listForSlug(slug: string): Promise<EventClue[]> {

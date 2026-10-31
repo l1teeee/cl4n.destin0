@@ -19,7 +19,7 @@ import {
   setLocationStatus,
   updateEvent,
 } from "@/application/events/event-use-cases";
-import { sendEventLocation } from "@/application/events/event-location-email";
+import type { SendLocationError } from "@/application/events/location-message-repository";
 import type {
   EventOperationErrorCode,
   EventRecord,
@@ -39,13 +39,17 @@ import { postgresEventRepository } from "@/infrastructure/db/repositories/postgr
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { googleMapsLinkResolver } from "@/infrastructure/maps/google-maps-link-resolver";
-import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
+import { postgresLocationMessageRepository } from "@/infrastructure/db/repositories/postgres-location-message-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
+import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
+import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 import {
   localDateTimeToUtc,
   localEventDateTimeToUtc,
 } from "@/infrastructure/time/el-salvador-time";
+
+import { describeLocationSend } from "./location-send-summary";
 
 export interface AdminActionState {
   ok: boolean;
@@ -89,11 +93,7 @@ const imageActionSchema = z
 const clueActionSchema = z
   .object({ eventId: z.string().uuid(), clueId: z.string().uuid() })
   .strict();
-// The budget is only checked before each claim; the 20 s margin inside maxDuration = 60 covers
-// one send (up to 8 s) plus the action and page re-render, so the function is never killed
-// between the provider accepting a send and markSent, which would duplicate the email.
-const LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS = 40_000;
-const LOCATION_EMAIL_DRAIN_LIMIT = 100;
+const LOCATION_DELIVERY_TIME_BUDGET_MS = 6_000;
 
 const operationMessages: Record<EventOperationErrorCode, string> = {
   EVENT_NOT_FOUND: "No se encontró la experiencia.",
@@ -112,6 +112,15 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
     "Para confirmar la ubicación agrega la dirección o el enlace de Google Maps.",
   LOCATION_CHANGED:
     "La ubicación cambió mientras editabas. Recarga la página para ver la versión actual.",
+};
+
+const locationSendMessages: Record<SendLocationError, string> = {
+  EVENT_NOT_FOUND: operationMessages.EVENT_NOT_FOUND,
+  LOCATION_NOT_CONFIRMED: "Confirma la ubicación antes de enviarla.",
+  LOCATION_CHANGED: operationMessages.LOCATION_CHANGED,
+  LOCATION_TOO_LONG:
+    "La ubicación es demasiado larga para un mensaje de Instagram. Acorta las indicaciones o el enlace.",
+  TRY_AGAIN: "Hay reservas entrando en este momento. Intenta enviar de nuevo en unos segundos.",
 };
 
 const operationErrorFields: Partial<Record<EventOperationErrorCode, string>> = {
@@ -364,58 +373,20 @@ export async function sendEventLocationAction(
   const parsed = idSchema.safeParse({ id });
   if (!parsed.success) return firstValidationError(parsed.error);
 
-  const result = await sendEventLocation(
-    postgresEventLocationEmailRepository,
+  const result = await postgresLocationMessageRepository.sendLocationToPaidGuests(
     parsed.data.id,
     loadedLocation,
     authorization.session.admin.id,
   );
-  if (!result.ok && result.error === "EVENT_NOT_FOUND") {
-    return invalid("No se encontró la experiencia.");
-  }
-  if (!result.ok && result.error === "TRY_AGAIN") {
-    return invalid(
-      "Hay reservas entrando en este momento. Intenta enviar de nuevo en unos segundos.",
-    );
-  }
-  if (!result.ok && result.error === "LOCATION_CHANGED") {
-    return operationError("LOCATION_CHANGED");
-  }
-  if (!result.ok) return invalid("Confirma la ubicación antes de enviarla.");
+  if (!result.ok) return invalid(locationSendMessages[result.error]);
 
-  if (result.queued > 0) {
-    scheduleEmailDelivery({
-      limit: Math.min(result.queued, LOCATION_EMAIL_DRAIN_LIMIT),
-      timeBudgetMs: LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS,
-    });
-  }
-  revalidatePath(`/admin/events/${parsed.data.id}`);
-  revalidatePath("/admin/emails");
-  if (result.queued === 0) {
-    return { ok: true, message: "Todas las personas confirmadas ya tienen esta ubicación." };
-  }
-  return { ok: true, message: `Se encolaron ${result.queued} correos de ubicación.` };
-}
-
-export async function processPendingLocationEmailsAction(
-  id: string,
-  _previousState: AdminActionState,
-  _formData: FormData,
-): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
-  void _previousState;
-  void _formData;
-  if (!authorization.authorized) return unauthorized();
-  const parsed = idSchema.safeParse({ id });
-  if (!parsed.success) return firstValidationError(parsed.error);
-
-  scheduleEmailDelivery({
-    limit: LOCATION_EMAIL_DRAIN_LIMIT,
-    timeBudgetMs: LOCATION_EMAIL_DRAIN_TIME_BUDGET_MS,
+  const delivery = await drainMessagesNow(result.messageIds, {
+    timeBudgetMs: LOCATION_DELIVERY_TIME_BUDGET_MS,
   });
+  scheduleMessageDelivery();
   revalidatePath(`/admin/events/${parsed.data.id}`);
-  revalidatePath("/admin/emails");
-  return { ok: true, message: "Se programó el procesamiento de los correos pendientes." };
+  revalidatePath("/admin/mensajes");
+  return { ok: true, message: describeLocationSend(result.messageIds, delivery.outcomes) };
 }
 
 export async function deleteEventImageAction(

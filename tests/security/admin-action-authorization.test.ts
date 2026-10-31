@@ -166,7 +166,7 @@ describe("admin Server Action authorization", () => {
     );
     expect(guards.get("setEventLocationStatusAction")).toBe("requireAdmin");
     expect(guards.get("sendEventLocationAction")).toBe("requireAdmin");
-    expect(guards.get("processPendingLocationEmailsAction")).toBe("requireAdmin");
+    expect(guards.has("processPendingLocationEmailsAction")).toBe(false);
     expect(guards.get("deleteEventImageAction")).toBe("requireAdmin");
     expect(guards.get("deleteEventClueAction")).toBe("requireAdmin");
     expect(guards.get("deleteEventAction")).toBe("requireAdmin");

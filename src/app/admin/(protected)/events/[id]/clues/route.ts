@@ -8,14 +8,33 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { isSameOriginRequest } from "@/infrastructure/http/same-origin-request";
+import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
+import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
+import { log } from "@/infrastructure/observability/logger";
+
+// The inline delivery attempt plus one slow Instagram call must fit in the function lifetime.
+export const maxDuration = 60;
 
 const paramsSchema = z.object({ id: z.string().uuid() });
 const maxImageBytes = 1_048_576;
 const maxImages = 3;
 const maxRequestBytes = 4_194_304;
+const CLUE_DELIVERY_TIME_BUDGET_MS = 6_000;
 
 function error(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
+}
+
+// The clue is already published, so a delivery problem must not fail the request: the queued
+// messages are retried by the scheduled drain and by the daily cron.
+async function deliverClueMessages(messageIds: readonly string[]): Promise<void> {
+  if (messageIds.length === 0) return;
+  try {
+    await drainMessagesNow(messageIds, { timeBudgetMs: CLUE_DELIVERY_TIME_BUDGET_MS });
+  } catch {
+    log("error", "clue_message_delivery_failed");
+  }
+  scheduleMessageDelivery();
 }
 
 async function readBoundedBody(request: Request): Promise<Buffer | null> {
@@ -104,5 +123,6 @@ export async function POST(
       result.error === "EVENT_NOT_FOUND" ? 404 : 409,
     );
   }
+  await deliverClueMessages(result.messageIds);
   return Response.json({ id: result.value.id }, { status: 201 });
 }

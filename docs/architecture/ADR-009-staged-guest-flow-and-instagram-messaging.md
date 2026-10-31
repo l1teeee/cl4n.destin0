@@ -137,7 +137,8 @@ Admins can retry FAILED rows, discard pending rows, and for any pending or faile
 ## 9. Location and clues
 
 - The location goes by DM: text (name, address, notes, Maps link) plus up to 6 photos through the existing capability URLs. PAID guests receive it automatically when the location is confirmed; a bulk send covers PAID guests without the current revision. One row per reservation and location revision.
-- Publishing a clue enqueues one CLUE message per PAID reservation, with its images through the existing clue image route. The public clue page stays as the live backup during the dinner, because it does not depend on the 24-hour window.
+- A LOCATION body must fit the 2000 characters of `messages.body` and is never truncated. A longer text makes the bulk send fail with `LOCATION_TOO_LONG` and queue nothing. At payment verification the message is skipped instead, so the payment still commits, and the delivery panel counts that guest as never queued.
+- Publishing a clue enqueues one CLUE message per PAID reservation, with its images through the existing clue image route. The public clue page stays as the live backup during the dinner, because it does not depend on the 24-hour window. A guest who becomes PAID after a clue was published does not receive that clue by DM; the public clue page still shows it.
 
 ## 10. Email
 

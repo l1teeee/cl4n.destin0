@@ -10,7 +10,7 @@ import { mapReservationOutcome } from "@/application/reservations/reservation-re
 import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { PostgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { PostgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
-import { PostgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
+import { PostgresLocationMessageRepository } from "@/infrastructure/db/repositories/postgres-location-message-repository";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
@@ -18,7 +18,7 @@ import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 let pool: Pool;
 let eventRepository: PostgresEventRepository;
 let imageRepository: PostgresEventImageRepository;
-let locationEmailRepository: PostgresEventLocationEmailRepository;
+let locationMessageRepository: PostgresLocationMessageRepository;
 let allocationRepository: PostgresReservationAllocationRepository;
 let adminId: string;
 
@@ -33,7 +33,7 @@ beforeEach(async () => {
   pool = new Pool({ connectionString: testDatabaseUrl().toString() });
   eventRepository = new PostgresEventRepository(pool);
   imageRepository = new PostgresEventImageRepository(pool);
-  locationEmailRepository = new PostgresEventLocationEmailRepository(pool);
+  locationMessageRepository = new PostgresLocationMessageRepository(pool);
   allocationRepository = new PostgresReservationAllocationRepository(pool);
   const admin = await pool.query<{ id: string }>(
     `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
@@ -223,7 +223,11 @@ describe("event soft deletion", () => {
       }),
     ).resolves.toEqual({ ok: false, error: "EVENT_NOT_FOUND" });
     await expect(
-      locationEmailRepository.queue(event.id, { revision: 0, status: "PENDING" }, adminId),
+      locationMessageRepository.sendLocationToPaidGuests(
+        event.id,
+        { revision: 0, status: "PENDING" },
+        adminId,
+      ),
     ).resolves.toEqual({ ok: false, error: "EVENT_NOT_FOUND" });
   });
 

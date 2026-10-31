@@ -345,6 +345,7 @@ export function emailErrorLabel(error: string | null): string {
     RESERVATION_NOT_CONFIRMED: "La reserva ya no está confirmada",
     LOCATION_NOT_CONFIRMED: "La ubicación ya no está confirmada",
     LOCATION_SUPERSEDED: "Existe una ubicación más reciente",
+    KIND_RETIRED: "Los avisos a invitados ahora se envían por Instagram",
   };
   return labels[error] ?? error;
 }
@@ -395,35 +396,6 @@ export function rosterLocationCell(row: EventRosterRow): RosterLocationCell {
 
   const prefix = email.isUpdate ? "Actualización enviada" : "Enviada";
   return cell(`${prefix} ${formatAdminDate(email.sentAt)}`);
-}
-
-export function locationSendButtonLabel(firstTime: number, updates: number): string | null {
-  if (firstTime > 0 && updates > 0) {
-    return `Enviar ubicación (${firstTime} por primera vez, ${updates} actualizaciones)`;
-  }
-  if (firstTime > 0) return `Enviar ubicación a ${firstTime}`;
-  if (updates > 0) return `Enviar actualización a ${updates}`;
-  return null;
-}
-
-function personNoun(count: number): string {
-  return count === 1 ? "persona" : "personas";
-}
-
-export function locationSendConfirmation(firstTime: number, updates: number): string {
-  const firstTimeSentence = `Se enviará la ubicación por primera vez a ${firstTime} ${personNoun(firstTime)} con reserva confirmada.`;
-  const updateSentence =
-    updates === 1
-      ? "1 persona recibió una ubicación anterior y recibirá la actualización."
-      : `${updates} personas recibieron una ubicación anterior y recibirán la actualización.`;
-  const autoSendSentence =
-    "Después de este envío, quien se confirme, incluso desde la cola, recibirá la ubicación automáticamente.";
-  const warning = "No se puede deshacer.";
-  if (firstTime > 0 && updates > 0) {
-    return `${firstTimeSentence} ${updateSentence} ${autoSendSentence} ${warning}`;
-  }
-  if (firstTime > 0) return `${firstTimeSentence} ${autoSendSentence} ${warning}`;
-  return `${updateSentence} ${autoSendSentence} ${warning}`;
 }
 
 export interface LocationMap {
