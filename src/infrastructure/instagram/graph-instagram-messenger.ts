@@ -2,6 +2,8 @@ import { InstagramMessenger, MessengerError } from "@/application/messaging/inst
 
 const TIMEOUT_MS = 8_000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGE_REDIRECTS = 3;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 interface MetaErrorBody {
   error?: { code?: unknown; error_subcode?: unknown; message?: unknown };
@@ -138,23 +140,30 @@ export class GraphInstagramMessenger implements InstagramMessenger {
   }
 
   async downloadImage(url: string): Promise<{ contentType: string; data: Buffer }> {
-    if (!isAllowedImageUrl(url)) {
-      throw new MessengerError("Image URL is not an allowed Meta host", { status: 400 });
+    let currentUrl = url;
+    let response: Response | null = null;
+    for (let redirects = 0; ; redirects += 1) {
+      if (!isAllowedImageUrl(currentUrl)) {
+        throw new MessengerError("Image URL is not an allowed Meta host", { status: 400 });
+      }
+      try {
+        response = await this.request(currentUrl, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+      } catch (error) {
+        throw new MessengerError("Image download failed", { status: null }, { cause: error });
+      }
+      if (!REDIRECT_STATUSES.has(response.status)) break;
+      const location = response.headers.get("location");
+      if (!location || redirects >= MAX_IMAGE_REDIRECTS) {
+        throw new MessengerError("Image redirect limit exceeded", { status: 400 });
+      }
+      currentUrl = new URL(location, currentUrl).toString();
     }
-    let response: Response;
-    try {
-      response = await this.request(url, {
-        redirect: "follow",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch (error) {
-      throw new MessengerError("Image download failed", { status: null }, { cause: error });
-    }
+    if (!response) throw new MessengerError("Image download failed", { status: null });
     if (!response.ok)
       throw new MessengerError("Image download failed", { status: response.status });
-    if (!isAllowedImageUrl(response.url)) {
-      throw new MessengerError("Image redirect is not an allowed Meta host", { status: 400 });
-    }
     if (!response.body)
       throw new MessengerError("Image response had no body", { status: response.status });
 

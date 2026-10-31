@@ -11,14 +11,15 @@ import { drainMessageOutbox } from "./drain-message-outbox";
 
 export function ingestConfiguredInstagramEvents(
   events: readonly InstagramWebhookEvent[],
-  options: { knownUsernames?: Readonly<Record<string, string>> } = {},
+  options: { knownUsernames?: Readonly<Record<string, string>>; deadline?: number } = {},
 ) {
   return ingestInstagramEvents(
     {
       repository: postgresMessageRepository,
       messenger: instagramMessenger,
-      deliver: async () => {
-        await drainMessageOutbox({ limit: 50, timeBudgetMs: 20_000 });
+      deliver: async (deadline) => {
+        const timeBudgetMs = deadline === undefined ? 20_000 : Math.max(0, deadline - Date.now());
+        if (timeBudgetMs > 0) await drainMessageOutbox({ limit: 50, timeBudgetMs });
       },
       logFailure: (fields) => log("error", "instagram_ingestion_followup_failed", fields),
     },
@@ -27,7 +28,7 @@ export function ingestConfiguredInstagramEvents(
   );
 }
 
-export function retryConfiguredInboundImages(limit = 20): Promise<void> {
+export function retryConfiguredInboundImages(limit = 20, deadline?: number): Promise<void> {
   return retryInboundImages(
     {
       repository: postgresMessageRepository,
@@ -36,5 +37,6 @@ export function retryConfiguredInboundImages(limit = 20): Promise<void> {
     },
     [],
     limit,
+    deadline,
   );
 }

@@ -99,7 +99,10 @@ function attachments(message: z.infer<typeof messagingItemSchema>["message"]) {
   };
 }
 
-function normalizeItem(item: z.infer<typeof messagingItemSchema>): InstagramWebhookEvent | null {
+function normalizeItem(
+  item: z.infer<typeof messagingItemSchema>,
+  accountId: string,
+): InstagramWebhookEvent | null {
   const timestamp = eventDate(item.timestamp);
   if (Number.isNaN(timestamp.getTime())) return null;
 
@@ -114,6 +117,7 @@ function normalizeItem(item: z.infer<typeof messagingItemSchema>): InstagramWebh
 
   if (item.message?.mid) {
     if (item.message.is_deleted) {
+      if (item.message.is_echo || item.sender.id === accountId) return null;
       return {
         type: "deleted",
         timestamp,
@@ -181,7 +185,7 @@ export function parseInstagramWebhook(payload: unknown, accountId: string): Pars
         skipped += 1;
         continue;
       }
-      const normalized = normalizeItem(item.data);
+      const normalized = normalizeItem(item.data, accountId);
       if (normalized) events.push(normalized);
       else skipped += 1;
     }

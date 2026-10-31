@@ -2241,6 +2241,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "claims_without_progress": {
+          "name": "claims_without_progress",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "location_revision": {
           "name": "location_revision",
           "type": "integer",
@@ -2671,6 +2678,10 @@
         "messages_parts_sent_chk": {
           "name": "messages_parts_sent_chk",
           "value": "\"messages\".\"parts_sent\" >= 0"
+        },
+        "messages_claims_without_progress_chk": {
+          "name": "messages_claims_without_progress_chk",
+          "value": "\"messages\".\"claims_without_progress\" >= 0"
         },
         "messages_external_part_ids_chk": {
           "name": "messages_external_part_ids_chk",

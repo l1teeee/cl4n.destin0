@@ -75,6 +75,24 @@ describe("Instagram webhook parser", () => {
     expect(result.foreignEntries).toBe(0);
   });
 
+  it("skips deletion echoes and deletions sent by the configured account", () => {
+    const result = parseInstagramWebhook(
+      payload(
+        { ...base, message: { mid: "echo-delete", is_deleted: true, is_echo: true } },
+        {
+          ...base,
+          sender: { id: accountId },
+          recipient: { id: "2000" },
+          message: { mid: "self-delete", is_deleted: true },
+        },
+      ),
+      accountId,
+    );
+
+    expect(result.events).toEqual([]);
+    expect(result.skipped).toBe(2);
+  });
+
   it("accepts timestamps in seconds", () => {
     const result = parseInstagramWebhook(
       payload({ ...base, timestamp: 1_700_000_000, read: { mid: "seen" } }),

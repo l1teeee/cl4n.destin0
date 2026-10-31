@@ -56,6 +56,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const followupDeadline = Date.now() + maxDuration * 1000 - 5_000;
   if (env.MESSAGING_MODE === "log") {
     log("info", "instagram_webhook_received", { events: 0, skipped: 0, foreignEntries: 0 });
     return new Response(null, { status: 404 });
@@ -87,7 +88,9 @@ export async function POST(request: Request): Promise<Response> {
     skipped: parsed.skipped,
     foreignEntries: parsed.foreignEntries,
   });
-  const result = await ingestConfiguredInstagramEvents(parsed.events);
+  const result = await ingestConfiguredInstagramEvents(parsed.events, {
+    deadline: followupDeadline,
+  });
   after(async () => {
     try {
       await result.after();

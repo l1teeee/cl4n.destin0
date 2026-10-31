@@ -5,7 +5,7 @@ import type { InstagramWebhookEvent } from "./instagram-events";
 export interface InstagramIngestionDependencies {
   repository: InstagramEventRepository;
   messenger: InstagramMessenger;
-  deliver(): Promise<void>;
+  deliver(deadline?: number): Promise<void>;
   logFailure(fields: {
     messageId: string;
     kind: "profile" | "attachment";
@@ -24,14 +24,21 @@ export async function retryInboundImages(
   dependencies: Pick<InstagramIngestionDependencies, "repository" | "messenger" | "logFailure">,
   initial: readonly import("./instagram-event-ingestion").InboundImageReference[] = [],
   limit = 20,
+  deadline?: number,
 ): Promise<void> {
+  if (deadline !== undefined && Date.now() >= deadline) return;
   const retryable = await dependencies.repository.listMissingInboundImages(limit);
   const distinct = new Map<string, (typeof retryable)[number]>();
   for (const image of [...initial, ...retryable]) {
     distinct.set(`${image.messageId}:${image.position}`, image);
   }
-  await Promise.all(
-    [...distinct.values()].slice(0, limit).map(async (image) => {
+  const images = [...distinct.values()].slice(0, limit);
+  let nextImage = 0;
+  async function downloadNext(): Promise<void> {
+    while (nextImage < images.length) {
+      if (deadline !== undefined && Date.now() >= deadline) return;
+      const image = images[nextImage]!;
+      nextImage += 1;
       try {
         const downloaded = await dependencies.messenger.downloadImage(image.url);
         await dependencies.repository.storeAttachment({
@@ -40,7 +47,10 @@ export async function retryInboundImages(
           ...downloaded,
         });
       } catch (error) {
-        if (error instanceof MessengerError && [400, 413, 415].includes(error.status ?? 0)) {
+        if (
+          error instanceof MessengerError &&
+          [400, 403, 404, 410, 413, 415].includes(error.status ?? 0)
+        ) {
           await dependencies.repository.markAttachmentPermanentlyFailed(
             image.messageId,
             image.position,
@@ -52,8 +62,9 @@ export async function retryInboundImages(
           errorCode: "ATTACHMENT_DOWNLOAD_FAILED",
         });
       }
-    }),
-  );
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, images.length) }, () => downloadNext()));
 }
 
 function normalizedUsername(username: string | null): string | null {
@@ -69,7 +80,7 @@ function normalizedName(name: string | null): string | null {
 export async function ingestInstagramEvents(
   dependencies: InstagramIngestionDependencies,
   events: readonly InstagramWebhookEvent[],
-  options: { knownUsernames?: Readonly<Record<string, string>> } = {},
+  options: { knownUsernames?: Readonly<Record<string, string>>; deadline?: number } = {},
 ): Promise<InstagramIngestionResult> {
   const transaction = await dependencies.repository.ingestEvents(events, options.knownUsernames);
 
@@ -81,6 +92,7 @@ export async function ingestInstagramEvents(
     becameQueued: transaction.becameQueued,
     async after() {
       for (const contact of transaction.contacts) {
+        if (options.deadline !== undefined && Date.now() >= options.deadline) return;
         let username = normalizedUsername(contact.username);
         if (!username) {
           try {
@@ -103,9 +115,10 @@ export async function ingestInstagramEvents(
         if (username) await dependencies.repository.linkByUsername(contact.contactId, username);
       }
 
-      await retryInboundImages(dependencies, transaction.images);
+      await retryInboundImages(dependencies, transaction.images, 20, options.deadline);
 
-      await dependencies.deliver();
+      if (options.deadline !== undefined && Date.now() >= options.deadline) return;
+      await dependencies.deliver(options.deadline);
     },
   };
 }

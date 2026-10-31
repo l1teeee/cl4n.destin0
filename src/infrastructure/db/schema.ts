@@ -732,6 +732,7 @@ export const messages = pgTable(
     externalMessageId: text("external_message_id"),
     partsSent: smallint("parts_sent").notNull().default(0),
     externalPartIds: text("external_part_ids").array(),
+    claimsWithoutProgress: smallint("claims_without_progress").notNull().default(0),
     locationRevision: integer("location_revision"),
     clueId: uuid("clue_id"),
     attempts: integer("attempts").notNull().default(0),
@@ -845,6 +846,7 @@ export const messages = pgTable(
     ),
     check("messages_attempts_chk", sql`${table.attempts} >= 0`),
     check("messages_parts_sent_chk", sql`${table.partsSent} >= 0`),
+    check("messages_claims_without_progress_chk", sql`${table.claimsWithoutProgress} >= 0`),
     check(
       "messages_external_part_ids_chk",
       sql`${table.externalPartIds} IS NULL OR cardinality(${table.externalPartIds}) BETWEEN 1 AND 20`,

@@ -24,6 +24,7 @@ import type {
 import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
 import type { MessageKind, MessageStatus } from "@/domain/messaging/message-types";
 import { extractLinkCode, isLinkCode } from "@/domain/messaging/link-code";
+import { env } from "@/infrastructure/config/env";
 import { log } from "@/infrastructure/observability/logger";
 
 import { pool as applicationPool } from "../client";
@@ -89,6 +90,18 @@ function linkCodeFromEvent(event: InstagramWebhookEvent): string | null {
   return event.text ? extractLinkCode(event.text) : null;
 }
 
+function contactScopedId(event: InstagramWebhookEvent): string | null {
+  if (
+    event.type === "inbound_message" ||
+    event.type === "deleted" ||
+    event.type === "referral" ||
+    event.type === "window_signal"
+  ) {
+    return event.senderId;
+  }
+  return event.type === "echo" ? event.recipientId : null;
+}
+
 interface ContactRow extends QueryResultRow {
   id: string;
   instagram_scoped_id: string;
@@ -115,52 +128,149 @@ export class PostgresMessageRepository
     AdminMessageRepository,
     ConversationQueryRepository
 {
-  constructor(readonly pool: Pool = applicationPool) {}
+  constructor(
+    readonly pool: Pool = applicationPool,
+    private readonly accountId: string | null = null,
+  ) {}
 
   async repairWaitingContacts(): Promise<number> {
-    const result = await this.pool.query(
+    const reservationResult = await this.pool.query(
       `UPDATE messages m
-          SET contact_id = COALESCE(r.contact_id, w.contact_id), status = 'QUEUED',
-              next_attempt_at = clock_timestamp(), locked_until = NULL, last_error = NULL
+          SET parts_sent = CASE
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM r.contact_id
+                  THEN 0 ELSE m.parts_sent END,
+              external_part_ids = CASE
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM r.contact_id
+                  THEN NULL ELSE m.external_part_ids END,
+              attempts = CASE
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM r.contact_id
+                  THEN 0 ELSE m.attempts END,
+              contact_id = r.contact_id, status = 'QUEUED',
+              next_attempt_at = clock_timestamp(), locked_until = NULL, last_error = NULL,
+              claims_without_progress = 0
          FROM reservations r
-         FULL JOIN waitlist_entries w ON false
         WHERE m.status = 'WAITING_CONTACT'
-          AND ((m.reservation_id = r.id AND r.contact_id IS NOT NULL)
-            OR (m.waitlist_entry_id = w.id AND w.contact_id IS NOT NULL))`,
+          AND m.reservation_id = r.id
+          AND r.contact_id IS NOT NULL`,
     );
-    return result.rowCount ?? 0;
+    const waitlistResult = await this.pool.query(
+      `UPDATE messages m
+          SET parts_sent = CASE
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM w.contact_id
+                  THEN 0 ELSE m.parts_sent END,
+              external_part_ids = CASE
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM w.contact_id
+                  THEN NULL ELSE m.external_part_ids END,
+              attempts = CASE
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM w.contact_id
+                  THEN 0 ELSE m.attempts END,
+              contact_id = w.contact_id, status = 'QUEUED',
+              next_attempt_at = clock_timestamp(), locked_until = NULL, last_error = NULL,
+              claims_without_progress = 0
+         FROM waitlist_entries w
+        WHERE m.status = 'WAITING_CONTACT'
+          AND m.waitlist_entry_id = w.id
+          AND w.contact_id IS NOT NULL`,
+    );
+    return (reservationResult.rowCount ?? 0) + (waitlistResult.rowCount ?? 0);
   }
 
   async claimDue(limit: number, messageIds?: readonly string[]): Promise<DeliverableMessage[]> {
-    const result = await this.pool.query<DeliverableRecord>(
-      `WITH candidates AS (
-         SELECT m.id
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `WITH stalled AS (
+           SELECT id
+             FROM messages
+            WHERE direction = 'OUTBOUND'
+              AND status = 'QUEUED'
+              AND next_attempt_at <= clock_timestamp()
+              AND (locked_until IS NULL OR locked_until < clock_timestamp())
+              AND claims_without_progress >= 5
+            ORDER BY created_at, id
+              FOR UPDATE SKIP LOCKED
+         )
+         UPDATE messages m
+            SET status = 'FAILED', locked_until = NULL, last_error = 'NO_PROGRESS',
+                claims_without_progress = 0
+           FROM stalled
+          WHERE m.id = stalled.id`,
+      );
+      const result = await client.query<DeliverableRecord>(
+        `WITH candidates AS (
+         SELECT m.id, recipient.contact_id AS resolved_contact_id
            FROM messages m
+           LEFT JOIN reservations r ON r.id = m.reservation_id
+           LEFT JOIN waitlist_entries w ON w.id = m.waitlist_entry_id
+           CROSS JOIN LATERAL (
+             VALUES (CASE
+               WHEN m.parts_sent <> 0 THEN m.contact_id
+               WHEN m.reservation_id IS NOT NULL THEN r.contact_id
+               WHEN m.waitlist_entry_id IS NOT NULL THEN w.contact_id
+               ELSE m.contact_id
+             END)
+           ) AS recipient(contact_id)
           WHERE m.direction = 'OUTBOUND'
             AND m.status = 'QUEUED'
             AND m.next_attempt_at <= clock_timestamp()
             AND (m.locked_until IS NULL OR m.locked_until < clock_timestamp())
+            AND m.claims_without_progress < 5
+            AND recipient.contact_id IS NOT NULL
             AND ($2::uuid[] IS NULL OR EXISTS (
               SELECT 1
                 FROM messages target
+                LEFT JOIN reservations target_r ON target_r.id = target.reservation_id
+                LEFT JOIN waitlist_entries target_w ON target_w.id = target.waitlist_entry_id
+                CROSS JOIN LATERAL (
+                  VALUES (CASE
+                    WHEN target.parts_sent <> 0 THEN target.contact_id
+                    WHEN target.reservation_id IS NOT NULL THEN target_r.contact_id
+                    WHEN target.waitlist_entry_id IS NOT NULL THEN target_w.contact_id
+                    ELSE target.contact_id
+                  END)
+                ) AS target_recipient(contact_id)
                WHERE target.id = ANY($2::uuid[])
-                 AND target.contact_id = m.contact_id
+                 AND target_recipient.contact_id = recipient.contact_id
                  AND (m.created_at, m.id) <= (target.created_at, target.id)
             ))
             AND NOT EXISTS (
               SELECT 1
                 FROM messages older
-               WHERE older.contact_id = m.contact_id
+                LEFT JOIN reservations older_r ON older_r.id = older.reservation_id
+                LEFT JOIN waitlist_entries older_w ON older_w.id = older.waitlist_entry_id
+                CROSS JOIN LATERAL (
+                  VALUES (CASE
+                    WHEN older.parts_sent <> 0 THEN older.contact_id
+                    WHEN older.reservation_id IS NOT NULL THEN older_r.contact_id
+                    WHEN older.waitlist_entry_id IS NOT NULL THEN older_w.contact_id
+                    ELSE older.contact_id
+                  END)
+                ) AS older_recipient(contact_id)
+               WHERE older_recipient.contact_id = recipient.contact_id
                  AND older.direction = 'OUTBOUND'
                  AND older.status IN ('QUEUED', 'WAITING_WINDOW')
                  AND (older.created_at, older.id) < (m.created_at, m.id)
             )
           ORDER BY m.created_at, m.id
           LIMIT $1
-            FOR UPDATE SKIP LOCKED
+            FOR UPDATE OF m SKIP LOCKED
        ), claimed AS (
          UPDATE messages m
-            SET locked_until = date_trunc('milliseconds', clock_timestamp()) + interval '2 minutes',
+            SET contact_id = c.resolved_contact_id,
+                external_part_ids = CASE
+                  WHEN m.contact_id IS NOT NULL
+                    AND m.contact_id IS DISTINCT FROM c.resolved_contact_id
+                    THEN NULL ELSE m.external_part_ids END,
+                attempts = CASE
+                  WHEN m.contact_id IS NOT NULL
+                    AND m.contact_id IS DISTINCT FROM c.resolved_contact_id
+                    THEN 0 ELSE m.attempts END,
+                claims_without_progress = CASE
+                  WHEN m.contact_id IS NOT NULL
+                    AND m.contact_id IS DISTINCT FROM c.resolved_contact_id
+                    THEN 1 ELSE m.claims_without_progress + 1 END,
+                locked_until = date_trunc('milliseconds', clock_timestamp()) + interval '2 minutes',
                 last_error = NULL
            FROM candidates c
           WHERE m.id = c.id
@@ -182,9 +292,16 @@ export class PostgresMessageRepository
          LEFT JOIN waitlist_entries w ON w.id = c.waitlist_entry_id
          LEFT JOIN events e ON e.id = c.event_id
         ORDER BY c.created_at, c.id`,
-      [limit, messageIds ? [...messageIds] : null],
-    );
-    return result.rows.map(toDeliverable);
+        [limit, messageIds ? [...messageIds] : null],
+      );
+      await client.query("COMMIT");
+      return result.rows.map(toDeliverable);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async extendLease(id: string, lease: Date): Promise<Date | null> {
@@ -213,9 +330,12 @@ export class PostgresMessageRepository
   }
 
   markDiscarded(id: string, lease: Date, errorCode: string): Promise<boolean> {
-    return this.complete(id, lease, "status = 'DISCARDED', locked_until = NULL, last_error = $3", [
-      errorCode,
-    ]);
+    return this.complete(
+      id,
+      lease,
+      "status = 'DISCARDED', locked_until = NULL, last_error = $3, claims_without_progress = 0",
+      [errorCode],
+    );
   }
 
   markWaitingWindow(id: string, lease: Date, errorCode: string | undefined): Promise<boolean> {
@@ -223,8 +343,8 @@ export class PostgresMessageRepository
       id,
       lease,
       errorCode
-        ? "status = 'WAITING_WINDOW', attempts = attempts + 1, locked_until = NULL, last_error = $3"
-        : "status = 'WAITING_WINDOW', locked_until = NULL, last_error = $3",
+        ? "status = 'WAITING_WINDOW', attempts = attempts + 1, locked_until = NULL, last_error = $3, claims_without_progress = 0"
+        : "status = 'WAITING_WINDOW', locked_until = NULL, last_error = $3, claims_without_progress = 0",
       [errorCode ?? null],
     );
   }
@@ -267,7 +387,8 @@ export class PostgresMessageRepository
                 external_message_id = CASE WHEN $4 THEN $3 ELSE external_message_id END,
                 sent_at = CASE WHEN $4 THEN clock_timestamp() ELSE sent_at END,
                 locked_until = CASE WHEN $4 THEN NULL ELSE locked_until END,
-                last_error = NULL
+                last_error = NULL,
+                claims_without_progress = 0
           WHERE id = $1 AND status = 'QUEUED' AND locked_until = $2`,
         [id, lease, externalMessageId, lastPart],
       );
@@ -299,7 +420,7 @@ export class PostgresMessageRepository
     return this.complete(
       id,
       lease,
-      "status = 'FAILED', attempts = attempts + 1, locked_until = NULL, last_error = $3",
+      "status = 'FAILED', attempts = attempts + 1, locked_until = NULL, last_error = $3, claims_without_progress = 0",
       [errorCode],
     );
   }
@@ -353,7 +474,7 @@ export class PostgresMessageRepository
     const result = await client.query(
       `UPDATE messages
           SET status = 'QUEUED', next_attempt_at = clock_timestamp(),
-              locked_until = NULL, last_error = NULL
+              locked_until = NULL, last_error = NULL, claims_without_progress = 0
         WHERE contact_id = $1 AND direction = 'OUTBOUND' AND status = 'WAITING_WINDOW'`,
       [contactId],
     );
@@ -378,22 +499,12 @@ export class PostgresMessageRepository
         `SELECT id, contact_id, contact_linked_by
            FROM ${subject.table}
           WHERE link_code = $1
-          FOR UPDATE`,
-        [linkCode],
+            AND ($2::text = 'MANUAL' OR contact_id IS NULL OR contact_linked_by = 'USERNAME')
+            AND (contact_id IS DISTINCT FROM $3 OR contact_linked_by IS DISTINCT FROM $2)
+          FOR NO KEY UPDATE`,
+        [linkCode, method, contactId],
       );
       for (const row of candidates.rows) {
-        const canOverride =
-          method === "MANUAL" || row.contact_id === null || row.contact_linked_by === "USERNAME";
-        if (!canOverride) {
-          if (row.contact_id !== contactId) {
-            log("warn", "messaging_contact_link_conflict", {
-              subjectId: row.id,
-              existingContactId: row.contact_id,
-              requestedContactId: contactId,
-            });
-          }
-          continue;
-        }
         await client.query(
           `UPDATE ${subject.table}
               SET contact_id = $1, contact_linked_by = $2, updated_at = clock_timestamp()
@@ -429,7 +540,19 @@ export class PostgresMessageRepository
   ): Promise<boolean> {
     const result = await client.query(
       `UPDATE messages
-          SET contact_id = $1,
+          SET parts_sent = CASE
+                WHEN contact_id IS NOT NULL AND contact_id IS DISTINCT FROM $1
+                  THEN 0 ELSE parts_sent END,
+              external_part_ids = CASE
+                WHEN contact_id IS NOT NULL AND contact_id IS DISTINCT FROM $1
+                  THEN NULL ELSE external_part_ids END,
+              attempts = CASE
+                WHEN contact_id IS NOT NULL AND contact_id IS DISTINCT FROM $1
+                  THEN 0 ELSE attempts END,
+              claims_without_progress = CASE
+                WHEN contact_id IS NOT NULL AND contact_id IS DISTINCT FROM $1
+                  THEN 0 ELSE claims_without_progress END,
+              contact_id = $1,
               status = CASE WHEN status = 'FAILED' THEN 'FAILED' ELSE 'QUEUED' END,
               next_attempt_at = CASE
                 WHEN status = 'FAILED' THEN next_attempt_at ELSE clock_timestamp()
@@ -438,7 +561,11 @@ export class PostgresMessageRepository
               last_error = CASE WHEN status = 'FAILED' THEN last_error ELSE NULL END
         WHERE ${idColumn} = $2
           AND status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'FAILED')
-          AND NOT (status = 'QUEUED' AND locked_until > clock_timestamp())`,
+          AND NOT (
+            status = 'QUEUED'
+            AND locked_until IS NOT NULL
+            AND locked_until > clock_timestamp()
+          )`,
       [contactId, subjectId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -483,20 +610,16 @@ export class PostgresMessageRepository
       const state = { becameQueued: false };
       const contactInputs = new Map<string, { inboundAt?: Date; username?: string }>();
       for (const event of events) {
-        let scopedId: string | null = null;
+        const scopedId = contactScopedId(event);
+        if (!scopedId || scopedId === this.accountId) continue;
         let inboundAt: Date | undefined;
         if (
           event.type === "inbound_message" ||
-          event.type === "deleted" ||
           event.type === "referral" ||
           event.type === "window_signal"
         ) {
-          scopedId = event.senderId;
           inboundAt = event.timestamp;
-        } else if (event.type === "echo") {
-          scopedId = event.recipientId;
         }
-        if (!scopedId) continue;
         const current = contactInputs.get(scopedId);
         contactInputs.set(scopedId, {
           inboundAt:
@@ -515,6 +638,7 @@ export class PostgresMessageRepository
       }
 
       for (const [index, event] of events.entries()) {
+        if (this.accountId !== null && contactScopedId(event) === this.accountId) continue;
         await client.query("SAVEPOINT instagram_event");
         try {
           await this.ingestEvent(client, event, contactsByScopedId, images, state);
@@ -583,8 +707,9 @@ export class PostgresMessageRepository
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO messages (
            contact_id, direction, kind, source, status, body, attachment_urls,
-           external_message_id, last_error, created_at
-         ) VALUES ($1, 'INBOUND', 'INBOUND', 'GUEST', 'RECEIVED', $2, $3::text[], $4, $5, $6)
+           external_message_id, last_error, received_at, created_at
+         ) VALUES ($1, 'INBOUND', 'INBOUND', 'GUEST', 'RECEIVED', $2, $3::text[], $4, $5,
+                   clock_timestamp(), $6)
          ON CONFLICT (external_message_id) WHERE external_message_id IS NOT NULL DO NOTHING
          RETURNING id`,
         [
@@ -663,9 +788,10 @@ export class PostgresMessageRepository
       if (!messageId) {
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO messages (
-             contact_id, direction, kind, source, status, body, external_message_id, created_at
+             contact_id, direction, kind, source, status, body, external_message_id,
+             received_at, created_at
            ) VALUES ($1, 'INBOUND', 'INBOUND', 'GUEST', 'RECEIVED',
-                     '[mensaje eliminado]', $2, $3)
+                     '[mensaje eliminado]', $2, clock_timestamp(), $3)
            ON CONFLICT (external_message_id) WHERE external_message_id IS NOT NULL DO NOTHING
            RETURNING id`,
           [contact.id, event.externalMessageId, event.timestamp],
@@ -811,12 +937,21 @@ export class PostgresMessageRepository
     contentType: string;
     data: Buffer;
   }): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO message_attachments (message_id, position, content_type, byte_size, data)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (message_id, position) DO NOTHING`,
-      [input.messageId, input.position, input.contentType, input.data.length, input.data],
-    );
+    await this.withTransaction(async (client) => {
+      const message = await client.query(
+        `SELECT 1 FROM messages
+          WHERE id = $1 AND attachment_urls IS NOT NULL
+          FOR SHARE`,
+        [input.messageId],
+      );
+      if (message.rowCount !== 1) return;
+      await client.query(
+        `INSERT INTO message_attachments (message_id, position, content_type, byte_size, data)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (message_id, position) DO NOTHING`,
+        [input.messageId, input.position, input.contentType, input.data.length, input.data],
+      );
+    });
   }
 
   async listMissingInboundImages(
@@ -836,7 +971,7 @@ export class PostgresMessageRepository
           AND m.received_at >= clock_timestamp() - interval '3 days'
           AND attachment.id IS NULL
           AND position(',' || (url.ordinality - 1)::text || ',' IN COALESCE(m.last_error, '')) = 0
-        ORDER BY m.received_at, m.id, url.ordinality
+        ORDER BY m.received_at DESC, m.id DESC, url.ordinality
         LIMIT $1`,
       [limit],
     );
@@ -898,7 +1033,11 @@ export class PostgresMessageRepository
     }>(
       `SELECT m.status,
               m.status = 'QUEUED' AND m.locked_until > clock_timestamp() AS live_lease,
-              COALESCE(r.contact_id, w.contact_id, m.contact_id) AS resolved_contact_id
+              CASE
+                WHEN m.reservation_id IS NOT NULL THEN r.contact_id
+                WHEN m.waitlist_entry_id IS NOT NULL THEN w.contact_id
+                ELSE m.contact_id
+              END AS resolved_contact_id
          FROM messages m
          LEFT JOIN reservations r ON r.id = m.reservation_id
          LEFT JOIN waitlist_entries w ON w.id = m.waitlist_entry_id
@@ -922,7 +1061,14 @@ export class PostgresMessageRepository
       }
       await client.query(
         `UPDATE messages
-            SET contact_id = $2, status = 'QUEUED', attempts = 0,
+            SET parts_sent = CASE
+                  WHEN contact_id IS NOT NULL AND contact_id IS DISTINCT FROM $2
+                    THEN 0 ELSE parts_sent END,
+                external_part_ids = CASE
+                  WHEN contact_id IS NOT NULL AND contact_id IS DISTINCT FROM $2
+                    THEN NULL ELSE external_part_ids END,
+                contact_id = $2, status = 'QUEUED', attempts = 0,
+                claims_without_progress = 0,
                 next_attempt_at = clock_timestamp(), locked_until = NULL, last_error = NULL
           WHERE id = $1`,
         [id, row.resolved_contact_id],
@@ -942,7 +1088,8 @@ export class PostgresMessageRepository
       await client.query(
         `UPDATE messages
             SET status = 'SENT_MANUALLY', sent_at = clock_timestamp(),
-                handled_by = $2, locked_until = NULL, last_error = NULL
+                handled_by = $2, locked_until = NULL, last_error = NULL,
+                claims_without_progress = 0
           WHERE id = $1`,
         [id, adminId],
       );
@@ -960,7 +1107,8 @@ export class PostgresMessageRepository
       }
       await client.query(
         `UPDATE messages
-            SET status = 'DISCARDED', handled_by = $2, locked_until = NULL
+            SET status = 'DISCARDED', handled_by = $2, locked_until = NULL,
+                claims_without_progress = 0
           WHERE id = $1`,
         [id, adminId],
       );
@@ -1048,7 +1196,8 @@ export class PostgresMessageRepository
       await client.query(
         `UPDATE messages
             SET contact_id = NULL, status = 'WAITING_CONTACT',
-                locked_until = NULL, last_error = NULL
+                parts_sent = 0, external_part_ids = NULL, attempts = 0,
+                claims_without_progress = 0, locked_until = NULL, last_error = NULL
           WHERE ${idColumn} = $1 AND contact_id = $2
             AND status IN ('QUEUED', 'WAITING_WINDOW', 'FAILED')`,
         [id, contactId],
@@ -1314,4 +1463,7 @@ export class PostgresMessageRepository
   }
 }
 
-export const postgresMessageRepository = new PostgresMessageRepository();
+export const postgresMessageRepository = new PostgresMessageRepository(
+  applicationPool,
+  env.INSTAGRAM_ACCOUNT_ID ?? null,
+);

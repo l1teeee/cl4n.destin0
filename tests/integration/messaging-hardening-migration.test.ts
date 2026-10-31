@@ -109,9 +109,10 @@ describe("migration 0014 messaging hardening", () => {
       const migratedMessage = await pool.query<{
         external_part_ids: string[] | null;
         parts_sent: number;
+        claims_without_progress: number;
         received_at: Date;
       }>(
-        `SELECT parts_sent, external_part_ids, received_at
+        `SELECT parts_sent, external_part_ids, claims_without_progress, received_at
            FROM messages
           WHERE id = $1`,
         [message.rows[0]!.id],
@@ -119,6 +120,7 @@ describe("migration 0014 messaging hardening", () => {
       expect(migratedMessage.rows[0]).toMatchObject({
         external_part_ids: null,
         parts_sent: 0,
+        claims_without_progress: 0,
       });
       expect(migratedMessage.rows[0]!.received_at.toISOString()).toBe(createdAt.toISOString());
 
@@ -142,6 +144,11 @@ describe("migration 0014 messaging hardening", () => {
         pool.query("UPDATE messages SET parts_sent = -1 WHERE id = $1", [message.rows[0]!.id]),
       ).rejects.toMatchObject({ constraint: "messages_parts_sent_chk" });
       await expect(
+        pool.query("UPDATE messages SET claims_without_progress = -1 WHERE id = $1", [
+          message.rows[0]!.id,
+        ]),
+      ).rejects.toMatchObject({ constraint: "messages_claims_without_progress_chk" });
+      await expect(
         pool.query("UPDATE messages SET external_part_ids = ARRAY[]::text[] WHERE id = $1", [
           message.rows[0]!.id,
         ]),
@@ -160,6 +167,21 @@ describe("migration 0014 messaging hardening", () => {
       ).rejects.toMatchObject({
         constraint: "waitlist_entries_contact_link_pair_chk",
       });
+
+      await pool.query("DELETE FROM messaging_contacts WHERE id = $1", [contactId]);
+      const deletedContactLinks = await pool.query<{
+        contact_id: string | null;
+        contact_linked_by: string | null;
+      }>(
+        `SELECT contact_id, contact_linked_by FROM reservations WHERE id = $1
+         UNION ALL
+         SELECT contact_id, contact_linked_by FROM waitlist_entries WHERE id = $2`,
+        [reservation.rows[0]!.id, waitlist.rows[0]!.id],
+      );
+      expect(deletedContactLinks.rows).toEqual([
+        { contact_id: null, contact_linked_by: null },
+        { contact_id: null, contact_linked_by: null },
+      ]);
     } finally {
       await pool.end();
       rmSync(previous, { recursive: true, force: true });

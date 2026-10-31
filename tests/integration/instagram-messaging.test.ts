@@ -182,12 +182,30 @@ describe("Instagram webhook ingestion", () => {
       "SELECT id FROM messaging_contacts WHERE instagram_scoped_id = $1",
       [sender],
     );
-    const messages = await pool.query<{ body: string }>(
-      "SELECT body FROM messages WHERE external_message_id = $1",
+    const messages = await pool.query<{ body: string; created_at: Date; received_at: Date }>(
+      "SELECT body, created_at, received_at FROM messages WHERE external_message_id = $1",
       [mid],
     );
     expect(contacts.rowCount).toBe(1);
-    expect(messages.rows).toEqual([{ body: "first" }]);
+    expect(messages.rows[0]!.body).toBe("first");
+    expect(messages.rows[0]!.created_at.toISOString()).toBe(now.toISOString());
+    expect(messages.rows[0]!.received_at.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("never creates a contact for the configured account id", async () => {
+    const accountId = `11${Date.now()}`;
+    const guardedRepository = new PostgresMessageRepository(pool, accountId);
+
+    const result = await guardedRepository.ingestEvents([
+      inbound(`self-${randomUUID()}`, accountId),
+    ]);
+
+    expect(result.contacts).toEqual([]);
+    expect(
+      await pool.query("SELECT 1 FROM messaging_contacts WHERE instagram_scoped_id = $1", [
+        accountId,
+      ]),
+    ).toHaveProperty("rowCount", 0);
   });
 
   it("records app echoes, ignores our stored mid, edits and deletes inbound messages", async () => {
@@ -270,6 +288,27 @@ describe("Instagram webhook ingestion", () => {
       attachment_urls: string[] | null;
     }>("SELECT body, attachment_urls FROM messages WHERE external_message_id = $1", [mid]);
     expect(row.rows).toEqual([{ body: "[mensaje eliminado]", attachment_urls: null }]);
+  });
+
+  it("does not move last_inbound_at for a deletion", async () => {
+    const sender = `211${Date.now()}`;
+    const originalInbound = new Date("2026-10-29T10:00:00Z");
+    await createContact(sender, originalInbound);
+
+    await ingest([
+      {
+        type: "deleted",
+        senderId: sender,
+        externalMessageId: `deleted-window-${randomUUID()}`,
+        timestamp: new Date("2026-10-31T10:00:00Z"),
+      },
+    ]);
+
+    const contact = await pool.query<{ last_inbound_at: Date }>(
+      "SELECT last_inbound_at FROM messaging_contacts WHERE instagram_scoped_id = $1",
+      [sender],
+    );
+    expect(contact.rows[0]!.last_inbound_at.toISOString()).toBe(originalInbound.toISOString());
   });
 
   it("rolls back one invalid event to its savepoint and continues the batch", async () => {
@@ -519,6 +558,60 @@ describe("Instagram webhook ingestion", () => {
     expect(attachment.rows).toEqual([{ position: 1, content_type: "image/png" }]);
   });
 
+  it("lets an unsend tombstone win against an in-flight image download", async () => {
+    const sender = `601${Date.now()}`;
+    const externalMessageId = `image-unsend-${randomUUID()}`;
+    let releaseDownload!: () => void;
+    const downloadReleased = new Promise<void>((resolve) => {
+      releaseDownload = resolve;
+    });
+    let notifyStarted!: () => void;
+    const downloadStarted = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    const result = await ingest(
+      [
+        inbound(externalMessageId, sender, null, {
+          attachmentUrls: ["https://lookaside.fbsbx.com/receipt"],
+          imageAttachmentUrls: ["https://lookaside.fbsbx.com/receipt"],
+        }),
+      ],
+      fakeMessenger({
+        downloadImage: vi.fn(async () => {
+          notifyStarted();
+          await downloadReleased;
+          return {
+            contentType: "image/png",
+            data: Buffer.from("89504e470d0a1a0a", "hex"),
+          };
+        }),
+      }),
+      { [sender]: "unsend.guest" },
+    );
+
+    const followup = result.after();
+    await downloadStarted;
+    await ingest([
+      {
+        type: "deleted",
+        senderId: sender,
+        externalMessageId,
+        timestamp: now,
+      },
+    ]);
+    releaseDownload();
+    await followup;
+
+    const attachments = await pool.query(
+      `SELECT 1
+         FROM message_attachments a
+         JOIN messages m ON m.id = a.message_id
+        WHERE m.external_message_id = $1`,
+      [externalMessageId],
+    );
+    expect(attachments.rowCount).toBe(0);
+  });
+
   it("retries missing inbound images and skips permanent failures", async () => {
     const sender = `61${Date.now()}`;
     const imageUrl = "https://lookaside.fbsbx.com/receipt";
@@ -560,6 +653,37 @@ describe("Instagram webhook ingestion", () => {
     await skipped.after();
     expect(permanent.downloadImage).not.toHaveBeenCalled();
   });
+
+  it("orders missing inbound image candidates newest first", async () => {
+    const contactId = await createContact(`62${Date.now()}`);
+    const older = await pool.query<{ id: string }>(
+      `INSERT INTO messages (
+         contact_id, direction, kind, source, status, body, attachment_urls,
+         received_at, created_at
+       ) VALUES ($1, 'INBOUND', 'INBOUND', 'GUEST', 'RECEIVED', NULL,
+                 ARRAY['https://lookaside.fbsbx.com/older'],
+                 '2098-01-01T00:00:00Z', '2098-01-01T00:00:00Z')
+       RETURNING id`,
+      [contactId],
+    );
+    const newer = await pool.query<{ id: string }>(
+      `INSERT INTO messages (
+         contact_id, direction, kind, source, status, body, attachment_urls,
+         received_at, created_at
+       ) VALUES ($1, 'INBOUND', 'INBOUND', 'GUEST', 'RECEIVED', NULL,
+                 ARRAY['https://lookaside.fbsbx.com/newer'],
+                 '2099-01-01T00:00:00Z', '2099-01-01T00:00:00Z')
+       RETURNING id`,
+      [contactId],
+    );
+
+    const candidates = await repository.listMissingInboundImages(2);
+
+    expect(candidates.map((candidate) => candidate.messageId)).toEqual([
+      newer.rows[0]!.id,
+      older.rows[0]!.id,
+    ]);
+  });
 });
 
 describe("PostgreSQL message delivery", () => {
@@ -597,22 +721,269 @@ describe("PostgreSQL message delivery", () => {
     );
     expect(summary.outcomes[waiting.rows[0]!.id]).toBe("SENT");
 
+    const staleContact = await createContact(`690${Date.now()}`);
     const retryable = await pool.query<{ id: string }>(
       `INSERT INTO messages (
-         reservation_id, direction, kind, source, status, body
-       ) VALUES ($1, 'OUTBOUND', 'FREE_TEXT', 'ADMIN', 'WAITING_CONTACT', 'retry')
+         contact_id, reservation_id, direction, kind, source, status, body,
+         parts_sent, external_part_ids, attempts
+       ) VALUES ($1, $2, 'OUTBOUND', 'FREE_TEXT', 'ADMIN', 'FAILED', 'retry',
+                 1, ARRAY['stale-mid'], 4)
        RETURNING id`,
-      [reservationId],
+      [staleContact, reservationId],
     );
     await expect(repository.retryMessage(retryable.rows[0]!.id)).resolves.toBe("UPDATED");
-    const retried = await pool.query<{ contact_id: string; status: string }>(
-      "SELECT contact_id, status FROM messages WHERE id = $1",
+    const retried = await pool.query<{
+      contact_id: string;
+      status: string;
+      parts_sent: number;
+      external_part_ids: string[] | null;
+      attempts: number;
+    }>(
+      `SELECT contact_id, status, parts_sent, external_part_ids, attempts
+         FROM messages WHERE id = $1`,
       [retryable.rows[0]!.id],
     );
     expect(retried.rows[0]).toEqual({
       contact_id: contactId,
       status: "QUEUED",
+      parts_sent: 0,
+      external_part_ids: null,
+      attempts: 0,
     });
+  });
+
+  it("repairs reservation and waitlist contacts with primary-key updates", async () => {
+    const staleContact = await createContact(`6901${Date.now()}`);
+    const currentContact = await createContact(`6902${Date.now()}`);
+    const eventId = await createEvent();
+    const reservationId = await createReservation(eventId, {
+      handle: "repair.reservation",
+      contactId: currentContact,
+    });
+    const waitlist = await pool.query<{ id: string }>(
+      `INSERT INTO waitlist_entries (
+         event_id, waitlist_number, status, full_name, instagram_handle, party_size,
+         terms_accepted_at, idempotency_key, submitted_at, contact_id, contact_linked_by
+       ) VALUES ($1, 1, 'WAITING', 'Repair Guest', 'repair.waitlist', 1,
+                 clock_timestamp(), $2, clock_timestamp(), $3, 'MANUAL')
+       RETURNING id`,
+      [eventId, randomUUID(), currentContact],
+    );
+    const messages = await pool.query<{ id: string }>(
+      `INSERT INTO messages (
+         contact_id, reservation_id, waitlist_entry_id, direction, kind, source, status,
+         body, parts_sent, external_part_ids, attempts
+       ) VALUES
+         ($1, $2, NULL, 'OUTBOUND', 'FREE_TEXT', 'ADMIN', 'WAITING_CONTACT',
+          'reservation repair', 1, ARRAY['reservation-mid'], 3),
+         ($1, NULL, $3, 'OUTBOUND', 'FREE_TEXT', 'ADMIN', 'WAITING_CONTACT',
+          'waitlist repair', 1, ARRAY['waitlist-mid'], 3)
+       RETURNING id`,
+      [staleContact, reservationId, waitlist.rows[0]!.id],
+    );
+
+    await expect(repository.repairWaitingContacts()).resolves.toBe(2);
+
+    const repaired = await pool.query<{
+      id: string;
+      contact_id: string;
+      status: string;
+      parts_sent: number;
+      external_part_ids: string[] | null;
+      attempts: number;
+    }>(
+      `SELECT id, contact_id, status, parts_sent, external_part_ids, attempts
+         FROM messages WHERE id = ANY($1::uuid[])`,
+      [messages.rows.map((row) => row.id)],
+    );
+    expect(repaired.rows).toHaveLength(2);
+    expect(repaired.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contact_id: currentContact,
+          status: "QUEUED",
+          parts_sent: 0,
+          external_part_ids: null,
+          attempts: 0,
+        }),
+        expect.objectContaining({
+          contact_id: currentContact,
+          status: "QUEUED",
+          parts_sent: 0,
+          external_part_ids: null,
+          attempts: 0,
+        }),
+      ]),
+    );
+  });
+
+  it("resets a partially sent LOCATION when retargeted and sends every part to the new contact", async () => {
+    const oldContact = await createContact(`691${Date.now()}`);
+    const newRecipient = `692${Date.now()}`;
+    const newContact = await createContact(newRecipient);
+    const eventId = await createEvent();
+    await pool.query(
+      `UPDATE events
+          SET location_status = 'CONFIRMED', location_address = 'Calle 1',
+              location_confirmed_at = clock_timestamp(), location_revision = 1
+        WHERE id = $1`,
+      [eventId],
+    );
+    const reservationId = await createReservation(eventId, {
+      handle: "retarget.location",
+      contactId: oldContact,
+      stage: "PAID",
+    });
+    const message = await pool.query<{ id: string }>(
+      `INSERT INTO messages (
+         contact_id, reservation_id, event_id, direction, kind, source, status, body,
+         attachment_urls, location_revision, parts_sent, external_part_ids, attempts
+       ) VALUES (
+         $1, $2, $3, 'OUTBOUND', 'LOCATION', 'SYSTEM', 'QUEUED', 'ubicación',
+         ARRAY['https://example.com/one.jpg', 'https://example.com/two.jpg'], 1, 2,
+         ARRAY['old-text', 'old-image'], 4
+       ) RETURNING id`,
+      [oldContact, reservationId, eventId],
+    );
+    const admin = await pool.query<{ id: string }>(
+      `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
+       VALUES ($1, $1, 'hash', 'Retarget Admin') RETURNING id`,
+      [`retarget-${randomUUID()}@example.com`],
+    );
+
+    await expect(
+      repository.linkContact(newContact, { reservationId }, admin.rows[0]!.id),
+    ).resolves.toBe(true);
+    const reset = await pool.query<{
+      contact_id: string;
+      parts_sent: number;
+      external_part_ids: string[] | null;
+      attempts: number;
+    }>(
+      `SELECT contact_id, parts_sent, external_part_ids, attempts
+         FROM messages WHERE id = $1`,
+      [message.rows[0]!.id],
+    );
+    expect(reset.rows[0]).toEqual({
+      contact_id: newContact,
+      parts_sent: 0,
+      external_part_ids: null,
+      attempts: 0,
+    });
+
+    const sendText = vi.fn(async () => ({ messageId: "new-text" }));
+    const sendImage = vi
+      .fn()
+      .mockResolvedValueOnce({ messageId: "new-image-1" })
+      .mockResolvedValueOnce({ messageId: "new-image-2" });
+    const summary = await deliverMessagesNow(
+      {
+        repository,
+        messenger: fakeMessenger({ sendText, sendImage }),
+        now: () => now.getTime(),
+        logFailure: vi.fn(),
+        logStaleLease: vi.fn(),
+      },
+      [message.rows[0]!.id],
+      { timeBudgetMs: 1000 },
+    );
+
+    expect(summary.outcomes[message.rows[0]!.id]).toBe("SENT");
+    expect(sendText).toHaveBeenCalledWith(newRecipient, "ubicación");
+    expect(sendImage.mock.calls).toEqual([
+      [newRecipient, "https://example.com/one.jpg"],
+      [newRecipient, "https://example.com/two.jpg"],
+    ]);
+  });
+
+  it("re-resolves a zero-progress leased row from the subject before sending", async () => {
+    const oldContact = await createContact(`693${Date.now()}`);
+    const newRecipient = `694${Date.now()}`;
+    const newContact = await createContact(newRecipient);
+    const reservationId = await createReservation(await createEvent(), {
+      handle: "lease.retarget",
+      contactId: oldContact,
+    });
+    const messageId = await createOutbound(oldContact, { reservationId });
+    await repository.claimDue(1, [messageId]);
+    const admin = await pool.query<{ id: string }>(
+      `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
+       VALUES ($1, $1, 'hash', 'Lease Retarget Admin') RETURNING id`,
+      [`lease-retarget-${randomUUID()}@example.com`],
+    );
+    await repository.linkContact(newContact, { reservationId }, admin.rows[0]!.id);
+    const newerMessage = await createOutbound(newContact, {
+      body: "newer",
+      createdAt: new Date("2099-10-30T13:00:00Z"),
+    });
+    await expect(repository.claimDue(1, [newerMessage])).resolves.toEqual([]);
+    await pool.query(
+      "UPDATE messages SET locked_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+      [messageId],
+    );
+    const sendText = vi.fn(async () => ({ messageId: "retargeted-mid" }));
+
+    await deliverMessagesNow(
+      {
+        repository,
+        messenger: fakeMessenger({ sendText }),
+        now: () => now.getTime(),
+        logFailure: vi.fn(),
+        logStaleLease: vi.fn(),
+      },
+      [messageId],
+      { timeBudgetMs: 1000 },
+    );
+
+    expect(sendText).toHaveBeenCalledWith(newRecipient, "mensaje");
+  });
+
+  it("fails a fifth no-progress claim and continues with the next contact message", async () => {
+    const contactId = await createContact(`695${Date.now()}`);
+    const stalled = await createOutbound(contactId, {
+      body: "stalled",
+      createdAt: new Date("2026-10-30T09:00:00Z"),
+    });
+    const next = await createOutbound(contactId, {
+      body: "next",
+      createdAt: new Date("2026-10-30T09:01:00Z"),
+    });
+    await pool.query("UPDATE messages SET claims_without_progress = 5 WHERE id = $1", [stalled]);
+    const sendText = vi.fn(async () => ({ messageId: "next-mid" }));
+
+    await deliverMessagesNow(
+      {
+        repository,
+        messenger: fakeMessenger({ sendText }),
+        now: () => now.getTime(),
+        logFailure: vi.fn(),
+        logStaleLease: vi.fn(),
+      },
+      [next],
+      { timeBudgetMs: 1000 },
+    );
+
+    const rows = await pool.query<{
+      id: string;
+      status: string;
+      last_error: string | null;
+      claims_without_progress: number;
+    }>(
+      `SELECT id, status, last_error, claims_without_progress
+         FROM messages WHERE id = ANY($1::uuid[])`,
+      [[stalled, next]],
+    );
+    expect(rows.rows.find((row) => row.id === stalled)).toMatchObject({
+      status: "FAILED",
+      last_error: "NO_PROGRESS",
+      claims_without_progress: 0,
+    });
+    expect(rows.rows.find((row) => row.id === next)).toMatchObject({
+      status: "SENT",
+      claims_without_progress: 0,
+    });
+    expect(sendText).toHaveBeenCalledOnce();
+    expect(sendText).toHaveBeenCalledWith(expect.any(String), "next");
   });
 
   it("preserves per-contact order and fences a stale lease", async () => {
@@ -1040,19 +1411,37 @@ describe("admin message use cases", () => {
       "LIVE_LEASE",
     );
 
-    await pool.query("UPDATE messages SET locked_until = NULL, status = 'FAILED' WHERE id = $1", [
-      queued,
-    ]);
+    await pool.query(
+      `UPDATE messages
+          SET locked_until = NULL, status = 'FAILED', parts_sent = 1,
+              external_part_ids = ARRAY['partial-mid'], attempts = 4,
+              claims_without_progress = 3
+        WHERE id = $1`,
+      [queued],
+    );
     await expect(unlinkContact(repository, contactId, { reservationId }, adminId)).resolves.toBe(
       "UPDATED",
     );
     const message = await pool.query<{
       status: string;
       contact_id: string | null;
-    }>("SELECT status, contact_id FROM messages WHERE id = $1", [queued]);
+      parts_sent: number;
+      external_part_ids: string[] | null;
+      attempts: number;
+      claims_without_progress: number;
+    }>(
+      `SELECT status, contact_id, parts_sent, external_part_ids, attempts,
+              claims_without_progress
+         FROM messages WHERE id = $1`,
+      [queued],
+    );
     expect(message.rows[0]).toEqual({
       status: "WAITING_CONTACT",
       contact_id: null,
+      parts_sent: 0,
+      external_part_ids: null,
+      attempts: 0,
+      claims_without_progress: 0,
     });
     const audit = await pool.query<{ metadata: Record<string, string> }>(
       `SELECT metadata FROM audit_logs
@@ -1060,5 +1449,18 @@ describe("admin message use cases", () => {
       [reservationId],
     );
     expect(audit.rows[0]!.metadata).toEqual({ contactId });
+  });
+
+  it("does not fall back to a message contact when its subject is unlinked", async () => {
+    const contactId = await createContact(`99${Date.now()}`);
+    const reservationId = await createReservation(await createEvent(), {
+      handle: "subject.only",
+    });
+    const failed = await createOutbound(contactId, {
+      reservationId,
+      status: "FAILED",
+    });
+
+    await expect(repository.retryMessage(failed)).resolves.toBe("NOT_UPDATED");
   });
 });

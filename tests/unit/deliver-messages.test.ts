@@ -121,6 +121,33 @@ describe("message delivery", () => {
     expect(repository.markWaitingWindow).toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      name: "an empty message",
+      message: row({ body: null, attachmentUrls: [] }),
+      errorCode: "EMPTY_MESSAGE",
+    },
+    {
+      name: "delivery progress beyond the available parts",
+      message: row({ partsSent: 1 }),
+      errorCode: "PARTS_MISMATCH",
+    },
+    {
+      name: "more than twenty parts",
+      message: row({ body: null, attachmentUrls: Array.from({ length: 21 }, (_, i) => `${i}`) }),
+      errorCode: "TOO_MANY_PARTS",
+    },
+  ])("fails $name without calling Meta", async ({ message, errorCode }) => {
+    const { dependencies, repository, messenger } = setup(message);
+
+    const summary = await deliverPendingMessages(dependencies, { limit: 1, timeBudgetMs: 1000 });
+
+    expect(summary.failed).toBe(1);
+    expect(repository.markFailed).toHaveBeenCalledWith(message.id, message.lockedUntil, errorCode);
+    expect(messenger.sendText).not.toHaveBeenCalled();
+    expect(messenger.sendImage).not.toHaveBeenCalled();
+  });
+
   it("moves a Meta outside-window error to WAITING_WINDOW", async () => {
     const message = row();
     const { dependencies, repository } = setup(

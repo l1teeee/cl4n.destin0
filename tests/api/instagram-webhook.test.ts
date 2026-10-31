@@ -102,9 +102,13 @@ describe("Instagram webhook route", () => {
     const response = await POST(signedRequest(body));
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe("EVENT_RECEIVED");
-    expect(ingest).toHaveBeenCalledWith([
-      expect.objectContaining({ type: "inbound_message", externalMessageId: "m1" }),
-    ]);
+    expect(ingest).toHaveBeenCalledWith(
+      [expect.objectContaining({ type: "inbound_message", externalMessageId: "m1" })],
+      { deadline: expect.any(Number) },
+    );
+    const deadline = ingest.mock.calls[0]![1].deadline as number;
+    expect(deadline).toBeGreaterThan(Date.now() + 20_000);
+    expect(deadline).toBeLessThanOrEqual(Date.now() + 25_000);
     expect(after).toHaveBeenCalledOnce();
     expect(followup).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalledWith("info", "instagram_webhook_received", {

@@ -89,6 +89,25 @@ async function deliverClaimed(
     return;
   }
 
+  const parts = messageParts(row);
+  let invalidParts: string | null = null;
+  if (parts.length === 0) invalidParts = "EMPTY_MESSAGE";
+  else if (parts.length > 20) invalidParts = "TOO_MANY_PARTS";
+  else if (row.partsSent >= parts.length) invalidParts = "PARTS_MISMATCH";
+  if (invalidParts) {
+    if (
+      await finish(
+        dependencies,
+        row,
+        dependencies.repository.markFailed(row.id, row.lockedUntil, invalidParts),
+      )
+    ) {
+      summary.failed += 1;
+      summary.outcomes[row.id] = "FAILED";
+    }
+    return;
+  }
+
   if (!isMessagingWindowOpen(row.lastInboundAt, new Date(dependencies.now()))) {
     if (
       await finish(
@@ -103,7 +122,6 @@ async function deliverClaimed(
     return;
   }
 
-  const parts = messageParts(row);
   let lease = row.lockedUntil;
   for (let index = row.partsSent; index < parts.length; index += 1) {
     const extendedLease = await dependencies.repository.extendLease(row.id, lease);

@@ -97,7 +97,7 @@ describe("Graph Instagram messenger", () => {
       contentType: "image/png",
       data: png,
     });
-    expect(request.mock.calls[0]![1]).toMatchObject({ redirect: "follow" });
+    expect(request.mock.calls[0]![1]).toMatchObject({ redirect: "manual" });
   });
 
   it("rejects unsupported content and oversized declared images", async () => {
@@ -123,11 +123,56 @@ describe("Graph Instagram messenger", () => {
     });
     expect(request).not.toHaveBeenCalled();
 
-    const redirected = vi
-      .fn()
-      .mockResolvedValue(imageResponse(Buffer.from("x"), "https://example.com/image"));
+    const redirected = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://example.com/image" },
+      }),
+    );
     await expect(
       messenger(redirected).downloadImage("https://lookaside.fbsbx.com/image"),
     ).rejects.toMatchObject({ status: 400 });
+    expect(redirected).toHaveBeenCalledOnce();
+  });
+
+  it("follows at most three redirects and validates every Meta hop", async () => {
+    const png = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.from("data")]);
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://scontent.cdninstagram.com/one" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 307,
+          headers: { location: "https://lookaside.fbsbx.com/two" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 308,
+          headers: { location: "https://lookaside.fbsbx.com/final" },
+        }),
+      )
+      .mockResolvedValueOnce(imageResponse(png));
+
+    await expect(
+      messenger(request).downloadImage("https://lookaside.fbsbx.com/start"),
+    ).resolves.toMatchObject({ contentType: "image/png" });
+    expect(request).toHaveBeenCalledTimes(4);
+
+    const tooMany = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://lookaside.fbsbx.com/next" },
+      }),
+    );
+    await expect(
+      messenger(tooMany).downloadImage("https://lookaside.fbsbx.com/start"),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(tooMany).toHaveBeenCalledTimes(4);
   });
 });
