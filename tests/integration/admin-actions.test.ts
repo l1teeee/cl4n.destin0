@@ -427,6 +427,6 @@ describe("admin event Server Actions", () => {
     ).resolves.toMatchObject({ rows: [{ status: "CANCELLED" }] });
     await expect(
       pool.query("SELECT kind FROM email_outbox WHERE waitlist_entry_id = $1", [entryId]),
-    ).resolves.toMatchObject({ rows: [{ kind: "WAITLIST_CANCELLED" }] });
+    ).resolves.toMatchObject({ rows: [] });
   });
 });

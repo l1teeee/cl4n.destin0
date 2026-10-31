@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { PostgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { PostgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
@@ -28,6 +29,7 @@ beforeAll(async () => {
     rateLimiter: allowAllRateLimiter,
     botVerifier: allowAllBotVerifier,
     computeFingerprint: requestFingerprint,
+    generateLinkCode,
   });
 });
 
@@ -45,7 +47,7 @@ async function submit(eventSlug: string, sequence: number, partySize = 1) {
 }
 
 describe("confirmed location email concurrency", () => {
-  it("covers every concurrent direct confirmation and promotion exactly once", async () => {
+  it("bulk reconciliation covers concurrent public requests and promotions exactly once", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 6,
       maxPartySize: 2,
@@ -137,6 +139,10 @@ describe("confirmed location email concurrency", () => {
       location_released_revision: 0,
     });
     expect(eventState.rows[0]!.reserved_seats).toBeLessThanOrEqual(eventState.rows[0]!.capacity);
+
+    await expect(
+      locationRepository.queue(event.id, { revision: 0, status: "CONFIRMED" }, admin.rows[0]!.id),
+    ).resolves.toMatchObject({ ok: true });
 
     const coverage = await pool.query<{
       reservation_id: string;

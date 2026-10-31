@@ -7,6 +7,7 @@ import type { ReservationAllocationRepository } from "@/application/ports/reserv
 import { createReservationHandler } from "@/app/api/reservations/reservation-handler";
 import { DELETE, GET, HEAD, OPTIONS, PATCH, PUT } from "@/app/api/reservations/route";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 
 import { resetTestDatabase } from "../helpers/test-db";
@@ -59,6 +60,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     rateLimiter,
     botVerifier,
     computeFingerprint: requestFingerprint,
+    generateLinkCode,
     observability: { log },
     ...overrides,
   });
@@ -138,26 +140,24 @@ describe("POST /api/reservations", () => {
     const body = reservationBody(event.slug, 100);
 
     const first = await setup.handler(request(body, key));
-    const firstText = await first.text();
+    const firstBody = await first.json();
     const callsAfterFirst = {
       rate: setup.rateLimiter.consume.mock.calls.length,
       bot: setup.botVerifier.verify.mock.calls.length,
     };
     const replay = await setup.handler(request(body, key));
-    const replayText = await replay.text();
+    const replayBody = await replay.json();
 
     expect(first.status).toBe(201);
     expect(replay.status).toBe(first.status);
-    expect(replayText).toBe(firstText);
+    expect(replayBody).toEqual(firstBody);
     expect(replay.headers.get("Idempotent-Replayed")).toBe("true");
     expect(replay.headers.get("Cache-Control")).toBe("no-store");
     expect(setup.rateLimiter.consume).toHaveBeenCalledTimes(callsAfterFirst.rate);
     expect(setup.botVerifier.verify).toHaveBeenCalledTimes(callsAfterFirst.bot);
     const logOutput = JSON.stringify(log.mock.calls);
-    expect(logOutput).not.toContain(String(body.fullName));
-    expect(logOutput).not.toContain(String(body.instagram));
-    expect(logOutput).not.toContain(String(body.phone));
-    expect(logOutput).not.toContain(String(body.email));
+    expect(logOutput).not.toContain(String(body.guest1Name));
+    expect(logOutput).not.toContain(String(body.guest1Instagram));
     expect(logOutput).not.toContain(String(body.notes));
 
     const state = await pool.query(
@@ -170,42 +170,44 @@ describe("POST /api/reservations", () => {
     expect(state.rows[0]).toEqual({ reservations: 1, reserved_seats: 1, records: 1 });
   });
 
-  it("schedules one email delivery for a fresh reservation and none for its replay", async () => {
+  it("returns a link code for a couple and replays the same response", async () => {
     const event = await insertTestEvent(pool);
     const key = randomUUID();
-    const onReservationAccepted = vi.fn();
-    const setup = dependencies({ onReservationAccepted });
+    const setup = dependencies();
     const body = reservationBody(event.slug, 105, {
-      fullName: "  Ana Confirmada  ",
-      email: "  Ana.Confirmada@Example.com  ",
+      guest1Name: "  Ana Confirmada  ",
+      guest2Name: "Luis Invitado",
+      guest2Instagram: "luis.invitado",
       partySize: 2,
     });
 
     const first = await setup.handler(request(body, key));
-    const firstText = await first.text();
+    const firstBody = (await first.json()) as {
+      status: string;
+      request: { linkCode: string; partySize: number };
+    };
     const replay = await setup.handler(request(body, key));
 
     expect(first.status).toBe(201);
     expect(replay.status).toBe(201);
-    expect(onReservationAccepted).toHaveBeenCalledOnce();
-    expect(firstText).not.toContain("Ana.Confirmada@Example.com");
-    expect(firstText).not.toContain("Ana Confirmada");
+    expect(firstBody.status).toBe("RECEIVED");
+    expect(firstBody.request.partySize).toBe(2);
+    expect(firstBody.request.linkCode).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
+    await expect(replay.json()).resolves.toEqual(firstBody);
   });
 
-  it("does not schedule a confirmation for EVENT_FULL", async () => {
+  it("returns EVENT_FULL when seats and queue are full", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 1,
       reservedSeats: 1,
       maxPartySize: 1,
     });
-    const onReservationAccepted = vi.fn();
-    const setup = dependencies({ onReservationAccepted });
+    const setup = dependencies();
 
     const response = await setup.handler(request(reservationBody(event.slug, 106)));
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "EVENT_FULL" } });
-    expect(onReservationAccepted).not.toHaveBeenCalled();
   });
 
   it("returns 202 WAITLISTED with the queue position and replays it unchanged", async () => {
@@ -219,38 +221,36 @@ describe("POST /api/reservations", () => {
       "SELECT starts_at FROM events WHERE id = $1",
       [event.id],
     );
-    const onReservationConfirmed = vi.fn();
-    const setup = dependencies({ onReservationConfirmed });
+    const setup = dependencies();
     const key = randomUUID();
     const body = reservationBody(event.slug, 108);
 
     const first = await setup.handler(request(body, key));
     const replay = await setup.handler(request(body, key));
 
-    const expectedBody = {
+    const firstBody = (await first.json()) as Record<string, unknown>;
+    expect(firstBody).toMatchObject({
       status: "WAITLISTED",
       waitlist: {
         position: 1,
         partySize: 1,
         eventStartsAt: eventResult.rows[0]!.starts_at.toISOString(),
+        linkCode: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
       },
-    };
+    });
     expect(first.status).toBe(202);
-    await expect(first.json()).resolves.toEqual(expectedBody);
     expect(replay.status).toBe(202);
     expect(replay.headers.get("Idempotent-Replayed")).toBe("true");
-    await expect(replay.json()).resolves.toEqual(expectedBody);
-    expect(onReservationConfirmed).not.toHaveBeenCalled();
+    await expect(replay.json()).resolves.toEqual(firstBody);
     const logOutput = JSON.stringify(log.mock.calls);
     expect(logOutput).toContain("WAITLISTED");
   });
 
-  it("does not schedule a confirmation for DUPLICATE_RESERVATION", async () => {
+  it("returns DUPLICATE_RESERVATION for the same Instagram handle", async () => {
     const event = await insertTestEvent(pool);
     const body = reservationBody(event.slug, 107);
     await dependencies().handler(request(body));
-    const onReservationAccepted = vi.fn();
-    const setup = dependencies({ onReservationAccepted });
+    const setup = dependencies();
 
     const response = await setup.handler(request(body));
 
@@ -258,23 +258,48 @@ describe("POST /api/reservations", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "DUPLICATE_RESERVATION" },
     });
-    expect(onReservationAccepted).not.toHaveBeenCalled();
   });
 
-  it("does not schedule a confirmation for VALIDATION_FAILED", async () => {
+  it("returns VALIDATION_FAILED for an invalid Instagram handle", async () => {
     const event = await insertTestEvent(pool);
-    const onReservationAccepted = vi.fn();
-    const setup = dependencies({ onReservationAccepted });
+    const setup = dependencies();
 
     const response = await setup.handler(
-      request(reservationBody(event.slug, 108, { email: "invalid" })),
+      request(reservationBody(event.slug, 108, { guest1Instagram: "invalid handle" })),
     );
 
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toMatchObject({
-      error: { code: "VALIDATION_FAILED" },
+      error: {
+        code: "VALIDATION_FAILED",
+        fields: {
+          guest1Instagram: ["Ingresa un usuario de Instagram válido."],
+        },
+      },
     });
-    expect(onReservationAccepted).not.toHaveBeenCalled();
+  });
+
+  it("reports an invalid second Instagram handle on guest2Instagram", async () => {
+    const event = await insertTestEvent(pool);
+    const setup = dependencies();
+    const response = await setup.handler(
+      request(
+        reservationBody(event.slug, 1082, {
+          partySize: 2,
+          guest2Instagram: "invalid handle",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "VALIDATION_FAILED",
+        fields: {
+          guest2Instagram: ["Ingresa un usuario de Instagram válido."],
+        },
+      },
+    });
   });
 
   it("returns the 422 allergy field shape when the description is missing", async () => {
@@ -301,56 +326,17 @@ describe("POST /api/reservations", () => {
     expect(setup.botVerifier.verify).not.toHaveBeenCalled();
   });
 
-  it("does not schedule a confirmation for RATE_LIMITED", async () => {
+  it("returns RATE_LIMITED", async () => {
     const event = await insertTestEvent(pool);
-    const onReservationAccepted = vi.fn();
     const rateLimiter = {
       consume: vi.fn(async () => ({ allowed: false, retryAfterSeconds: 10 })),
     };
-    const setup = dependencies({ onReservationAccepted, rateLimiter });
+    const setup = dependencies({ rateLimiter });
 
     const response = await setup.handler(request(reservationBody(event.slug, 109)));
 
     expect(response.status).toBe(429);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "RATE_LIMITED" } });
-    expect(onReservationAccepted).not.toHaveBeenCalled();
-  });
-
-  it("keeps the confirmed response when confirmation scheduling throws", async () => {
-    const event = await insertTestEvent(pool);
-    const eventResult = await pool.query<{ starts_at: Date }>(
-      "SELECT starts_at FROM events WHERE id = $1",
-      [event.id],
-    );
-    const scheduleError = new Error("scheduler unavailable");
-    const captureException = vi.fn();
-    const onReservationAccepted = vi.fn(() => {
-      throw scheduleError;
-    });
-    const setup = dependencies({
-      onReservationAccepted,
-      observability: { log, captureException },
-    });
-
-    const response = await setup.handler(request(reservationBody(event.slug, 112)));
-    const text = await response.text();
-
-    expect(response.status).toBe(201);
-    expect(text).toBe(
-      JSON.stringify({
-        status: "CONFIRMED",
-        reservation: {
-          number: 1,
-          partySize: 1,
-          eventStartsAt: eventResult.rows[0]!.starts_at.toISOString(),
-        },
-      }),
-    );
-    expect(onReservationAccepted).toHaveBeenCalledOnce();
-    expect(log).toHaveBeenCalledWith("error", "reservation_confirmation_schedule_failed", {
-      requestId: expect.any(String),
-    });
-    expect(captureException).toHaveBeenCalledWith(scheduleError);
   });
 
   it("rejects reuse of a completed key with a different payload", async () => {
@@ -369,7 +355,7 @@ describe("POST /api/reservations", () => {
     const after = await pool.query("SELECT reserved_seats FROM events WHERE id = $1", [event.id]);
     expect(after.rows[0]).toEqual(before.rows[0]);
     expect(setup.botVerifier.verify).toHaveBeenCalledTimes(1);
-    expect(setup.rateLimiter.consume).toHaveBeenCalledTimes(3);
+    expect(setup.rateLimiter.consume).toHaveBeenCalledTimes(2);
   });
 
   it("rejects reuse of a completed key with different allergy data", async () => {
@@ -449,17 +435,26 @@ describe("POST /api/reservations", () => {
     });
   });
 
-  it("checks Turnstile before consuming an email or phone limit", async () => {
+  it("consumes the Instagram limit once per distinct handle after Turnstile", async () => {
     const event = await insertTestEvent(pool);
     const key = randomUUID();
     const rateLimiter = {
       consume: vi.fn(async ({ scope }: { scope: string }) => ({
-        allowed: scope !== "reservation:email",
-        retryAfterSeconds: scope === "reservation:email" ? 37 : 0,
+        allowed: scope !== "reservation:instagram",
+        retryAfterSeconds: scope === "reservation:instagram" ? 37 : 0,
       })),
     };
     const setup = dependencies({ rateLimiter });
-    const response = await setup.handler(request(reservationBody(event.slug, 140), key));
+    const response = await setup.handler(
+      request(
+        reservationBody(event.slug, 140, {
+          partySize: 2,
+          guest2Name: "Guest Two",
+          guest2Instagram: "guest.two",
+        }),
+        key,
+      ),
+    );
 
     expect(response.status).toBe(429);
     expect(response.headers.get("Retry-After")).toBe("37");
@@ -467,8 +462,8 @@ describe("POST /api/reservations", () => {
     expect(setup.botVerifier.verify).toHaveBeenCalledOnce();
     expect(rateLimiter.consume.mock.calls.map(([input]) => input.scope)).toEqual([
       "reservation:ip",
-      "reservation:email",
-      "reservation:phone",
+      "reservation:instagram",
+      "reservation:instagram",
     ]);
     const state = await pool.query(
       "SELECT COUNT(*)::int AS count FROM idempotency_records WHERE key = $1",

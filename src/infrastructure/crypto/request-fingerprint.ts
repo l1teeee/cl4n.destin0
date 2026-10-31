@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export interface NormalizedReservationFingerprintInput {
+export interface NormalizedGuestRequestFingerprintInput {
   eventSlug: string;
-  fullName: string;
-  instagram: string;
-  phone: string;
-  email: string;
-  partySize: number;
+  guest1Name: string;
+  guest1Instagram: string;
+  guest2Name: string | null;
+  guest2Instagram: string | null;
+  partySize: 1 | 2;
   notes?: string;
   hasAllergies: boolean;
   allergies: string | null;
@@ -19,18 +19,18 @@ function canonicalJson(value: Record<string, unknown>): string {
   return JSON.stringify(Object.fromEntries(sortedEntries));
 }
 
-export function requestFingerprint(input: NormalizedReservationFingerprintInput): string {
+export function requestFingerprint(input: NormalizedGuestRequestFingerprintInput): string {
   const payload = {
     acceptTerms: input.acceptTerms,
-    email: input.email,
-    eventSlug: input.eventSlug,
-    fullName: input.fullName,
-    instagram: input.instagram,
-    hasAllergies: input.hasAllergies,
     allergies: input.allergies,
+    eventSlug: input.eventSlug,
+    guest1Instagram: input.guest1Instagram,
+    guest1Name: input.guest1Name,
+    guest2Instagram: input.guest2Instagram,
+    guest2Name: input.guest2Name,
+    hasAllergies: input.hasAllergies,
     notes: input.notes ?? null,
     partySize: input.partySize,
-    phone: input.phone,
   };
 
   return createHash("sha256").update(canonicalJson(payload)).digest("hex");

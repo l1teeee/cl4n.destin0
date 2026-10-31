@@ -1,19 +1,25 @@
 import type { PoolClient } from "pg";
 
-import { queueConfirmedLocationEmail } from "./confirmed-location-email";
+import { enqueueGuestMessage, loadGuestMessageValues, renderGuestMessage } from "./guest-messages";
 
 interface WaitingEntryRow {
   id: string;
   waitlist_number: number;
   full_name: string;
   instagram_handle: string;
-  phone_e164: string;
-  email: string;
-  email_normalized: string;
+  guest2_full_name: string | null;
+  guest2_instagram_handle: string | null;
+  phone_e164: string | null;
+  email: string | null;
+  email_normalized: string | null;
   party_size: number;
   notes: string | null;
   allergies: string | null;
-  terms_accepted_at: Date;
+  terms_accepted_at: Date | null;
+  link_code: string | null;
+  contact_id: string | null;
+  source: "PUBLIC" | "ADMIN";
+  created_by: string | null;
   idempotency_key: string;
   submitted_at: Date;
 }
@@ -28,8 +34,10 @@ async function readWaitingHead(
   eventId: string,
 ): Promise<WaitingEntryRow | null> {
   const result = await client.query<WaitingEntryRow>(
-    `SELECT id, waitlist_number, full_name, instagram_handle, phone_e164,
-            email, email_normalized, party_size, notes, allergies, terms_accepted_at,
+    `SELECT id, waitlist_number, full_name, instagram_handle,
+            guest2_full_name, guest2_instagram_handle,
+            phone_e164, email, email_normalized, party_size, notes, allergies,
+            terms_accepted_at, link_code, contact_id, source, created_by,
             idempotency_key, submitted_at
        FROM waitlist_entries
       WHERE event_id = $1
@@ -52,9 +60,12 @@ async function hasConfirmedDuplicate(
        FROM reservations
       WHERE event_id = $1
         AND status = 'CONFIRMED'
-        AND (email_normalized = $2 OR phone_e164 = $3)
+        AND (
+          instagram_handle IN ($2, $3)
+          OR guest2_instagram_handle IN ($2, $3)
+        )
       LIMIT 1`,
-    [eventId, entry.email_normalized, entry.phone_e164],
+    [eventId, entry.instagram_handle, entry.guest2_instagram_handle],
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -116,13 +127,17 @@ async function insertPromotedReservation(
   const result = await client.query<{ id: string }>(
     `INSERT INTO reservations (
        event_id, reservation_number, status, full_name, instagram_handle,
+       guest2_full_name, guest2_instagram_handle,
        phone_e164, email, email_normalized, party_size, notes, allergies,
-       terms_accepted_at, idempotency_key, submitted_at, accepted_at
+       terms_accepted_at, link_code, contact_id, source, created_by,
+       idempotency_key, submitted_at, accepted_at
      )
      VALUES (
        $1, $2, 'CONFIRMED', $3, $4,
-       $5, $6, $7, $8, $9, $10,
-       $11, $12, $13, $14
+       $5, $6,
+       $7, $8, $9, $10, $11, $12,
+       $13, $14, $15, $16, $17,
+       $18, $19, $20
      )
      RETURNING id`,
     [
@@ -130,6 +145,8 @@ async function insertPromotedReservation(
       seats.last_reservation_number,
       entry.full_name,
       entry.instagram_handle,
+      entry.guest2_full_name,
+      entry.guest2_instagram_handle,
       entry.phone_e164,
       entry.email,
       entry.email_normalized,
@@ -137,6 +154,10 @@ async function insertPromotedReservation(
       entry.notes,
       entry.allergies,
       entry.terms_accepted_at,
+      entry.link_code,
+      entry.contact_id,
+      entry.source,
+      entry.created_by,
       entry.idempotency_key,
       entry.submitted_at,
       seats.accepted_at,
@@ -181,25 +202,29 @@ async function recordPromotion(
       }),
     ],
   );
-  await client.query(
-    `INSERT INTO email_outbox (kind, reservation_id)
-     VALUES ('WAITLIST_PROMOTED', $1)`,
-    [reservationId],
-  );
-  await queueConfirmedLocationEmail(client, eventId, reservationId);
+  const subject = { reservationId };
+  const values = await loadGuestMessageValues(client, subject);
+  const body = await renderGuestMessage(client, "PROMOTED", values);
+  await enqueueGuestMessage(client, {
+    kind: "PROMOTED",
+    subject,
+    eventId,
+    body,
+    source: "SYSTEM",
+  });
 }
 
 /**
  * Must run inside a transaction that already holds the event row lock.
  * Strict FIFO: stops at the first head entry that does not fit.
  */
-export async function promoteWaitlist(client: PoolClient, eventId: string): Promise<number> {
-  let promoted = 0;
+export async function promoteWaitlist(client: PoolClient, eventId: string): Promise<string[]> {
+  const promotedEntryIds: string[] = [];
 
   for (;;) {
     const entry = await readWaitingHead(client, eventId);
     if (!entry) {
-      return promoted;
+      return promotedEntryIds;
     }
 
     if (await hasConfirmedDuplicate(client, eventId, entry)) {
@@ -209,12 +234,12 @@ export async function promoteWaitlist(client: PoolClient, eventId: string): Prom
 
     const seats = await takeSeats(client, eventId, entry.party_size);
     if (!seats) {
-      return promoted;
+      return promotedEntryIds;
     }
 
     const reservationId = await insertPromotedReservation(client, eventId, entry, seats);
     await markPromoted(client, entry.id, reservationId);
     await recordPromotion(client, eventId, entry, reservationId, seats.last_reservation_number);
-    promoted += 1;
+    promotedEntryIds.push(entry.id);
   }
 }

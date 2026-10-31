@@ -5,6 +5,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { PostgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 
@@ -43,6 +44,7 @@ function submit(eventSlug: string, sequence: number) {
     rateLimiter: allowAllRateLimiter,
     botVerifier: allowAllBotVerifier,
     computeFingerprint: requestFingerprint,
+    generateLinkCode,
   })({
     idempotencyKey: randomUUID(),
     body: reservationBody(eventSlug, sequence),
@@ -158,7 +160,7 @@ describe("location email ordering behind the event row lock", () => {
     await expectSeatsWithinCapacity(event.id);
   });
 
-  it("queues its own location email for a reservation waiting behind an uncommitted release", async () => {
+  it("does not auto-queue location for a request waiting behind an uncommitted release", async () => {
     const event = await insertTestEvent(pool, { capacity: 5 });
     await confirmLocation(event.id);
     const earlierGuest = await insertConfirmedReservation(pool, event.id, 1);
@@ -179,15 +181,20 @@ describe("location email ordering behind the event row lock", () => {
     holder.release();
 
     expect((await reservation).status).toBe(201);
-    const counts = await locationRowCounts(event.id);
-    expect(counts.size).toBe(2);
-    for (const row of counts.values()) {
+    const beforeBulk = await locationRowCounts(event.id);
+    expect(beforeBulk.get(earlierGuest)).toMatchObject({ rows: 1, revisions: [0] });
+    expect([...beforeBulk.values()].filter((row) => row.rows === 0)).toHaveLength(1);
+    expect(
+      await locationRepository.queue(event.id, { revision: 0, status: "CONFIRMED" }, actorId),
+    ).toMatchObject({ ok: true, queued: 1 });
+    const afterBulk = await locationRowCounts(event.id);
+    for (const row of afterBulk.values()) {
       expect(row).toMatchObject({ rows: 1, revisions: [0] });
     }
     await expectSeatsWithinCapacity(event.id);
   });
 
-  it("queues the current revision for a confirmation waiting behind a location text edit", async () => {
+  it("bulk-queues the current revision after a request waits behind a location text edit", async () => {
     const event = await insertTestEvent(pool, { capacity: 5 });
     await confirmLocation(event.id);
     const earlierGuest = await insertConfirmedReservation(pool, event.id, 1);
@@ -208,16 +215,22 @@ describe("location email ordering behind the event row lock", () => {
     holder.release();
 
     expect((await reservation).status).toBe(201);
+    const beforeBulk = await locationRowCounts(event.id);
+    expect(beforeBulk.get(earlierGuest)).toMatchObject({ rows: 1, revisions: [0] });
+    expect([...beforeBulk.values()].filter((row) => row.rows === 0)).toHaveLength(1);
+    expect(
+      await locationRepository.queue(event.id, { revision: 1, status: "CONFIRMED" }, actorId),
+    ).toMatchObject({ ok: true, queued: 2 });
     const counts = await locationRowCounts(event.id);
-    expect(counts.size).toBe(2);
-    for (const [reservationId, row] of counts) {
-      const expectedRevision = reservationId === earlierGuest ? 0 : 1;
-      expect(row).toMatchObject({ rows: 1, revisions: [expectedRevision] });
-    }
+    expect(counts.get(earlierGuest)).toMatchObject({ rows: 2, revisions: [0, 1] });
+    const newGuest = [...counts.entries()].find(
+      ([reservationId]) => reservationId !== earlierGuest,
+    );
+    expect(newGuest?.[1]).toMatchObject({ rows: 1, revisions: [1] });
     const currentRevisionRows = await pool.query(
       "SELECT 1 FROM email_outbox WHERE kind = 'EVENT_LOCATION' AND location_revision = 1",
     );
-    expect(currentRevisionRows.rowCount).toBe(1);
+    expect(currentRevisionRows.rowCount).toBe(2);
     await expectSeatsWithinCapacity(event.id);
   });
 
