@@ -9,6 +9,7 @@ import { createSubmitReservation } from "@/application/reservations/submit-reser
 import type { AllocationCommand } from "@/application/ports/reservation-allocation-repository";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 import {
@@ -36,6 +37,7 @@ beforeAll(async () => {
     rateLimiter: allowAllRateLimiter,
     botVerifier: allowAllBotVerifier,
     computeFingerprint: requestFingerprint,
+    generateLinkCode,
   });
 });
 
@@ -64,26 +66,28 @@ function allocationCommand(eventSlug: string, key = randomUUID()): AllocationCom
     eventSlug,
     fullName: "Retry Guest",
     instagramHandle: "retry.guest",
-    phoneE164: "+50371009999",
-    email: "retry@example.com",
-    emailNormalized: "retry@example.com",
+    guest2FullName: null,
+    guest2InstagramHandle: null,
     partySize: 1,
     notes: "Retry test",
     allergies: null,
+    linkCode: generateLinkCode(),
     mapOutcome: mapReservationOutcome,
   };
 }
 
 describe("reservation allocation repository", () => {
-  it("allocates a confirmed reservation with DB timestamps, normalized contacts, audit and idempotency", async () => {
+  it("allocates a received request with guest data, link code, audit and idempotency", async () => {
     const event = await insertTestEvent(pool);
     const key = randomUUID();
     const result = await submit(
       event.slug,
       1,
       {
-        email: "  PERSON@Example.COM ",
-        phone: "+503 7100-0001",
+        partySize: 2,
+        guest1Instagram: " @PERSON.ONE ",
+        guest2Name: "  Guest Two  ",
+        guest2Instagram: " @PERSON.TWO ",
         hasAllergies: true,
         allergies: "  Maní  ",
       },
@@ -92,14 +96,20 @@ describe("reservation allocation repository", () => {
 
     expect(result.status).toBe(201);
     expect(result.body).toMatchObject({
-      status: "CONFIRMED",
-      reservation: { number: 1, partySize: 1 },
+      status: "RECEIVED",
+      request: { number: 1, partySize: 2, linkCode: expect.any(String) },
     });
     const reservation = await pool.query<{
       id: string;
-      email: string;
-      email_normalized: string;
-      phone_e164: string;
+      email: null;
+      email_normalized: null;
+      phone_e164: null;
+      instagram_handle: string;
+      guest2_full_name: string;
+      guest2_instagram_handle: string;
+      link_code: string;
+      source: string;
+      stage: string;
       status: string;
       reservation_number: number;
       allergies: string | null;
@@ -107,9 +117,15 @@ describe("reservation allocation repository", () => {
       accepted_at: Date;
     }>("SELECT * FROM reservations WHERE idempotency_key = $1", [key]);
     expect(reservation.rows[0]).toMatchObject({
-      email: "PERSON@Example.COM",
-      email_normalized: "person@example.com",
-      phone_e164: "+50371000001",
+      email: null,
+      email_normalized: null,
+      phone_e164: null,
+      instagram_handle: "person.one",
+      guest2_full_name: "Guest Two",
+      guest2_instagram_handle: "person.two",
+      link_code: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
+      source: "PUBLIC",
+      stage: "IN_REVIEW",
       status: "CONFIRMED",
       reservation_number: 1,
       allergies: "Maní",
@@ -121,7 +137,7 @@ describe("reservation allocation repository", () => {
       "SELECT reserved_seats, last_reservation_number FROM events WHERE id = $1",
       [event.id],
     );
-    expect(eventState.rows[0]).toEqual({ reserved_seats: 1, last_reservation_number: 1 });
+    expect(eventState.rows[0]).toEqual({ reserved_seats: 2, last_reservation_number: 1 });
 
     const audit = await pool.query<{ metadata: Record<string, unknown> }>(
       "SELECT metadata FROM audit_logs WHERE entity_id = $1 AND action = 'RESERVATION_CREATED'",
@@ -130,10 +146,10 @@ describe("reservation allocation repository", () => {
     expect(audit.rows[0]!.metadata).toEqual({
       eventId: event.id,
       reservationNumber: 1,
-      partySize: 1,
+      partySize: 2,
     });
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(
-      /allerg|email|phone|instagram|maní|person@example/i,
+      /allerg|email|phone|instagram|maní|person\.one/i,
     );
 
     const idempotency = await pool.query(
@@ -204,15 +220,18 @@ describe("reservation allocation repository", () => {
   });
 
   it("stores a FULL_REJECTED row without changing counters", async () => {
-    const event = await insertTestEvent(pool, { capacity: 1, reservedSeats: 1, maxPartySize: 1 });
+    const event = await insertTestEvent(pool, { capacity: 2, reservedSeats: 2, maxPartySize: 2 });
     const result = await submit(event.slug, 5, {
+      partySize: 2,
       hasAllergies: true,
       allergies: "Mariscos",
     });
 
     expect(result.body).toMatchObject({ error: { code: "EVENT_FULL" } });
     const reservation = await pool.query(
-      `SELECT status, reservation_number, accepted_at, allergies
+      `SELECT status, reservation_number, accepted_at, allergies, link_code,
+              guest2_full_name, guest2_instagram_handle, source,
+              email, email_normalized, phone_e164
          FROM reservations WHERE event_id = $1`,
       [event.id],
     );
@@ -222,38 +241,46 @@ describe("reservation allocation repository", () => {
         reservation_number: null,
         accepted_at: null,
         allergies: null,
+        link_code: null,
+        guest2_full_name: "Guest 5 Companion",
+        guest2_instagram_handle: "guest.5.companion",
+        source: "PUBLIC",
+        email: null,
+        email_normalized: null,
+        phone_e164: null,
       },
     ]);
     const eventState = await pool.query(
       "SELECT reserved_seats, last_reservation_number FROM events WHERE id = $1",
       [event.id],
     );
-    expect(eventState.rows[0]).toEqual({ reserved_seats: 1, last_reservation_number: 0 });
+    expect(eventState.rows[0]).toEqual({ reserved_seats: 2, last_reservation_number: 0 });
   });
 
-  it("blocks confirmed duplicates by normalized email and phone", async () => {
+  it("blocks confirmed duplicates across either guest position", async () => {
     const event = await insertTestEvent(pool);
-    expect((await submit(event.slug, 10)).status).toBe(201);
+    expect((await submit(event.slug, 10, { partySize: 2 })).status).toBe(201);
 
-    const emailDuplicate = await submit(event.slug, 11, {
-      email: "GUEST.10@example.com",
+    const guest1Duplicate = await submit(event.slug, 11, {
+      guest1Instagram: "GUEST.10.COMPANION",
     });
-    const phoneDuplicate = await submit(event.slug, 10, {
-      email: "different@example.com",
+    const guest2Duplicate = await submit(event.slug, 12, {
+      partySize: 2,
+      guest2Instagram: "GUEST.10",
     });
 
-    expect(emailDuplicate.body).toMatchObject({ error: { code: "DUPLICATE_RESERVATION" } });
-    expect(phoneDuplicate.body).toMatchObject({ error: { code: "DUPLICATE_RESERVATION" } });
+    expect(guest1Duplicate.body).toMatchObject({ error: { code: "DUPLICATE_RESERVATION" } });
+    expect(guest2Duplicate.body).toMatchObject({ error: { code: "DUPLICATE_RESERVATION" } });
     const counts = await pool.query(
       `SELECT COUNT(*)::int AS reservations,
               (SELECT reserved_seats FROM events WHERE id = $1) AS reserved_seats
          FROM reservations WHERE event_id = $1`,
       [event.id],
     );
-    expect(counts.rows[0]).toEqual({ reservations: 1, reserved_seats: 1 });
+    expect(counts.rows[0]).toEqual({ reservations: 1, reserved_seats: 2 });
   });
 
-  it("does not treat cancelled or full-rejected contacts as duplicates", async () => {
+  it("does not treat cancelled or full-rejected handles as duplicates", async () => {
     const event = await insertTestEvent(pool);
     await pool.query(
       `INSERT INTO reservations (
@@ -268,8 +295,8 @@ describe("reservation allocation repository", () => {
       [event.id, randomUUID(), randomUUID()],
     );
 
-    expect((await submit(event.slug, 20)).status).toBe(201);
-    expect((await submit(event.slug, 21)).status).toBe(201);
+    expect((await submit(event.slug, 20, { guest1Instagram: "old.full" })).status).toBe(201);
+    expect((await submit(event.slug, 21, { guest1Instagram: "old.cancelled" })).status).toBe(201);
   });
 
   it("auto-closes on the last seat and classifies later attempts as full", async () => {
@@ -372,6 +399,168 @@ describe("reservation allocation repository", () => {
     expect(state.rows[0]).toEqual({ reservations: 0, idempotency: 0, reserved_seats: 0 });
   });
 
+  // Each case has its own codes: a code left in one table by an earlier case would otherwise
+  // be caught by the cross-table check instead of the unique index under test.
+  it.each([
+    { path: "seat", collidingCode: "AB23CD", retryCode: "EF45GH" },
+    { path: "waitlist", collidingCode: "JK67MN", retryCode: "PQ89RS" },
+  ] as const)(
+    "returns unstored TRY_AGAIN for a $path link-code collision and generates a new code on retry",
+    async ({ path, collidingCode, retryCode }) => {
+      const event = await insertTestEvent(pool, {
+        capacity: 1,
+        maxPartySize: 1,
+        waitlistCapacity: path === "waitlist" ? 1 : 0,
+      });
+      if (path === "waitlist") {
+        await submit(event.slug, 450);
+        await pool.query(
+          `INSERT INTO waitlist_entries (
+             event_id, waitlist_number, status, full_name, instagram_handle,
+             party_size, terms_accepted_at, link_code, idempotency_key,
+             submitted_at, cancelled_at
+           ) VALUES ($1, 999, 'CANCELLED', 'Old Guest', 'old.waiter', 1,
+                     now(), $3, $2, now(), now())`,
+          [event.id, randomUUID(), collidingCode],
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO reservations (
+             event_id, status, full_name, instagram_handle, party_size,
+             terms_accepted_at, link_code, idempotency_key, submitted_at, cancelled_at
+           ) VALUES ($1, 'CANCELLED', 'Old Guest', 'old.seat', 1,
+                     now(), $3, $2, now(), now())`,
+          [event.id, randomUUID(), collidingCode],
+        );
+      }
+
+      const generatedCodes = [collidingCode, retryCode];
+      const collisionSubmit = createSubmitReservation({
+        repository,
+        rateLimiter: allowAllRateLimiter,
+        botVerifier: allowAllBotVerifier,
+        computeFingerprint: requestFingerprint,
+        generateLinkCode: () => generatedCodes.shift()!,
+      });
+      const key = randomUUID();
+      const input = {
+        idempotencyKey: key,
+        body: reservationBody(event.slug, 451),
+        remoteIp: null,
+        rateLimitSubject: "unknown",
+      };
+
+      const collision = await collisionSubmit(input);
+      expect(collision.body).toMatchObject({ error: { code: "TRY_AGAIN" } });
+      const afterCollision = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM idempotency_records WHERE key = $1) AS idempotency,
+           (SELECT reserved_seats FROM events WHERE id = $2) AS reserved_seats,
+           (SELECT waitlisted_count FROM events WHERE id = $2) AS waitlisted_count`,
+        [key, event.id],
+      );
+      expect(afterCollision.rows[0]).toEqual({
+        idempotency: 0,
+        reserved_seats: path === "waitlist" ? 1 : 0,
+        waitlisted_count: 0,
+      });
+
+      const retry = await collisionSubmit(input);
+      expect(retry.status).toBe(path === "waitlist" ? 202 : 201);
+      expect(JSON.stringify(retry.body)).toContain(retryCode);
+    },
+  );
+
+  it.each([
+    {
+      path: "waitlist",
+      holder: "CANCELLED reservation",
+      collidingCode: "KM47PQ",
+      retryCode: "TV56WX",
+    },
+    {
+      path: "seat",
+      holder: "WAITING waitlist entry",
+      collidingCode: "YZ23BC",
+      retryCode: "DF89GH",
+    },
+  ] as const)(
+    "returns unstored TRY_AGAIN when the $path path draws a code held by a $holder of another event",
+    async ({ path, collidingCode, retryCode }) => {
+      const event = await insertTestEvent(pool, {
+        capacity: 1,
+        maxPartySize: 1,
+        waitlistCapacity: path === "waitlist" ? 1 : 0,
+      });
+      const otherEvent = await insertTestEvent(pool);
+      const seatsTakenBeforeCollision = path === "waitlist" ? 1 : 0;
+      if (path === "waitlist") {
+        await submit(event.slug, 470);
+        await pool.query(
+          `INSERT INTO reservations (
+             event_id, status, full_name, instagram_handle, party_size,
+             terms_accepted_at, link_code, idempotency_key, submitted_at, cancelled_at
+           ) VALUES ($1, 'CANCELLED', 'Old Guest', 'old.seat', 1,
+                     now(), $3, $2, now(), now())`,
+          [otherEvent.id, randomUUID(), collidingCode],
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO waitlist_entries (
+             event_id, waitlist_number, status, full_name, instagram_handle,
+             party_size, terms_accepted_at, link_code, idempotency_key, submitted_at
+           ) VALUES ($1, 1, 'WAITING', 'Old Guest', 'old.waiter', 1,
+                     now(), $3, $2, now())`,
+          [otherEvent.id, randomUUID(), collidingCode],
+        );
+      }
+
+      const generatedCodes = [collidingCode, retryCode];
+      const collisionSubmit = createSubmitReservation({
+        repository,
+        rateLimiter: allowAllRateLimiter,
+        botVerifier: allowAllBotVerifier,
+        computeFingerprint: requestFingerprint,
+        generateLinkCode: () => generatedCodes.shift()!,
+      });
+      const key = randomUUID();
+      const input = {
+        idempotencyKey: key,
+        body: reservationBody(event.slug, 471),
+        remoteIp: null,
+        rateLimitSubject: "unknown",
+      };
+
+      const collision = await collisionSubmit(input);
+      expect(collision.status).toBe(503);
+      expect(collision.body).toMatchObject({ error: { code: "TRY_AGAIN" } });
+      const afterCollision = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM idempotency_records WHERE key = $1) AS idempotency,
+           (SELECT COUNT(*)::int FROM reservations WHERE event_id = $2) AS reservations,
+           (SELECT COUNT(*)::int FROM waitlist_entries WHERE event_id = $2) AS waitlist_entries,
+           (SELECT COUNT(*)::int FROM messages WHERE event_id = $2) AS messages,
+           reserved_seats, last_reservation_number, waitlisted_count, last_waitlist_number
+         FROM events WHERE id = $2`,
+        [key, event.id],
+      );
+      expect(afterCollision.rows[0]).toEqual({
+        idempotency: 0,
+        reservations: seatsTakenBeforeCollision,
+        waitlist_entries: 0,
+        messages: seatsTakenBeforeCollision,
+        reserved_seats: seatsTakenBeforeCollision,
+        last_reservation_number: seatsTakenBeforeCollision,
+        waitlisted_count: 0,
+        last_waitlist_number: 0,
+      });
+
+      const retry = await collisionSubmit(input);
+      expect(retry.status).toBe(path === "waitlist" ? 202 : 201);
+      expect(JSON.stringify(retry.body)).toContain(retryCode);
+    },
+  );
+
   it.each([
     ["pool connect timeout", new Error("timeout exceeded when trying to connect")],
     ["connection refused", Object.assign(new Error("refused"), { code: "ECONNREFUSED" })],
@@ -418,15 +607,54 @@ describe("reservation cancellation", () => {
     expect(await cancelReservation({ ...command, reservationId: randomUUID() })).toBe("NOT_FOUND");
 
     const state = await pool.query(
-      `SELECT e.reserved_seats, r.status, r.cancelled_at,
+      `SELECT e.reserved_seats, r.status, r.cancelled_at, r.release_reason, r.refund_status,
               (SELECT COUNT(*)::int FROM audit_logs
                 WHERE entity_id = r.id AND action = 'RESERVATION_CANCELLED') AS audits
          FROM events e JOIN reservations r ON r.event_id = e.id
         WHERE r.id = $1`,
       [command.reservationId],
     );
-    expect(state.rows[0]).toMatchObject({ reserved_seats: 0, status: "CANCELLED", audits: 1 });
+    expect(state.rows[0]).toMatchObject({
+      reserved_seats: 0,
+      status: "CANCELLED",
+      release_reason: "CANCELLED",
+      refund_status: null,
+      audits: 1,
+    });
     expect(state.rows[0]!.cancelled_at).toBeInstanceOf(Date);
+  });
+
+  it("sets a pending refund only when cancelling a paid reservation", async () => {
+    const event = await insertTestEvent(pool);
+    await submit(event.slug, 51);
+    const reservation = await pool.query<{ id: string }>(
+      `UPDATE reservations
+          SET stage = 'PAID', on_list_at = now(), paid_at = now()
+        WHERE event_id = $1
+      RETURNING id`,
+      [event.id],
+    );
+    const admin = await pool.query<{ id: string }>(
+      `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
+       VALUES ($1, $1, 'hash', 'Refund Admin') RETURNING id`,
+      [`${randomUUID()}@example.com`],
+    );
+
+    expect(
+      await repository.cancelReservation({
+        reservationId: reservation.rows[0]!.id,
+        actorAdminId: admin.rows[0]!.id,
+      }),
+    ).toBe("CANCELLED");
+
+    const cancelled = await pool.query(
+      "SELECT release_reason, refund_status FROM reservations WHERE id = $1",
+      [reservation.rows[0]!.id],
+    );
+    expect(cancelled.rows[0]).toEqual({
+      release_reason: "CANCELLED",
+      refund_status: "PENDING",
+    });
   });
 
   it("does not cancel a full-rejected reservation", async () => {

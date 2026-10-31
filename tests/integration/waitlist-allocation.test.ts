@@ -7,8 +7,11 @@ import { createCancelReservation } from "@/application/reservations/cancel-reser
 import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
+import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import type { PostgresEventRepository as EventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
+import { promoteWaitlist } from "@/infrastructure/db/repositories/waitlist-promotion";
 
 import {
   allowAllBotVerifier,
@@ -42,6 +45,7 @@ beforeAll(async () => {
     rateLimiter: allowAllRateLimiter,
     botVerifier: allowAllBotVerifier,
     computeFingerprint: requestFingerprint,
+    generateLinkCode,
   });
   cancelReservation = createCancelReservation(repository);
   cancelWaitlistEntry = createCancelWaitlistEntry(repository);
@@ -97,8 +101,19 @@ async function outboxKinds(eventId: string): Promise<string[]> {
   return rows.rows.map((row) => row.kind).sort();
 }
 
+async function messageKinds(eventId: string): Promise<string[]> {
+  const rows = await pool.query<{ kind: string }>(
+    "SELECT kind FROM messages WHERE event_id = $1 ORDER BY created_at, id",
+    [eventId],
+  );
+  return rows.rows.map((row) => row.kind);
+}
+
 describe("waitlist admission", () => {
-  it("queues a request when seats are gone and records audit, outbox and counters", async () => {
+  it("queues a request with a link code and a rendered WAITING_CONTACT message", async () => {
+    await pool.query(
+      "UPDATE message_templates SET body = 'Hola {nombre}. La fecha es {fecha}. Posición {posicion}.' WHERE key = 'WAITLISTED'",
+    );
     const event = await fullEventWithQueue();
     const key = randomUUID();
 
@@ -111,6 +126,7 @@ describe("waitlist admission", () => {
         position: 1,
         partySize: 1,
         eventStartsAt: expect.any(String),
+        linkCode: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
       },
     });
     const entry = await pool.query<{
@@ -118,14 +134,19 @@ describe("waitlist admission", () => {
       status: string;
       waitlist_number: number;
       allergies: string | null;
+      link_code: string;
+      source: string;
     }>(
-      "SELECT id, status, waitlist_number, allergies FROM waitlist_entries WHERE idempotency_key = $1",
+      `SELECT id, status, waitlist_number, allergies, link_code, source
+         FROM waitlist_entries WHERE idempotency_key = $1`,
       [key],
     );
     expect(entry.rows[0]).toMatchObject({
       status: "WAITING",
       waitlist_number: 1,
       allergies: "Lácteos",
+      link_code: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
+      source: "PUBLIC",
     });
     const state = await pool.query(
       `SELECT reserved_seats, waitlisted_count, last_waitlist_number
@@ -150,12 +171,19 @@ describe("waitlist admission", () => {
       },
     ]);
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/allerg|lácteos/i);
-    const outbox = await pool.query<{ payload: unknown; reservation_id: string | null }>(
-      `SELECT payload, reservation_id FROM email_outbox
-        WHERE kind = 'RESERVATION_WAITLISTED' AND waitlist_entry_id = $1`,
+    const message = await pool.query<{ status: string; body: string }>(
+      `SELECT status, body FROM messages
+        WHERE kind = 'WAITLISTED' AND waitlist_entry_id = $1`,
       [entry.rows[0]!.id],
     );
-    expect(outbox.rows).toEqual([{ payload: { position: 1 }, reservation_id: null }]);
+    const eventDate = await pool.query<{ starts_at: Date }>(
+      "SELECT starts_at FROM events WHERE id = $1",
+      [event.id],
+    );
+    expect(message.rows[0]).toMatchObject({ status: "WAITING_CONTACT" });
+    expect(message.rows[0]!.body).toContain("Guest");
+    expect(message.rows[0]!.body).toContain(formatPublicEventDate(eventDate.rows[0]!.starts_at));
+    expect(await outboxKinds(event.id)).toEqual([]);
     const record = await pool.query(
       "SELECT reservation_id, waitlist_entry_id FROM idempotency_records WHERE key = $1",
       [key],
@@ -206,22 +234,27 @@ describe("waitlist admission", () => {
     expect(result.body).toMatchObject({ error: { code: "EVENT_FULL" } });
   });
 
-  it("blocks duplicates across confirmed reservations and waiting entries", async () => {
-    const event = await fullEventWithQueue();
-    expect((await submit(event.slug, 60)).status).toBe(202);
+  it("blocks handle duplicates across guest positions and active tables", async () => {
+    const event = await fullEventWithQueue({ seats: 2 });
+    expect((await submit(event.slug, 60, { partySize: 2 })).status).toBe(202);
 
-    const againstConfirmedEmail = await submit(event.slug, 61, {
-      email: "guest.10@example.com",
+    const againstConfirmed = await submit(event.slug, 61, {
+      guest1Instagram: "guest.10",
     });
-    const againstWaitingEmail = await submit(event.slug, 62, { email: "GUEST.60@example.com" });
-    const againstWaitingPhone = await submit(event.slug, 60, { email: "other@example.com" });
+    const againstWaitingGuest2 = await submit(event.slug, 62, {
+      guest1Instagram: "GUEST.60.COMPANION",
+    });
+    const waitingAsGuest2 = await submit(event.slug, 63, {
+      partySize: 2,
+      guest2Instagram: "guest.60",
+    });
 
-    for (const duplicate of [againstConfirmedEmail, againstWaitingEmail, againstWaitingPhone]) {
+    for (const duplicate of [againstConfirmed, againstWaitingGuest2, waitingAsGuest2]) {
       expect(duplicate.status).toBe(409);
       expect(duplicate.body).toMatchObject({
         error: {
           code: "DUPLICATE_RESERVATION",
-          message: "Ya existe una reservación o un lugar en la cola con este email o teléfono.",
+          message: "Ya existe una solicitud con este usuario de Instagram.",
         },
       });
     }
@@ -234,7 +267,7 @@ describe("waitlist admission", () => {
   it("does not queue a party larger than the event maximum", async () => {
     const event = await fullEventWithQueue();
 
-    const result = await submit(event.slug, 70, { partySize: 3 });
+    const result = await submit(event.slug, 70, { partySize: 2 });
 
     expect(result.body).toMatchObject({ error: { code: "PARTY_SIZE_NOT_ALLOWED" } });
   });
@@ -300,30 +333,76 @@ describe("waitlist admission", () => {
 });
 
 describe("waitlist promotion", () => {
-  it("promotes the head when a confirmed reservation is cancelled", async () => {
+  it("returns promoted entry ids in FIFO order", async () => {
     const event = await fullEventWithQueue();
+    await submit(event.slug, 95);
+    await submit(event.slug, 96);
+    const entries = await pool.query<{ id: string }>(
+      "SELECT id FROM waitlist_entries WHERE event_id = $1 ORDER BY waitlist_number",
+      [event.id],
+    );
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT id FROM events WHERE id = $1 FOR UPDATE", [event.id]);
+      await client.query("UPDATE events SET capacity = 3 WHERE id = $1", [event.id]);
+      const promotedIds = await promoteWaitlist(client, event.id);
+      await client.query("COMMIT");
+      expect(promotedIds).toEqual(entries.rows.map((entry) => entry.id));
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  it("promotes the head when a confirmed reservation is cancelled", async () => {
+    const event = await fullEventWithQueue({ seats: 2 });
     const queued = await submit(event.slug, 100, {
-      partySize: 1,
+      partySize: 2,
+      guest2Name: "Second Guest",
+      guest2Instagram: "second.guest",
       hasAllergies: true,
       allergies: "Nueces",
     });
     expect(queued.status).toBe(202);
+    const contact = await pool.query<{ id: string }>(
+      "INSERT INTO messaging_contacts (instagram_scoped_id) VALUES ($1) RETURNING id",
+      [String(Date.now())],
+    );
+    await pool.query("UPDATE waitlist_entries SET contact_id = $2 WHERE event_id = $1", [
+      event.id,
+      contact.rows[0]!.id,
+    ]);
     const confirmed = await pool.query<{ id: string }>(
-      "SELECT id FROM reservations WHERE event_id = $1 AND status = 'CONFIRMED'",
+      "SELECT id FROM reservations WHERE event_id = $1 AND status = 'CONFIRMED' ORDER BY reservation_number",
       [event.id],
     );
 
     expect(
       await cancelReservation({ reservationId: confirmed.rows[0]!.id, actorAdminId: adminId }),
     ).toBe("CANCELLED");
+    expect(
+      await cancelReservation({ reservationId: confirmed.rows[1]!.id, actorAdminId: adminId }),
+    ).toBe("CANCELLED");
 
     const promoted = await pool.query<{
       reservation_number: number;
       status: string;
-      email_normalized: string;
       allergies: string | null;
+      guest2_full_name: string;
+      guest2_instagram_handle: string;
+      link_code: string;
+      contact_id: string;
+      source: string;
+      created_by: string | null;
+      stage: string;
     }>(
-      `SELECT r.reservation_number, r.status, r.email_normalized, r.allergies
+      `SELECT r.reservation_number, r.status, r.allergies,
+              r.guest2_full_name, r.guest2_instagram_handle, r.link_code,
+              r.contact_id, r.source, r.created_by, r.stage
          FROM waitlist_entries w
          JOIN reservations r ON r.id = w.promoted_reservation_id
         WHERE w.event_id = $1 AND w.status = 'PROMOTED'`,
@@ -331,31 +410,47 @@ describe("waitlist promotion", () => {
     );
     expect(promoted.rows).toEqual([
       {
-        reservation_number: 2,
+        reservation_number: 3,
         status: "CONFIRMED",
-        email_normalized: "guest.100@example.com",
         allergies: "Nueces",
+        guest2_full_name: "Second Guest",
+        guest2_instagram_handle: "second.guest",
+        link_code: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
+        contact_id: contact.rows[0]!.id,
+        source: "PUBLIC",
+        created_by: null,
+        stage: "IN_REVIEW",
       },
     ]);
+    // The promoted reservation carries its own entry's code: the only allowed sharing.
+    const sharedCode = await pool.query(
+      `SELECT r.link_code = w.link_code AS same_code
+         FROM waitlist_entries w
+         JOIN reservations r ON r.id = w.promoted_reservation_id
+        WHERE w.event_id = $1 AND w.status = 'PROMOTED'`,
+      [event.id],
+    );
+    expect(sharedCode.rows).toEqual([{ same_code: true }]);
     const state = await pool.query(
       "SELECT reserved_seats, waitlisted_count FROM events WHERE id = $1",
       [event.id],
     );
-    expect(state.rows[0]).toEqual({ reserved_seats: 1, waitlisted_count: 0 });
+    expect(state.rows[0]).toEqual({ reserved_seats: 2, waitlisted_count: 0 });
     const audit = await pool.query<{ actor_type: string; metadata: Record<string, unknown> }>(
       "SELECT actor_type, metadata FROM audit_logs WHERE action = 'WAITLIST_PROMOTED' AND metadata ->> 'eventId' = $1",
       [event.id],
     );
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]!.actor_type).toBe("SYSTEM");
-    expect(audit.rows[0]!.metadata).toMatchObject({ reservationNumber: 2, partySize: 1 });
+    expect(audit.rows[0]!.metadata).toMatchObject({ reservationNumber: 3, partySize: 2 });
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/allerg|nueces/i);
-    expect(await outboxKinds(event.id)).toEqual([
-      "RESERVATION_CANCELLED",
-      "RESERVATION_CONFIRMED",
-      "RESERVATION_WAITLISTED",
-      "WAITLIST_PROMOTED",
+    expect(await messageKinds(event.id)).toEqual([
+      "REQUEST_RECEIVED",
+      "REQUEST_RECEIVED",
+      "WAITLISTED",
+      "PROMOTED",
     ]);
+    expect(await outboxKinds(event.id)).toEqual([]);
   });
 
   it("keeps the original idempotent replay as the 202 after promotion", async () => {
@@ -409,19 +504,17 @@ describe("waitlist promotion", () => {
     await pool.query(
       `INSERT INTO reservations (
          event_id, reservation_number, status, full_name, instagram_handle,
-         phone_e164, email, email_normalized, party_size, terms_accepted_at,
-         idempotency_key, submitted_at, accepted_at
-       ) VALUES ($1, 1, 'CONFIRMED', 'Seat Holder', 'seat.holder', '+50370000001',
-                 'dup@example.com', 'dup@example.com', 1, now(), $2, now(), now())`,
+         party_size, terms_accepted_at, idempotency_key, submitted_at, accepted_at
+       ) VALUES ($1, 1, 'CONFIRMED', 'Seat Holder', 'seat.holder',
+                 1, now(), $2, now(), now())`,
       [event.id, randomUUID()],
     );
     const entry = await pool.query<{ id: string }>(
       `INSERT INTO waitlist_entries (
          event_id, waitlist_number, status, full_name, instagram_handle,
-         phone_e164, email, email_normalized, party_size, terms_accepted_at,
-         idempotency_key, submitted_at
-       ) VALUES ($1, 1, 'WAITING', 'Dup Waiter', 'dup.waiter', '+50370000002',
-                 'dup@example.com', 'dup@example.com', 1, now(), $2, now())
+         party_size, terms_accepted_at, idempotency_key, submitted_at
+       ) VALUES ($1, 1, 'WAITING', 'Dup Waiter', 'seat.holder',
+                 1, now(), $2, now())
        RETURNING id`,
       [event.id, randomUUID()],
     );
@@ -452,7 +545,7 @@ describe("waitlist promotion", () => {
 });
 
 describe("cancelWaitlistEntry", () => {
-  it("cancels a waiting entry, frees its queue slot and queues the notice", async () => {
+  it("cancels a waiting entry without writing an email notice", async () => {
     const event = await fullEventWithQueue();
     await submit(event.slug, 130);
     const entry = await pool.query<{ id: string }>(
@@ -482,7 +575,7 @@ describe("cancelWaitlistEntry", () => {
     expect(audit.rows).toEqual([
       { actor_type: "ADMIN", actor_admin_id: adminId, entity_type: "WAITLIST_ENTRY" },
     ]);
-    expect(await outboxKinds(event.id)).toContain("WAITLIST_CANCELLED");
+    expect(await outboxKinds(event.id)).toEqual([]);
   });
 
   it("does not promote anybody and cannot cancel twice or a promoted entry", async () => {
@@ -559,13 +652,28 @@ describe("waitlist configuration", () => {
   });
 });
 
-describe("email outbox atomicity", () => {
-  it("writes the confirmation notice with the reservation", async () => {
+describe("guest message atomicity", () => {
+  it("writes REQUEST_RECEIVED without an email outbox row", async () => {
+    await pool.query(
+      "UPDATE message_templates SET body = 'Hola {nombre}. La fecha es {fecha}.' WHERE key = 'REQUEST_RECEIVED'",
+    );
     const event = await insertTestEvent(pool);
 
     expect((await submit(event.slug, 160)).status).toBe(201);
 
-    expect(await outboxKinds(event.id)).toEqual(["RESERVATION_CONFIRMED"]);
+    expect(await messageKinds(event.id)).toEqual(["REQUEST_RECEIVED"]);
+    const message = await pool.query<{ body: string; status: string }>(
+      "SELECT body, status FROM messages WHERE event_id = $1 AND kind = 'REQUEST_RECEIVED'",
+      [event.id],
+    );
+    const startsAt = await pool.query<{ starts_at: Date }>(
+      "SELECT starts_at FROM events WHERE id = $1",
+      [event.id],
+    );
+    expect(message.rows[0]).toMatchObject({ status: "WAITING_CONTACT" });
+    expect(message.rows[0]!.body).toContain("Guest");
+    expect(message.rows[0]!.body).toContain(formatPublicEventDate(startsAt.rows[0]!.starts_at));
+    expect(await outboxKinds(event.id)).toEqual([]);
   });
 
   it("leaves no outbox row, reservation or idempotency record when the allocation rolls back", async () => {
@@ -598,9 +706,10 @@ describe("email outbox atomicity", () => {
       rateLimiter: allowAllRateLimiter,
       botVerifier: allowAllBotVerifier,
       computeFingerprint: requestFingerprint,
+      generateLinkCode,
     });
-    const outboxBefore = await pool.query<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM email_outbox",
+    const messagesBefore = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM messages",
     );
 
     await expect(
@@ -612,10 +721,10 @@ describe("email outbox atomicity", () => {
       }),
     ).rejects.toThrow("simulated failure");
 
-    const outboxAfter = await pool.query<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM email_outbox",
+    const messagesAfter = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM messages",
     );
-    expect(outboxAfter.rows[0]!.count).toBe(outboxBefore.rows[0]!.count);
+    expect(messagesAfter.rows[0]!.count).toBe(messagesBefore.rows[0]!.count);
     const reservations = await pool.query("SELECT 1 FROM reservations WHERE event_id = $1", [
       event.id,
     ]);

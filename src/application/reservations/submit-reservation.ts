@@ -6,17 +6,12 @@ import type {
   ReservationAllocationRepository,
   ReservationResponse,
 } from "@/application/ports/reservation-allocation-repository";
-import { reservationRequestSchema } from "@/contracts/reservation-request";
-import {
-  normalizeEmail,
-  normalizeInstagram,
-  normalizePhone,
-} from "@/domain/reservation/contact-normalization";
+import { guestRequestSchema } from "@/contracts/guest-request";
+import { normalizeInstagram } from "@/domain/reservation/contact-normalization";
 
 import {
-  RESERVATION_EMAIL_RATE_LIMIT,
+  RESERVATION_INSTAGRAM_RATE_LIMIT,
   RESERVATION_IP_RATE_LIMIT,
-  RESERVATION_PHONE_RATE_LIMIT,
 } from "./reservation-rate-limits";
 import { mapReservationOutcome } from "./reservation-response";
 
@@ -33,13 +28,14 @@ export interface SubmitReservationDependencies {
   repository: ReservationAllocationRepository;
   rateLimiter: ReservationRateLimiter;
   botVerifier: BotVerifier;
+  generateLinkCode(): string;
   computeFingerprint(input: {
     eventSlug: string;
-    fullName: string;
-    instagram: string;
-    phone: string;
-    email: string;
-    partySize: number;
+    guest1Name: string;
+    guest1Instagram: string;
+    guest2Name: string | null;
+    guest2Instagram: string | null;
+    partySize: 1 | 2;
     notes?: string;
     hasAllergies: boolean;
     allergies: string | null;
@@ -54,12 +50,8 @@ export interface SubmitReservationInput {
   rateLimitSubject: string;
 }
 
-// The outbox row for these outcomes is written inside the allocation transaction.
-const outcomesWithEmail: ReadonlySet<string> = new Set(["CONFIRMED", "WAITLISTED"]);
-
 export interface SubmitReservationResult extends ReservationResponse {
   replayed: boolean;
-  acceptedReservation: boolean;
 }
 
 const idempotencyKeySchema = z.uuid();
@@ -68,7 +60,6 @@ function validationFailure(fieldErrors: Record<string, string[]>): SubmitReserva
   return {
     ...mapReservationOutcome({ code: "VALIDATION_FAILED", fieldErrors }),
     replayed: false,
-    acceptedReservation: false,
   };
 }
 
@@ -84,11 +75,10 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       return {
         ...mapReservationOutcome({ code: "IDEMPOTENCY_KEY_REQUIRED" }),
         replayed: false,
-        acceptedReservation: false,
       };
     }
 
-    const parsed = reservationRequestSchema.safeParse(input.body);
+    const parsed = guestRequestSchema.safeParse(input.body);
     if (!parsed.success) {
       const fieldErrors: Record<string, string[]> = {};
       for (const issue of parsed.error.issues) {
@@ -98,27 +88,25 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       return validationFailure(fieldErrors);
     }
 
-    const email = normalizeEmail(parsed.data.email);
-    const phone = normalizePhone(parsed.data.phone);
-    const instagram = normalizeInstagram(parsed.data.instagram);
+    const guest1Instagram = normalizeInstagram(parsed.data.guest1Instagram);
+    const guest2Instagram = parsed.data.guest2Instagram
+      ? normalizeInstagram(parsed.data.guest2Instagram)
+      : null;
     const allergies = parsed.data.hasAllergies ? parsed.data.allergies! : null;
 
-    if (!email.ok) {
-      return normalizationFailure("email", "Ingresa un email válido.");
+    if (!guest1Instagram.ok) {
+      return normalizationFailure("guest1Instagram", "Ingresa un usuario de Instagram válido.");
     }
-    if (!phone.ok) {
-      return normalizationFailure("phone", "Ingresa un teléfono válido.");
-    }
-    if (!instagram.ok) {
-      return normalizationFailure("instagram", "Ingresa un usuario de Instagram válido.");
+    if (guest2Instagram && !guest2Instagram.ok) {
+      return normalizationFailure("guest2Instagram", "Ingresa un usuario de Instagram válido.");
     }
 
     const fingerprint = dependencies.computeFingerprint({
       eventSlug: parsed.data.eventSlug,
-      fullName: parsed.data.fullName,
-      instagram: instagram.value,
-      phone: phone.value,
-      email: email.value,
+      guest1Name: parsed.data.guest1Name,
+      guest1Instagram: guest1Instagram.value,
+      guest2Name: parsed.data.guest2Name ?? null,
+      guest2Instagram: guest2Instagram?.value ?? null,
       partySize: parsed.data.partySize,
       notes: parsed.data.notes,
       hasAllergies: parsed.data.hasAllergies,
@@ -134,11 +122,10 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
         return {
           ...mapReservationOutcome({ code: "IDEMPOTENCY_KEY_REUSED" }),
           replayed: false,
-          acceptedReservation: false,
         };
       }
 
-      return { ...completed.response, replayed: true, acceptedReservation: false };
+      return { ...completed.response, replayed: true };
     }
 
     const ipLimit = await dependencies.rateLimiter.consume({
@@ -152,7 +139,6 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
           retryAfterSeconds: ipLimit.retryAfterSeconds,
         }),
         replayed: false,
-        acceptedReservation: false,
       };
     }
 
@@ -168,20 +154,21 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
           ...(botResult.reason === "TOKEN_EXPIRED_OR_SPENT" ? { reason: botResult.reason } : {}),
         }),
         replayed: false,
-        acceptedReservation: false,
       };
     }
 
-    const identityLimits = await Promise.all([
-      dependencies.rateLimiter.consume({
-        ...RESERVATION_EMAIL_RATE_LIMIT,
-        subject: email.value,
-      }),
-      dependencies.rateLimiter.consume({
-        ...RESERVATION_PHONE_RATE_LIMIT,
-        subject: phone.value,
-      }),
-    ]);
+    const handles = new Set([guest1Instagram.value]);
+    if (guest2Instagram?.ok) {
+      handles.add(guest2Instagram.value);
+    }
+    const identityLimits = await Promise.all(
+      [...handles].map((handle) =>
+        dependencies.rateLimiter.consume({
+          ...RESERVATION_INSTAGRAM_RATE_LIMIT,
+          subject: handle,
+        }),
+      ),
+    );
     const blockedIdentityLimits = identityLimits.filter((result) => !result.allowed);
     if (blockedIdentityLimits.length > 0) {
       const retryAfterSeconds = Math.max(
@@ -190,30 +177,24 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       return {
         ...mapReservationOutcome({ code: "RATE_LIMITED", retryAfterSeconds }),
         replayed: false,
-        acceptedReservation: false,
       };
     }
 
-    const emailAsEntered = parsed.data.email.trim();
     const allocation: AllocationResult = await dependencies.repository.allocate({
       idempotencyKey: input.idempotencyKey,
       fingerprint,
       eventSlug: parsed.data.eventSlug,
-      fullName: parsed.data.fullName,
-      instagramHandle: instagram.value,
-      phoneE164: phone.value,
-      email: emailAsEntered,
-      emailNormalized: email.value,
+      fullName: parsed.data.guest1Name,
+      instagramHandle: guest1Instagram.value,
+      guest2FullName: parsed.data.guest2Name ?? null,
+      guest2InstagramHandle: guest2Instagram?.value ?? null,
       partySize: parsed.data.partySize,
       notes: parsed.data.notes,
       allergies,
+      linkCode: dependencies.generateLinkCode(),
       mapOutcome: mapReservationOutcome,
     });
 
-    return {
-      ...allocation,
-      acceptedReservation:
-        allocation.replayed === false && outcomesWithEmail.has(allocation.outcome?.code ?? ""),
-    };
+    return allocation;
   };
 }

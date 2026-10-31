@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
 import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import type { PostgresEventRepository as EventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 
@@ -15,6 +16,7 @@ import {
   allowAllRateLimiter,
   insertTestEvent,
   reservationBody,
+  type TestEvent,
 } from "../helpers/reservation-test-data";
 
 interface RequestResult {
@@ -55,6 +57,7 @@ beforeAll(async () => {
     rateLimiter: allowAllRateLimiter,
     botVerifier: allowAllBotVerifier,
     computeFingerprint: requestFingerprint,
+    generateLinkCode,
   });
   cancelReservation = createCancelReservation(repository);
 });
@@ -92,7 +95,7 @@ async function fireTogether(
 }
 
 function resultCode(result: RequestResult): string {
-  if (result.body.status === "CONFIRMED" || result.body.status === "WAITLISTED") {
+  if (result.body.status === "RECEIVED" || result.body.status === "WAITLISTED") {
     return result.body.status;
   }
   const error = result.body.error as { code?: string } | undefined;
@@ -172,17 +175,26 @@ async function assertInvariants(
   expect(promotedReservations.rowCount).toBe(promotedCount);
 
   const duplicates = await pool.query(
-    `SELECT 1
-       FROM reservations
-      WHERE event_id = $1 AND status = 'CONFIRMED'
-      GROUP BY email_normalized
-     HAVING COUNT(*) > 1
-      UNION ALL
-     SELECT 1
-       FROM reservations
-      WHERE event_id = $1 AND status = 'CONFIRMED'
-      GROUP BY phone_e164
-     HAVING COUNT(*) > 1`,
+    `WITH active_handles AS (
+       SELECT instagram_handle AS handle
+         FROM reservations
+        WHERE event_id = $1 AND status = 'CONFIRMED'
+       UNION ALL
+       SELECT guest2_instagram_handle
+         FROM reservations
+        WHERE event_id = $1 AND status = 'CONFIRMED'
+          AND guest2_instagram_handle IS NOT NULL
+       UNION ALL
+       SELECT instagram_handle
+         FROM waitlist_entries
+        WHERE event_id = $1 AND status = 'WAITING'
+       UNION ALL
+       SELECT guest2_instagram_handle
+         FROM waitlist_entries
+        WHERE event_id = $1 AND status = 'WAITING'
+          AND guest2_instagram_handle IS NOT NULL
+     )
+     SELECT 1 FROM active_handles GROUP BY handle HAVING COUNT(*) > 1`,
     [eventId],
   );
   expect(duplicates.rows).toHaveLength(0);
@@ -221,7 +233,7 @@ function printSummary(
   durationMs: number,
 ): void {
   const otherOutcomes = results.filter(
-    (result) => !["CONFIRMED", "WAITLISTED", "EVENT_FULL"].includes(resultCode(result)),
+    (result) => !["RECEIVED", "WAITLISTED", "EVENT_FULL"].includes(resultCode(result)),
   ).length;
   console.log(
     `CONCURRENCY ${scenario} requests=${requests} confirmed=${summary.confirmed} full_rejected=${summary.fullRejected} waiting=${summary.waiting} other=${otherOutcomes} reserved=${summary.reservedSeats}/${summary.capacity} oversold=${summary.oversold} duration_ms=${durationMs}`,
@@ -340,14 +352,77 @@ async function waitForEventLockWaiters(expected: number): Promise<void> {
     const waiters = await pool.query<{ waiting: number }>(
       `SELECT COUNT(*)::int AS waiting
          FROM pg_stat_activity
-        WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE 'UPDATE events%'`,
     );
-    if (waiters.rows[0]!.waiting >= expected) {
+    if (waiters.rows[0]!.waiting === expected) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`Expected ${expected} requests waiting on the event lock`);
+  throw new Error(`Expected exactly ${expected} requests waiting on the event lock`);
+}
+
+// Requests queue on the held lock in the order given, so the winner of the race is fixed
+// by the test instead of by timing.
+async function fireBehindHeldEventLock(
+  event: TestEvent,
+  requests: Array<{ sequence: number; overrides?: Record<string, unknown> }>,
+): Promise<RequestResult[]> {
+  const holder = await pool.connect();
+  let committed = false;
+
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT id FROM events WHERE id = $1 FOR UPDATE", [event.id]);
+
+    const pending: Array<Promise<RequestResult[]>> = [];
+    for (const [index, request] of requests.entries()) {
+      pending.push(fireTogether(event.slug, [request]));
+      await waitForEventLockWaiters(index + 1);
+    }
+
+    await holder.query("COMMIT");
+    committed = true;
+    return (await Promise.all(pending)).flat();
+  } finally {
+    // A holder that never committed must not return to the pool with the event row locked.
+    holder.release(!committed);
+  }
+}
+
+async function activeIdentitiesForHandle(
+  eventId: string,
+  handle: string,
+): Promise<Array<{ source: string }>> {
+  const identities = await pool.query<{ source: string }>(
+    `SELECT 'CONFIRMED' AS source
+       FROM reservations
+      WHERE event_id = $1
+        AND status = 'CONFIRMED'
+        AND (instagram_handle = $2 OR guest2_instagram_handle = $2)
+      UNION ALL
+     SELECT 'WAITING' AS source
+       FROM waitlist_entries
+      WHERE event_id = $1
+        AND status = 'WAITING'
+        AND (instagram_handle = $2 OR guest2_instagram_handle = $2)`,
+    [eventId, handle],
+  );
+  return identities.rows;
+}
+
+// The unlocked pre-check stores its DUPLICATE_RESERVATION answer in idempotency_records.
+// Only the re-check under the event lock rolls back, so a missing record proves it ran.
+async function expectDuplicateRolledBackUnderLock(results: RequestResult[]): Promise<void> {
+  const duplicates = results.filter((result) => resultCode(result) === "DUPLICATE_RESERVATION");
+  expect(duplicates).toHaveLength(1);
+
+  const stored = await pool.query("SELECT 1 FROM idempotency_records WHERE key = $1", [
+    duplicates[0]!.key,
+  ]);
+  expect(stored.rowCount).toBe(0);
 }
 
 describe("reservation allocation concurrency", () => {
@@ -363,7 +438,7 @@ describe("reservation allocation concurrency", () => {
       const durationMs = Math.round(performance.now() - startedAt);
       const summary = await assertInvariants(event.id, results);
 
-      expect(results.filter((result) => resultCode(result) === "CONFIRMED")).toHaveLength(20);
+      expect(results.filter((result) => resultCode(result) === "RECEIVED")).toHaveLength(20);
       expect(summary.confirmed).toBe(20);
       expect(summary.oversold).toBe(0);
       printSummary(`A${repeat}`, requests.length, results, summary, durationMs);
@@ -400,16 +475,16 @@ describe("reservation allocation concurrency", () => {
     const durationMs = Math.round(performance.now() - startedAt);
     const summary = await assertInvariants(event.id, results);
 
-    expect(results.filter((result) => resultCode(result) === "CONFIRMED")).toHaveLength(0);
+    expect(results.filter((result) => resultCode(result) === "RECEIVED")).toHaveLength(0);
     expect(summary.reservedSeats).toBe(19);
     printSummary("C", requests.length, results, summary, durationMs);
   });
 
   it("D: preserves invariants with mixed party sizes", async () => {
-    const event = await insertTestEvent(pool, { capacity: 20, maxPartySize: 4 });
+    const event = await insertTestEvent(pool, { capacity: 20, maxPartySize: 2 });
     const requests = Array.from({ length: 200 }, (_, index) => ({
       sequence: 400_000 + index,
-      overrides: { partySize: (index % 4) + 1 },
+      overrides: { partySize: (index % 2) + 1 },
     }));
     const startedAt = performance.now();
     const results = await fireTogether(event.slug, requests);
@@ -436,9 +511,9 @@ describe("reservation allocation concurrency", () => {
 
     expect(summary.confirmed).toBe(1);
     expect(results.every((result) => result.status === first.status)).toBe(true);
-    expect(
-      results.every((result) => JSON.stringify(result.body) === JSON.stringify(first.body)),
-    ).toBe(true);
+    for (const result of results) {
+      expect(result.body).toEqual(first.body);
+    }
     const idempotency = await pool.query(
       "SELECT COUNT(*)::int AS count FROM idempotency_records WHERE key = $1",
       [key],
@@ -447,18 +522,21 @@ describe("reservation allocation concurrency", () => {
     printSummary("E", requests.length, results, summary, durationMs);
   });
 
-  it("F: confirms exactly one of 30 simultaneous requests sharing an email", async () => {
-    const event = await insertTestEvent(pool, { capacity: 30, maxPartySize: 1 });
+  it("F: creates exactly one active request for 30 submissions sharing an Instagram handle", async () => {
+    const event = await insertTestEvent(pool, { capacity: 30, maxPartySize: 2 });
     const requests = Array.from({ length: 30 }, (_, index) => ({
       sequence: 600_000 + index,
-      overrides: { email: "same-email@example.com" },
+      overrides:
+        index < 15
+          ? { guest1Instagram: "shared.handle" }
+          : { partySize: 2, guest2Instagram: "shared.handle" },
     }));
     const startedAt = performance.now();
     const results = await fireTogether(event.slug, requests);
     const durationMs = Math.round(performance.now() - startedAt);
     const summary = await assertInvariants(event.id, results);
 
-    expect(results.filter((result) => resultCode(result) === "CONFIRMED")).toHaveLength(1);
+    expect(results.filter((result) => resultCode(result) === "RECEIVED")).toHaveLength(1);
     expect(results.filter((result) => resultCode(result) === "DUPLICATE_RESERVATION")).toHaveLength(
       29,
     );
@@ -470,37 +548,29 @@ describe("reservation allocation concurrency", () => {
     for (let iteration = 0; iteration < 30; iteration += 1) {
       const event = await insertTestEvent(pool, {
         capacity: 20,
-        maxPartySize: 1,
+        maxPartySize: 2,
         waitlistCapacity: 5,
       });
       await seedReservations(event.slug, 19, 650_000 + iteration * 100);
-      const sharedIdentity = {
-        email: `cross-table-${iteration}@example.com`,
-        phone: "+50379999999",
-      };
+      const sharedHandle = `cross.table.${iteration}`;
       const results = await fireTogether(event.slug, [
-        { sequence: 653_000 + iteration * 2, overrides: sharedIdentity },
-        { sequence: 653_001 + iteration * 2, overrides: sharedIdentity },
+        {
+          sequence: 653_000 + iteration * 2,
+          overrides: { guest1Instagram: sharedHandle },
+        },
+        {
+          sequence: 653_001 + iteration * 2,
+          overrides: { partySize: 2, guest2Instagram: sharedHandle },
+        },
       ]);
       const summary = await assertInvariants(event.id, results);
-      const identities = await pool.query<{ source: string }>(
-        `SELECT 'CONFIRMED' AS source
-           FROM reservations
-          WHERE event_id = $1
-            AND status = 'CONFIRMED'
-            AND (email_normalized = $2 OR phone_e164 = $3)
-          UNION ALL
-         SELECT 'WAITING' AS source
-           FROM waitlist_entries
-          WHERE event_id = $1
-            AND status = 'WAITING'
-            AND (email_normalized = $2 OR phone_e164 = $3)`,
-        [event.id, sharedIdentity.email, sharedIdentity.phone],
-      );
+      const identities = await activeIdentitiesForHandle(event.id, sharedHandle);
 
-      expect(results.map(resultCode).sort()).toEqual(["CONFIRMED", "DUPLICATE_RESERVATION"]);
-      expect(identities.rows).toEqual([{ source: "CONFIRMED" }]);
-      expect(summary.waiting).toBe(0);
+      const codes = results.map(resultCode);
+      expect(codes.filter((code) => code === "DUPLICATE_RESERVATION")).toHaveLength(1);
+      expect(codes.filter((code) => code === "RECEIVED" || code === "WAITLISTED")).toHaveLength(1);
+      expect(identities).toHaveLength(1);
+      expect(summary.waiting).toBe(identities[0]!.source === "WAITING" ? 1 : 0);
     }
   });
 
@@ -511,48 +581,51 @@ describe("reservation allocation concurrency", () => {
       waitlistCapacity: 5,
     });
     await seedReservations(event.slug, 19, 660_000);
-    const guest = { email: "reverse-direction@example.com", phone: "+50379998888" };
-    const holder = await pool.connect();
-    let results: RequestResult[];
+    const sharedHandle = "reverse.direction";
 
-    try {
-      await holder.query("BEGIN");
-      await holder.query("SELECT id FROM events WHERE id = $1 FOR UPDATE", [event.id]);
-
-      const queued = fireTogether(event.slug, [
-        { sequence: 661_000, overrides: { ...guest, partySize: 2 } },
-      ]);
-      await waitForEventLockWaiters(1);
-      const seated = fireTogether(event.slug, [
-        { sequence: 661_001, overrides: { ...guest, partySize: 1 } },
-      ]);
-      await waitForEventLockWaiters(2);
-      await holder.query("COMMIT");
-      results = (await Promise.all([queued, seated])).flat();
-    } finally {
-      holder.release();
-    }
+    const results = await fireBehindHeldEventLock(event, [
+      {
+        sequence: 661_000,
+        overrides: { partySize: 2, guest2Instagram: sharedHandle },
+      },
+      { sequence: 661_001, overrides: { guest1Instagram: sharedHandle } },
+    ]);
 
     const summary = await assertInvariants(event.id, results);
-    const identities = await pool.query<{ source: string }>(
-      `SELECT 'CONFIRMED' AS source
-         FROM reservations
-        WHERE event_id = $1
-          AND status = 'CONFIRMED'
-          AND (email_normalized = $2 OR phone_e164 = $3)
-        UNION ALL
-       SELECT 'WAITING' AS source
-         FROM waitlist_entries
-        WHERE event_id = $1
-          AND status = 'WAITING'
-          AND (email_normalized = $2 OR phone_e164 = $3)`,
-      [event.id, guest.email, guest.phone],
-    );
+    const identities = await activeIdentitiesForHandle(event.id, sharedHandle);
 
     expect(results.map(resultCode)).toEqual(["WAITLISTED", "DUPLICATE_RESERVATION"]);
-    expect(identities.rows).toEqual([{ source: "WAITING" }]);
+    expect(identities).toEqual([{ source: "WAITING" }]);
     expect(summary.reservedSeats).toBe(19);
     expect(summary.waiting).toBe(1);
+    await expectDuplicateRolledBackUnderLock(results);
+  });
+
+  it("never queues a guest who was seated while the queue request waited on the event lock", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 20,
+      maxPartySize: 2,
+      waitlistCapacity: 5,
+    });
+    await seedReservations(event.slug, 19, 670_000);
+    const sharedHandle = "forward.direction";
+
+    const results = await fireBehindHeldEventLock(event, [
+      { sequence: 671_000, overrides: { guest1Instagram: sharedHandle } },
+      {
+        sequence: 671_001,
+        overrides: { partySize: 2, guest2Instagram: sharedHandle },
+      },
+    ]);
+
+    const summary = await assertInvariants(event.id, results);
+    const identities = await activeIdentitiesForHandle(event.id, sharedHandle);
+
+    expect(results.map(resultCode)).toEqual(["RECEIVED", "DUPLICATE_RESERVATION"]);
+    expect(identities).toEqual([{ source: "CONFIRMED" }]);
+    expect(summary.reservedSeats).toBe(20);
+    expect(summary.waiting).toBe(0);
+    await expectDuplicateRolledBackUnderLock(results);
   });
 
   it("G: preserves invariants while cancelling five and submitting 50 on a full event", async () => {
@@ -778,7 +851,7 @@ describe("reservation allocation concurrency", () => {
       [event.id],
     );
 
-    expect(results.filter((result) => resultCode(result) === "CONFIRMED")).toHaveLength(20);
+    expect(results.filter((result) => resultCode(result) === "RECEIVED")).toHaveLength(20);
     expect(summary.confirmed).toBe(20);
     expect(finalState.rows[0]).toEqual({ status: "CLOSED", closed_audits: 1 });
     expect(summary.oversold).toBe(0);
@@ -799,7 +872,7 @@ describe("reservation allocation concurrency", () => {
     const durationMs = Math.round(performance.now() - startedAt);
     const summary = await assertInvariants(event.id, results);
 
-    expect(results.filter((result) => resultCode(result) === "CONFIRMED")).toHaveLength(20);
+    expect(results.filter((result) => resultCode(result) === "RECEIVED")).toHaveLength(20);
     expect(results.filter((result) => resultCode(result) === "WAITLISTED")).toHaveLength(5);
     expect(results.filter((result) => resultCode(result) === "EVENT_FULL")).toHaveLength(75);
     expect(await waitlistStatuses(event.id)).toEqual(
@@ -842,7 +915,7 @@ describe("reservation allocation concurrency", () => {
     expect(summary.reservedSeats).toBe(20);
     expect(await expectPromotionsInFifoOrder(event.id)).toEqual([1, 2, 3]);
     const codes = results.map(resultCode);
-    expect(codes.filter((code) => code === "CONFIRMED")).toHaveLength(0);
+    expect(codes.filter((code) => code === "RECEIVED")).toHaveLength(0);
     expect(codes.every((code) => code === "WAITLISTED" || code === "EVENT_FULL")).toBe(true);
     const joined = codes.filter((code) => code === "WAITLISTED").length;
     expect(joined).toBeLessThanOrEqual(3);
@@ -853,12 +926,12 @@ describe("reservation allocation concurrency", () => {
 
   it("WG: keeps strict FIFO and never skips a larger head for a smaller party", async () => {
     const event = await insertTestEvent(pool, {
-      capacity: 6,
-      maxPartySize: 3,
+      capacity: 4,
+      maxPartySize: 2,
       waitlistCapacity: 5,
     });
     const adminId = await insertConcurrencyAdmin();
-    for (const [index, partySize] of [1, 2, 3].entries()) {
+    for (const [index, partySize] of [1, 1, 2].entries()) {
       const seeded = await submitReservation({
         idempotencyKey: randomUUID(),
         body: reservationBody(event.slug, 1_300_000 + index, { partySize }),
@@ -868,7 +941,7 @@ describe("reservation allocation concurrency", () => {
       expect(seeded.status).toBe(201);
     }
     await seedWaitlist(event.slug, [
-      { sequence: 1_310_000, partySize: 3 },
+      { sequence: 1_310_000, partySize: 2 },
       { sequence: 1_310_001, partySize: 1 },
     ]);
     const [partyOne, partyTwo] = await confirmedReservationIds(event.id, 2);
@@ -885,7 +958,7 @@ describe("reservation allocation concurrency", () => {
       "SELECT reserved_seats FROM events WHERE id = $1",
       [event.id],
     );
-    expect(afterFirst.rows[0]!.reserved_seats).toBe(5);
+    expect(afterFirst.rows[0]!.reserved_seats).toBe(3);
 
     expect(await cancelReservation({ reservationId: partyTwo!, actorAdminId: adminId })).toBe(
       "CANCELLED",
@@ -897,7 +970,7 @@ describe("reservation allocation concurrency", () => {
     ]);
     const summary = await assertInvariants(event.id, []);
 
-    expect(summary.reservedSeats).toBe(6);
+    expect(summary.reservedSeats).toBe(4);
     expect(summary.waiting).toBe(1);
     expect(summary.oversold).toBe(0);
     printSummary("WG", 0, [], summary, durationMs);
@@ -930,7 +1003,7 @@ describe("reservation allocation concurrency", () => {
     expect(summary.reservedSeats).toBe(13);
     expect(await expectPromotionsInFifoOrder(event.id)).toEqual([1, 2, 3]);
     const codes = results.map(resultCode);
-    expect(codes.filter((code) => code === "CONFIRMED")).toHaveLength(0);
+    expect(codes.filter((code) => code === "RECEIVED")).toHaveLength(0);
     expect(codes.every((code) => code === "WAITLISTED" || code === "EVENT_FULL")).toBe(true);
     expect(summary.oversold).toBe(0);
     printSummary("WH", requests.length, results, summary, durationMs);

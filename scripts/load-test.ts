@@ -68,13 +68,9 @@ function localDatabaseUrl(): string {
   return target.toString();
 }
 
-function phoneFor(sequence: number): string {
-  return `7${String(10_000_000 + sequence).slice(-7)}`;
-}
-
 function outcomeCode(body: Record<string, unknown>): string {
-  if (body.status === "CONFIRMED") {
-    return "CONFIRMED";
+  if (body.status === "RECEIVED") {
+    return "RECEIVED";
   }
   const error = body.error as { code?: string } | undefined;
   return error?.code ?? "UNKNOWN";
@@ -157,11 +153,10 @@ async function runScenario(
     const sequence = sequenceOffset + index;
     const requestBody = JSON.stringify({
       eventSlug: event.slug,
-      fullName: `Load Guest ${sequence}`,
-      instagram: `load.${sequence}`,
-      phone: phoneFor(sequence),
-      email: `load.${sequence}@example.com`,
+      guest1Name: `Load Guest ${sequence}`,
+      guest1Instagram: `load.${sequence}`,
       partySize: 1,
+      hasAllergies: false,
       acceptTerms: true,
       turnstileToken: "load-test-disabled",
     });
@@ -197,13 +192,11 @@ async function runScenario(
     [event.id],
   );
   const duplicates = await pool.query(
-    `SELECT 1 FROM reservations
+    `SELECT instagram_handle
+       FROM reservations
       WHERE event_id = $1 AND status = 'CONFIRMED'
-      GROUP BY email_normalized HAVING COUNT(*) > 1
-     UNION ALL
-     SELECT 1 FROM reservations
-      WHERE event_id = $1 AND status = 'CONFIRMED'
-      GROUP BY phone_e164 HAVING COUNT(*) > 1`,
+      GROUP BY instagram_handle
+     HAVING COUNT(*) > 1`,
     [event.id],
   );
   const nonRetryKeys = responses
@@ -248,7 +241,7 @@ async function runScenario(
       confirmed: confirmedRows.length,
       fullRejected: fullRejectedRows.length,
       otherOutcomes: responses.filter(
-        (response) => response.code !== "CONFIRMED" && response.code !== "EVENT_FULL",
+        (response) => response.code !== "RECEIVED" && response.code !== "EVENT_FULL",
       ).length,
       reservedSeats: eventRow.reserved_seats,
       capacity: eventRow.capacity,

@@ -8,16 +8,18 @@ export interface ReservationResponse {
 
 export type AllocationOutcome =
   | {
-      code: "CONFIRMED";
+      code: "RECEIVED";
       number: number;
-      partySize: number;
+      partySize: 1 | 2;
       eventStartsAt: Date;
+      linkCode: string;
     }
   | {
       code: "WAITLISTED";
       position: number;
-      partySize: number;
+      partySize: 1 | 2;
       eventStartsAt: Date;
+      linkCode: string;
     }
   | {
       code: Extract<
@@ -38,12 +40,12 @@ export interface AllocationCommand {
   eventSlug: string;
   fullName: string;
   instagramHandle: string;
-  phoneE164: string;
-  email: string;
-  emailNormalized: string;
-  partySize: number;
+  guest2FullName: string | null;
+  guest2InstagramHandle: string | null;
+  partySize: 1 | 2;
   notes?: string;
   allergies: string | null;
+  linkCode: string;
   mapOutcome(outcome: AllocationOutcome): ReservationResponse;
 }
 

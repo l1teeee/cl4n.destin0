@@ -7,6 +7,7 @@ import type { AllocationCommand } from "@/application/ports/reservation-allocati
 import type { CreateEventCommand, EventOperationResult } from "@/application/events/types";
 import type { EventLifecycleStatus } from "@/domain/event/event-phase";
 import { mapReservationOutcome } from "@/application/reservations/reservation-response";
+import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { PostgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { PostgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { PostgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
@@ -92,11 +93,11 @@ function allocationCommand(slug: string, sequence: number): AllocationCommand {
     eventSlug: slug,
     fullName: `Guest ${sequence}`,
     instagramHandle: `guest.${sequence}`,
-    phoneE164: `+5037${String(100_0000 + sequence).slice(-7)}`,
-    email: `guest${sequence}@example.com`,
-    emailNormalized: `guest${sequence}@example.com`,
+    guest2FullName: null,
+    guest2InstagramHandle: null,
     partySize: 1,
     allergies: null,
+    linkCode: generateLinkCode(),
     mapOutcome: mapReservationOutcome,
   };
 }

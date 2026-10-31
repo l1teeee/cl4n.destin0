@@ -60,7 +60,7 @@ Promotion (ADR-002 W3) now inserts the reservation with stage IN_REVIEW, copies 
 
 ## 6. Cola management
 
-- Remove an entry: the existing `cancelWaitlistEntry` (never promotes). Optional message REJECTED.
+- Remove an entry: the existing `cancelWaitlistEntry`. It runs `promoteWaitlist` after the removal, like every other path that changes the head of the cola, because removing a head that did not fit lets the next entry in. Optional message REJECTED.
 - Reorder: swap `waitlist_number` with the adjacent WAITING entry under the event lock, in three updates through a temporary negative number because the unique constraint is not deferrable. Positions shown to admins are ranks among WAITING entries.
 - Promote a specific entry: an admin override of strict FIFO for an entry that fits the free seats now.
 - Edit entry data, including party size (no seat math in the cola).
@@ -81,7 +81,7 @@ An admin can add a person or a couple. It runs the same allocation transaction w
 
 ### Linking a request to a conversation
 
-Each public request gets a 6-character `link_code` (alphabet without I, O, 0, 1; at least two digits so normal words never match). The success screen shows it with a button to `https://ig.me/m/<business username>?ref=<code>`. The webhook links the conversation when the code arrives in a message text, in `message.referral.ref` (new thread) or in a `messaging_referral` event (existing thread). If the guest writes without the code, the app fetches the username through the User Profile API and links when exactly one active request of a live event has that handle and no contact yet. Admins can link and unlink manually. A linked conversation whose username matches neither guest is flagged in the UI.
+Each public request gets a 6-character `link_code` (alphabet without I, O, 0, 1; at least two digits so normal words never match). Codes are unique across reservations and cola entries, except that a promoted reservation carries the code of its own cola entry. Each table has its own unique index, and the public seat insert and the cola insert also check the other table inside the allocation transaction. On a collision the transaction rolls back and the request answers an unstored `TRY_AGAIN`, so the retry draws a new code. The success screen shows it with a button to `https://ig.me/m/<business username>?ref=<code>`. The webhook links the conversation when the code arrives in a message text, in `message.referral.ref` (new thread) or in a `messaging_referral` event (existing thread). If the guest writes without the code, the app fetches the username through the User Profile API and links when exactly one active request of a live event has that handle and no contact yet. Admins can link and unlink manually. A linked conversation whose username matches neither guest is flagged in the UI.
 
 ### Instagram platform rules that shape the design
 

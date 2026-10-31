@@ -12,11 +12,14 @@ import type {
   ReservationAllocationRepository,
   ReservationResponse,
 } from "@/application/ports/reservation-allocation-repository";
+import { renderMessageTemplate } from "@/domain/messaging/message-template";
 import { classifyAllocationFailure } from "@/domain/reservation/allocation-failure";
+import { firstName, guestFirstNames } from "@/domain/reservation/guest-names";
+import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
 import { pool as applicationPool } from "../client";
-import { queueConfirmedLocationEmail } from "./confirmed-location-email";
 import { retryableDatabaseErrorCode } from "../retryable-database-error";
+import { enqueueGuestMessage } from "./guest-messages";
 import { promoteWaitlist } from "./waitlist-promotion";
 
 interface DatabaseError {
@@ -25,6 +28,11 @@ interface DatabaseError {
 }
 
 class DuplicateUnderEventLockError extends Error {}
+
+// The unique index of each table cannot see the other table, but promoting a waitlist entry
+// copies its link code into a new reservation. Each public insert therefore also checks that
+// the code is unused in the other table and throws this error when it is taken.
+class LinkCodeCollisionError extends Error {}
 
 interface EventRow {
   id: string;
@@ -49,12 +57,7 @@ interface AcquiredEventRow {
   accepted_at: Date;
 }
 
-const duplicateConstraints = new Set([
-  "reservations_one_confirmed_per_email_uq",
-  "reservations_one_confirmed_per_phone_uq",
-  "waitlist_entries_one_waiting_per_email_uq",
-  "waitlist_entries_one_waiting_per_phone_uq",
-]);
+const linkCodeConstraints = new Set(["reservations_link_code_uq", "waitlist_entries_link_code_uq"]);
 
 function databaseError(error: unknown): DatabaseError {
   return typeof error === "object" && error !== null ? (error as DatabaseError) : {};
@@ -73,6 +76,58 @@ interface WaitlistPlacement {
   waitlistNumber: number;
   position: number;
   eventClosed: boolean;
+}
+
+interface PublicMessageTemplates {
+  REQUEST_RECEIVED: string;
+  WAITLISTED: string;
+}
+
+async function hasActiveInstagramRequest(
+  client: PoolClient,
+  eventId: string,
+  command: AllocationCommand,
+): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1
+       FROM reservations
+      WHERE event_id = $1
+        AND status = 'CONFIRMED'
+        AND (instagram_handle IN ($2, $3) OR guest2_instagram_handle IN ($2, $3))
+     UNION ALL
+     SELECT 1
+       FROM waitlist_entries
+      WHERE event_id = $1
+        AND status = 'WAITING'
+        AND (instagram_handle IN ($2, $3) OR guest2_instagram_handle IN ($2, $3))
+     LIMIT 1`,
+    [eventId, command.instagramHandle, command.guest2InstagramHandle],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+async function loadPublicMessageTemplates(client: PoolClient): Promise<PublicMessageTemplates> {
+  const result = await client.query<{ key: keyof PublicMessageTemplates; body: string }>(
+    `SELECT key, body
+       FROM message_templates
+      WHERE key IN ('REQUEST_RECEIVED', 'WAITLISTED')`,
+  );
+  const templates = Object.fromEntries(result.rows.map((row) => [row.key, row.body]));
+  if (!templates.REQUEST_RECEIVED || !templates.WAITLISTED) {
+    throw new Error("Public guest message templates not found");
+  }
+  return templates as unknown as PublicMessageTemplates;
+}
+
+function publicMessageValues(
+  command: AllocationCommand,
+  eventStartsAt: Date,
+): Record<string, string> {
+  return {
+    nombre: firstName(command.fullName),
+    nombres: guestFirstNames(command.fullName, command.guest2FullName),
+    fecha: formatPublicEventDate(eventStartsAt),
+  };
 }
 
 async function completeIdempotencyRecord(
@@ -177,30 +232,38 @@ async function insertWaitlistEntry(
   const result = await client.query<{ id: string }>(
     `INSERT INTO waitlist_entries (
        event_id, waitlist_number, status, full_name, instagram_handle,
+       guest2_full_name, guest2_instagram_handle,
        phone_e164, email, email_normalized, party_size, notes, allergies,
-       terms_accepted_at, idempotency_key, submitted_at
+       terms_accepted_at, link_code, source, idempotency_key, submitted_at
      )
-     VALUES (
+     SELECT
        $1, $2, 'WAITING', $3, $4,
-       $5, $6, $7, $8, $9, $10,
-       transaction_timestamp(), $11, transaction_timestamp()
-     )
+       $5, $6,
+       NULL, NULL, NULL, $7, $8, $9,
+       transaction_timestamp(), $10, 'PUBLIC', $11, transaction_timestamp()
+     WHERE NOT EXISTS (SELECT 1 FROM reservations WHERE link_code = $10)
      RETURNING id`,
     [
       eventId,
       waitlistNumber,
       command.fullName,
       command.instagramHandle,
-      command.phoneE164,
-      command.email,
-      command.emailNormalized,
+      command.guest2FullName,
+      command.guest2InstagramHandle,
       command.partySize,
       command.notes ?? null,
       command.allergies,
+      command.linkCode,
       command.idempotencyKey,
     ],
   );
-  return result.rows[0]!.id;
+  const entry = result.rows[0];
+
+  if (!entry) {
+    throw new LinkCodeCollisionError();
+  }
+
+  return entry.id;
 }
 
 async function recordWaitlisting(
@@ -209,6 +272,7 @@ async function recordWaitlisting(
   entryId: string,
   placement: WaitlistPlacement,
   partySize: number,
+  messageBody: string,
 ): Promise<void> {
   await client.query(
     `INSERT INTO audit_logs (
@@ -219,11 +283,13 @@ async function recordWaitlisting(
      )`,
     [entryId, JSON.stringify({ eventId, waitlistNumber: placement.waitlistNumber, partySize })],
   );
-  await client.query(
-    `INSERT INTO email_outbox (kind, waitlist_entry_id, payload)
-     VALUES ('RESERVATION_WAITLISTED', $1, $2::jsonb)`,
-    [entryId, JSON.stringify({ position: placement.position })],
-  );
+  await enqueueGuestMessage(client, {
+    kind: "WAITLISTED",
+    subject: { waitlistEntryId: entryId },
+    eventId,
+    body: messageBody,
+    source: "SYSTEM",
+  });
   if (placement.eventClosed) {
     await insertEventClosedAudit(client, eventId);
   }
@@ -312,28 +378,16 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         return await commitResult(client, command, { code: "EVENT_NOT_FOUND" });
       }
 
-      const duplicate = await client.query(
-        `SELECT 1
-           FROM reservations
-          WHERE event_id = $1
-            AND status = 'CONFIRMED'
-            AND (email_normalized = $2 OR phone_e164 = $3)
-          LIMIT 1`,
-        [event.id, command.emailNormalized, command.phoneE164],
-      );
-      const waitingDuplicate = await client.query(
-        `SELECT 1
-           FROM waitlist_entries
-          WHERE event_id = $1
-            AND status = 'WAITING'
-            AND (email_normalized = $2 OR phone_e164 = $3)
-          LIMIT 1`,
-        [event.id, command.emailNormalized, command.phoneE164],
-      );
-
-      if ((duplicate.rowCount ?? 0) > 0 || (waitingDuplicate.rowCount ?? 0) > 0) {
+      if (await hasActiveInstagramRequest(client, event.id, command)) {
         return await commitResult(client, command, { code: "DUPLICATE_RESERVATION" });
       }
+
+      const messageTemplates = await loadPublicMessageTemplates(client);
+      const messageValues = publicMessageValues(command, event.starts_at);
+      const requestReceivedBody = renderMessageTemplate(
+        messageTemplates.REQUEST_RECEIVED,
+        messageValues,
+      );
 
       const acquired = await client.query<AcquiredEventRow>(
         `UPDATE events
@@ -402,16 +456,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         const placement = await claimWaitlistPlace(client, event.id, command.partySize);
 
         if (placement) {
-          const lockedDuplicate = await client.query(
-            `SELECT 1
-               FROM reservations
-              WHERE event_id = $1
-                AND status = 'CONFIRMED'
-                AND (email_normalized = $2 OR phone_e164 = $3)
-              LIMIT 1`,
-            [event.id, command.emailNormalized, command.phoneE164],
-          );
-          if ((lockedDuplicate.rowCount ?? 0) > 0) {
+          if (await hasActiveInstagramRequest(client, event.id, command)) {
             throw new DuplicateUnderEventLockError();
           }
 
@@ -421,7 +466,18 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             placement.waitlistNumber,
             command,
           );
-          await recordWaitlisting(client, event.id, entryId, placement, command.partySize);
+          const waitlistedBody = renderMessageTemplate(messageTemplates.WAITLISTED, {
+            ...messageValues,
+            posicion: String(placement.position),
+          });
+          await recordWaitlisting(
+            client,
+            event.id,
+            entryId,
+            placement,
+            command.partySize,
+            waitlistedBody,
+          );
 
           return await commitResult(
             client,
@@ -431,6 +487,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
               position: placement.position,
               partySize: command.partySize,
               eventStartsAt: event.starts_at,
+              linkCode: command.linkCode,
             },
             { waitlistEntryId: entryId },
           );
@@ -438,23 +495,23 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
 
         const rejected = await client.query<{ id: string }>(
           `INSERT INTO reservations (
-             event_id, status, full_name, instagram_handle, phone_e164,
-             email, email_normalized, party_size, notes, allergies, terms_accepted_at,
-             idempotency_key, submitted_at
+             event_id, status, full_name, instagram_handle,
+             guest2_full_name, guest2_instagram_handle,
+             phone_e164, email, email_normalized, party_size, notes, allergies,
+             terms_accepted_at, source, idempotency_key, submitted_at
            )
            VALUES (
              $1, 'FULL_REJECTED', $2, $3, $4,
-             $5, $6, $7, $8, $9, transaction_timestamp(),
-             $10, transaction_timestamp()
+             $5, NULL, NULL, NULL, $6, $7, $8,
+             transaction_timestamp(), 'PUBLIC', $9, transaction_timestamp()
            )
            RETURNING id`,
           [
             event.id,
             command.fullName,
             command.instagramHandle,
-            command.phoneE164,
-            command.email,
-            command.emailNormalized,
+            command.guest2FullName,
+            command.guest2InstagramHandle,
             command.partySize,
             command.notes ?? null,
             // Rejected guests get no seat, so their health data is not kept.
@@ -471,47 +528,46 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         );
       }
 
-      const lockedWaitingDuplicate = await client.query(
-        `SELECT 1
-           FROM waitlist_entries
-          WHERE event_id = $1
-            AND status = 'WAITING'
-            AND (email_normalized = $2 OR phone_e164 = $3)
-          LIMIT 1`,
-        [event.id, command.emailNormalized, command.phoneE164],
-      );
-      if ((lockedWaitingDuplicate.rowCount ?? 0) > 0) {
+      if (await hasActiveInstagramRequest(client, event.id, command)) {
         throw new DuplicateUnderEventLockError();
       }
 
       const reservation = await client.query<{ id: string }>(
         `INSERT INTO reservations (
            event_id, reservation_number, status, full_name, instagram_handle,
+           guest2_full_name, guest2_instagram_handle,
            phone_e164, email, email_normalized, party_size, notes, allergies,
-           terms_accepted_at, idempotency_key, submitted_at, accepted_at
+           terms_accepted_at, link_code, source, idempotency_key, submitted_at, accepted_at
          )
-         VALUES (
+         SELECT
            $1, $2, 'CONFIRMED', $3, $4,
-           $5, $6, $7, $8, $9, $10,
-           transaction_timestamp(), $11, transaction_timestamp(), $12
-         )
+           $5, $6,
+           NULL, NULL, NULL, $7, $8, $9,
+           transaction_timestamp(), $10, 'PUBLIC', $11, transaction_timestamp(), $12
+         WHERE NOT EXISTS (SELECT 1 FROM waitlist_entries WHERE link_code = $10)
          RETURNING id`,
         [
           event.id,
           allocation.last_reservation_number,
           command.fullName,
           command.instagramHandle,
-          command.phoneE164,
-          command.email,
-          command.emailNormalized,
+          command.guest2FullName,
+          command.guest2InstagramHandle,
           command.partySize,
           command.notes ?? null,
           command.allergies,
+          command.linkCode,
           command.idempotencyKey,
           allocation.accepted_at,
         ],
       );
-      const reservationId = reservation.rows[0]!.id;
+      const insertedReservation = reservation.rows[0];
+
+      if (!insertedReservation) {
+        throw new LinkCodeCollisionError();
+      }
+
+      const reservationId = insertedReservation.id;
 
       await client.query(
         `INSERT INTO audit_logs (
@@ -530,12 +586,13 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         ],
       );
 
-      await client.query(
-        `INSERT INTO email_outbox (kind, reservation_id)
-         VALUES ('RESERVATION_CONFIRMED', $1)`,
-        [reservationId],
-      );
-      await queueConfirmedLocationEmail(client, event.id, reservationId);
+      await enqueueGuestMessage(client, {
+        kind: "REQUEST_RECEIVED",
+        subject: { reservationId },
+        eventId: event.id,
+        body: requestReceivedBody,
+        source: "SYSTEM",
+      });
 
       if (allocation.status === "CLOSED") {
         await insertEventClosedAudit(client, event.id);
@@ -545,10 +602,11 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         client,
         command,
         {
-          code: "CONFIRMED",
+          code: "RECEIVED",
           number: allocation.last_reservation_number,
           partySize: command.partySize,
           eventStartsAt: event.starts_at,
+          linkCode: command.linkCode,
         },
         { reservationId },
       );
@@ -563,12 +621,20 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       }
       const details = databaseError(error);
 
-      if (
-        error instanceof DuplicateUnderEventLockError ||
-        (details.code === "23505" && duplicateConstraints.has(details.constraint ?? ""))
-      ) {
+      if (error instanceof DuplicateUnderEventLockError) {
         return {
           ...command.mapOutcome({ code: "DUPLICATE_RESERVATION" }),
+          replayed: false,
+        };
+      }
+
+      const isLinkCodeCollision =
+        error instanceof LinkCodeCollisionError ||
+        (details.code === "23505" && linkCodeConstraints.has(details.constraint ?? ""));
+
+      if (isLinkCodeCollision) {
+        return {
+          ...command.mapOutcome({ code: "TRY_AGAIN" }),
           replayed: false,
         };
       }
@@ -613,6 +679,8 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
         `UPDATE reservations
             SET status = 'CANCELLED',
                 cancelled_at = clock_timestamp(),
+                release_reason = 'CANCELLED',
+                refund_status = CASE WHEN stage = 'PAID' THEN 'PENDING' ELSE NULL END,
                 updated_at = clock_timestamp()
           WHERE id = $1
             AND status = 'CONFIRMED'
@@ -641,11 +709,6 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
            'ADMIN', $2, 'RESERVATION_CANCELLED', 'RESERVATION', $1, $3::jsonb
          )`,
         [command.reservationId, command.actorAdminId, JSON.stringify({ eventId, partySize })],
-      );
-      await client.query(
-        `INSERT INTO email_outbox (kind, reservation_id)
-         VALUES ('RESERVATION_CANCELLED', $1)`,
-        [command.reservationId],
       );
       await promoteWaitlist(client, eventId);
       await client.query("COMMIT");
@@ -717,11 +780,6 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
            'ADMIN', $2, 'WAITLIST_CANCELLED', 'WAITLIST_ENTRY', $1, $3::jsonb
          )`,
         [command.waitlistEntryId, command.actorAdminId, JSON.stringify({ eventId })],
-      );
-      await client.query(
-        `INSERT INTO email_outbox (kind, waitlist_entry_id)
-         VALUES ('WAITLIST_CANCELLED', $1)`,
-        [command.waitlistEntryId],
       );
       await promoteWaitlist(client, eventId);
       await client.query("COMMIT");
