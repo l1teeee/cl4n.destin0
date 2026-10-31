@@ -1,24 +1,23 @@
 import { z } from "zod";
 
-import { reservationRequestBaseSchema, validateAllergies } from "@/contracts/reservation-request";
-import { normalizePhone } from "@/domain/reservation/contact-normalization";
+import { guestRequestBaseSchema, validateGuestRequest } from "@/contracts/guest-request";
 
-const reservationFormBaseSchema = reservationRequestBaseSchema.omit({
-  eventSlug: true,
-  turnstileToken: true,
-});
+// The form resolver reports the first branch of a union, as "Invalid input: expected 1", instead of
+// the message of the contract's partySize union. One literal with the same values and message
+// puts the sentence the guest should read on the field.
+const partySizeChoice = z.literal([1, 2], "Elige si vienes solo o en pareja.");
+
+const reservationFormBaseSchema = guestRequestBaseSchema
+  .omit({ eventSlug: true, turnstileToken: true })
+  .extend({ partySize: partySizeChoice });
+
+// validateGuestRequest is typed for the whole request body. The browser adds these two fields
+// only when it sends, and the validation never reads them.
+const serverComposedFields = { eventSlug: "", turnstileToken: "" };
 
 export function reservationFormSchema(maxPartySize: number) {
   return reservationFormBaseSchema.superRefine((input, context) => {
-    validateAllergies(input, context);
-
-    if (!normalizePhone(input.phone).ok) {
-      context.addIssue({
-        code: "custom",
-        message: "Ingresa un teléfono válido.",
-        path: ["phone"],
-      });
-    }
+    validateGuestRequest({ ...input, ...serverComposedFields }, context);
 
     if (input.partySize > maxPartySize) {
       context.addIssue({
