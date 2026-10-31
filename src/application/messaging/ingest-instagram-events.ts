@@ -1,4 +1,4 @@
-import type { InstagramMessenger } from "./instagram-messenger";
+import { MessengerError, type InstagramMessenger } from "./instagram-messenger";
 import type { InstagramEventRepository } from "./instagram-event-ingestion";
 import type { InstagramWebhookEvent } from "./instagram-events";
 
@@ -18,6 +18,42 @@ export interface InstagramIngestionResult {
   inboundImageMessageIds: string[];
   becameQueued: boolean;
   after(): Promise<void>;
+}
+
+export async function retryInboundImages(
+  dependencies: Pick<InstagramIngestionDependencies, "repository" | "messenger" | "logFailure">,
+  initial: readonly import("./instagram-event-ingestion").InboundImageReference[] = [],
+  limit = 20,
+): Promise<void> {
+  const retryable = await dependencies.repository.listMissingInboundImages(limit);
+  const distinct = new Map<string, (typeof retryable)[number]>();
+  for (const image of [...initial, ...retryable]) {
+    distinct.set(`${image.messageId}:${image.position}`, image);
+  }
+  await Promise.all(
+    [...distinct.values()].slice(0, limit).map(async (image) => {
+      try {
+        const downloaded = await dependencies.messenger.downloadImage(image.url);
+        await dependencies.repository.storeAttachment({
+          messageId: image.messageId,
+          position: image.position,
+          ...downloaded,
+        });
+      } catch (error) {
+        if (error instanceof MessengerError && [400, 413, 415].includes(error.status ?? 0)) {
+          await dependencies.repository.markAttachmentPermanentlyFailed(
+            image.messageId,
+            image.position,
+          );
+        }
+        dependencies.logFailure({
+          messageId: image.messageId,
+          kind: "attachment",
+          errorCode: "ATTACHMENT_DOWNLOAD_FAILED",
+        });
+      }
+    }),
+  );
 }
 
 function normalizedUsername(username: string | null): string | null {
@@ -67,22 +103,7 @@ export async function ingestInstagramEvents(
         if (username) await dependencies.repository.linkByUsername(contact.contactId, username);
       }
 
-      for (const image of transaction.images) {
-        try {
-          const downloaded = await dependencies.messenger.downloadImage(image.url);
-          await dependencies.repository.storeAttachment({
-            messageId: image.messageId,
-            position: image.position,
-            ...downloaded,
-          });
-        } catch {
-          dependencies.logFailure({
-            messageId: image.messageId,
-            kind: "attachment",
-            errorCode: "ATTACHMENT_DOWNLOAD_FAILED",
-          });
-        }
-      }
+      await retryInboundImages(dependencies, transaction.images);
 
       await dependencies.deliver();
     },

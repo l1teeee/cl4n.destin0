@@ -49,6 +49,21 @@ function imageType(data: Buffer): string | null {
   return signature === "GIF87a" || signature === "GIF89a" ? "image/gif" : null;
 }
 
+function isAllowedImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      (hostname === "lookaside.fbsbx.com" ||
+        hostname.endsWith(".cdninstagram.com") ||
+        hostname.endsWith(".fbcdn.net"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export class GraphInstagramMessenger implements InstagramMessenger {
   constructor(
     private readonly options: { baseUrl: string; accountId: string; accessToken: string },
@@ -123,6 +138,9 @@ export class GraphInstagramMessenger implements InstagramMessenger {
   }
 
   async downloadImage(url: string): Promise<{ contentType: string; data: Buffer }> {
+    if (!isAllowedImageUrl(url)) {
+      throw new MessengerError("Image URL is not an allowed Meta host", { status: 400 });
+    }
     let response: Response;
     try {
       response = await this.request(url, {
@@ -134,12 +152,15 @@ export class GraphInstagramMessenger implements InstagramMessenger {
     }
     if (!response.ok)
       throw new MessengerError("Image download failed", { status: response.status });
+    if (!isAllowedImageUrl(response.url)) {
+      throw new MessengerError("Image redirect is not an allowed Meta host", { status: 400 });
+    }
     if (!response.body)
       throw new MessengerError("Image response had no body", { status: response.status });
 
     const declaredLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(declaredLength) && declaredLength > MAX_IMAGE_BYTES) {
-      throw new MessengerError("Image exceeds size limit", { status: response.status });
+      throw new MessengerError("Image exceeds size limit", { status: 413 });
     }
 
     const chunks: Buffer[] = [];
@@ -152,7 +173,7 @@ export class GraphInstagramMessenger implements InstagramMessenger {
         total += value.byteLength;
         if (total > MAX_IMAGE_BYTES) {
           await reader.cancel();
-          throw new MessengerError("Image exceeds size limit", { status: response.status });
+          throw new MessengerError("Image exceeds size limit", { status: 413 });
         }
         chunks.push(Buffer.from(value));
       }
@@ -165,7 +186,7 @@ export class GraphInstagramMessenger implements InstagramMessenger {
     const contentType = imageType(data);
     if (!contentType) {
       throw new MessengerError("Downloaded content is not a supported image", {
-        status: response.status,
+        status: 415,
       });
     }
     return { contentType, data };

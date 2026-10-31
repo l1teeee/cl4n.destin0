@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const after = vi.fn((callback: () => unknown) => callback());
 const followup = vi.fn();
 const ingest = vi.fn();
+const log = vi.fn();
 const mockedEnv = vi.hoisted(() => ({
   MESSAGING_MODE: "instagram" as "instagram" | "log",
   META_APP_SECRET: "meta-app-secret-123456",
@@ -17,6 +18,7 @@ vi.mock("@/infrastructure/config/env", () => ({ env: mockedEnv }));
 vi.mock("@/infrastructure/messaging/ingest-instagram-events", () => ({
   ingestConfiguredInstagramEvents: ingest,
 }));
+vi.mock("@/infrastructure/observability/logger", () => ({ log }));
 
 const { GET, POST } = await import("@/app/api/webhooks/instagram/route");
 
@@ -36,6 +38,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ contacts: [], images: [], becameQueued: false, after: followup });
   after.mockClear();
+  log.mockClear();
 });
 
 describe("Instagram webhook route", () => {
@@ -104,5 +107,16 @@ describe("Instagram webhook route", () => {
     ]);
     expect(after).toHaveBeenCalledOnce();
     expect(followup).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("info", "instagram_webhook_received", {
+      events: 1,
+      skipped: 0,
+      foreignEntries: 0,
+    });
+  });
+
+  it("logs invalid JSON without exposing its body", async () => {
+    const response = await POST(signedRequest("not-json"));
+    expect(response.status).toBe(200);
+    expect(log).toHaveBeenCalledWith("warn", "instagram_webhook_invalid_json");
   });
 });

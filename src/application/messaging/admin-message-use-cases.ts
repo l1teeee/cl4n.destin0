@@ -1,4 +1,8 @@
-import type { AdminMessageRepository, MessageSubject } from "./admin-message-repository";
+import type {
+  AdminMessageMutationResult,
+  AdminMessageRepository,
+  MessageSubject,
+} from "./admin-message-repository";
 import type { MessageDeliverySummary } from "./deliver-messages";
 
 export interface SendFreeTextDependencies {
@@ -36,7 +40,10 @@ export async function sendFreeText(
   return { ok: true, messageId, status, lastError: state?.lastError ?? null };
 }
 
-export function retryMessage(repository: AdminMessageRepository, id: string): Promise<boolean> {
+export function retryMessage(
+  repository: AdminMessageRepository,
+  id: string,
+): Promise<AdminMessageMutationResult> {
   return repository.retryMessage(id);
 }
 
@@ -44,7 +51,7 @@ export function markSentManually(
   repository: AdminMessageRepository,
   id: string,
   adminId: string,
-): Promise<boolean> {
+): Promise<AdminMessageMutationResult> {
   return repository.markSentManually(id, adminId);
 }
 
@@ -52,7 +59,7 @@ export function discardMessage(
   repository: AdminMessageRepository,
   id: string,
   adminId: string,
-): Promise<boolean> {
+): Promise<AdminMessageMutationResult> {
   return repository.discardMessage(id, adminId);
 }
 
@@ -70,8 +77,17 @@ export function unlinkContact(
   contactId: string,
   subject: MessageSubject,
   adminId: string,
-): Promise<boolean> {
+): Promise<AdminMessageMutationResult> {
   return repository.unlinkContact(contactId, subject, adminId);
+}
+
+export function linkContactByCode(
+  repository: AdminMessageRepository,
+  contactId: string,
+  code: string,
+  adminId: string,
+): Promise<number> {
+  return repository.linkContactByCode(contactId, code, adminId);
 }
 
 export function markConversationRead(

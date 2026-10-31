@@ -20,7 +20,7 @@ export type InstagramWebhookEvent =
       text: string | null;
       attachmentUrls: string[];
     })
-  | (EventBase & { type: "deleted"; externalMessageId: string })
+  | (EventBase & { type: "deleted"; senderId: string; externalMessageId: string })
   | (EventBase & { type: "read"; senderId: string; externalMessageId: string })
   | (EventBase & { type: "referral"; senderId: string; ref: string })
   | (EventBase & { type: "window_signal"; senderId: string })

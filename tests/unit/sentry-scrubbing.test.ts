@@ -28,6 +28,17 @@ describe("Sentry token scrubbing", () => {
     expect(scrubTokenFromUrl(url)).toBe(expected);
   });
 
+  it.each([
+    [
+      "https://graph.instagram.com/v26.0/123/messages?access_token=secret",
+      "https://graph.instagram.com",
+    ],
+    ["https://lookaside.fbsbx.com/ig_messaging_cdn/?asset=secret", "https://lookaside.fbsbx.com"],
+    ["https://scontent.xx.fbcdn.net/private/path?token=secret", "https://scontent.xx.fbcdn.net"],
+  ])("drops Meta URL paths and query strings from %s", (url, expected) => {
+    expect(scrubTokenFromUrl(url)).toBe(expected);
+  });
+
   it("scrubs navigation breadcrumb URL fields", () => {
     const breadcrumb = scrubSentryBreadcrumb({
       data: {

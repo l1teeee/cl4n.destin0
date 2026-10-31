@@ -43,17 +43,13 @@ export async function enqueueGuestMessage(
   },
 ): Promise<EnqueuedMessageRow> {
   const [subjectId, subjectKind] = subjectParameters(input.subject);
+  const subjectTable = subjectKind === "reservation" ? "reservations" : "waitlist_entries";
   const result = await client.query<EnqueuedMessageRow>(
     `WITH guest_subject AS (
        SELECT contact_id
-         FROM reservations
+         FROM ${subjectTable}
         WHERE id = $1::uuid
-          AND $2::text = 'reservation'
-       UNION ALL
-       SELECT contact_id
-         FROM waitlist_entries
-        WHERE id = $1::uuid
-          AND $2::text = 'waitlist'
+        FOR SHARE
      )
      INSERT INTO messages (
        contact_id, reservation_id, waitlist_entry_id, event_id,

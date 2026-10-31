@@ -1,4 +1,7 @@
-import { ingestInstagramEvents } from "@/application/messaging/ingest-instagram-events";
+import {
+  ingestInstagramEvents,
+  retryInboundImages,
+} from "@/application/messaging/ingest-instagram-events";
 import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
 import { instagramMessenger } from "@/infrastructure/instagram/instagram-messenger";
 import { log } from "@/infrastructure/observability/logger";
@@ -21,5 +24,17 @@ export function ingestConfiguredInstagramEvents(
     },
     events,
     options,
+  );
+}
+
+export function retryConfiguredInboundImages(limit = 20): Promise<void> {
+  return retryInboundImages(
+    {
+      repository: postgresMessageRepository,
+      messenger: instagramMessenger,
+      logFailure: (fields) => log("error", "instagram_ingestion_followup_failed", fields),
+    },
+    [],
+    limit,
   );
 }

@@ -4,7 +4,7 @@ import type { InstagramWebhookEvent } from "@/application/messaging/instagram-ev
 
 export type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
 
-const idSchema = z.string().regex(/^\d+$/);
+const idSchema = z.string().regex(/^\d{1,32}$/);
 const actorSchema = z.object({ id: idSchema }).passthrough();
 const attachmentSchema = z
   .object({
@@ -33,7 +33,7 @@ const messagingItemSchema = z
       .object({ mid: z.string().min(1) })
       .passthrough()
       .optional(),
-    referral: z.object({ ref: z.string() }).passthrough().optional(),
+    referral: z.object({ ref: z.string().optional() }).passthrough().optional(),
     reaction: z
       .object({ mid: z.string().min(1) })
       .passthrough()
@@ -69,6 +69,7 @@ const payloadSchema = z
 export interface ParsedInstagramWebhook {
   events: InstagramWebhookEvent[];
   skipped: number;
+  foreignEntries: number;
 }
 
 function eventDate(value: number): Date {
@@ -82,7 +83,7 @@ function attachments(message: z.infer<typeof messagingItemSchema>["message"]) {
       if (!parsed.success || !parsed.data.payload?.url) return [];
       try {
         const url = new URL(parsed.data.payload.url);
-        return url.protocol === "https:" || url.protocol === "http:"
+        return url.protocol === "https:"
           ? [{ type: parsed.data.type, url: parsed.data.payload.url }]
           : [];
       } catch {
@@ -113,7 +114,12 @@ function normalizeItem(item: z.infer<typeof messagingItemSchema>): InstagramWebh
 
   if (item.message?.mid) {
     if (item.message.is_deleted) {
-      return { type: "deleted", timestamp, externalMessageId: item.message.mid };
+      return {
+        type: "deleted",
+        timestamp,
+        senderId: item.sender.id,
+        externalMessageId: item.message.mid,
+      };
     }
     const media = attachments(item.message);
     if (item.message.is_echo) {
@@ -131,7 +137,7 @@ function normalizeItem(item: z.infer<typeof messagingItemSchema>): InstagramWebh
       timestamp,
       externalMessageId: item.message.mid,
       senderId: item.sender.id,
-      text: item.message.text ?? null,
+      text: item.message.text ? [...item.message.text].slice(0, 2000).join("") : null,
       attachmentUrls: media.urls,
       imageAttachmentUrls: media.imageUrls,
       quickReplyPayload: item.message.quick_reply?.payload ?? null,
@@ -147,7 +153,9 @@ function normalizeItem(item: z.infer<typeof messagingItemSchema>): InstagramWebh
     };
   }
   if (item.referral) {
-    return { type: "referral", timestamp, senderId: item.sender.id, ref: item.referral.ref };
+    return item.referral.ref
+      ? { type: "referral", timestamp, senderId: item.sender.id, ref: item.referral.ref }
+      : { type: "window_signal", timestamp, senderId: item.sender.id };
   }
   if (item.reaction || item.postback) {
     return { type: "window_signal", timestamp, senderId: item.sender.id };
@@ -157,13 +165,14 @@ function normalizeItem(item: z.infer<typeof messagingItemSchema>): InstagramWebh
 
 export function parseInstagramWebhook(payload: unknown, accountId: string): ParsedInstagramWebhook {
   const parsed = payloadSchema.safeParse(payload);
-  if (!parsed.success) return { events: [], skipped: 1 };
+  if (!parsed.success) return { events: [], skipped: 1, foreignEntries: 0 };
 
   const events: InstagramWebhookEvent[] = [];
   let skipped = 0;
+  let foreignEntries = 0;
   for (const entry of parsed.data.entry) {
     if (entry.id !== accountId) {
-      skipped += entry.messaging?.length ?? 0;
+      foreignEntries += 1;
       continue;
     }
     for (const candidate of entry.messaging ?? []) {
@@ -177,5 +186,5 @@ export function parseInstagramWebhook(payload: unknown, accountId: string): Pars
       else skipped += 1;
     }
   }
-  return { events, skipped };
+  return { events, skipped, foreignEntries };
 }

@@ -9,6 +9,7 @@ import { ingestConfiguredInstagramEvents } from "@/infrastructure/messaging/inge
 import { log } from "@/infrastructure/observability/logger";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -55,13 +56,20 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  if (env.MESSAGING_MODE === "log") return new Response(null, { status: 404 });
+  if (env.MESSAGING_MODE === "log") {
+    log("info", "instagram_webhook_received", { events: 0, skipped: 0, foreignEntries: 0 });
+    return new Response(null, { status: 404 });
+  }
 
   const rawBody = await readRawBody(request);
-  if (!rawBody) return new Response(null, { status: 413 });
+  if (!rawBody) {
+    log("info", "instagram_webhook_received", { events: 0, skipped: 1, foreignEntries: 0 });
+    return new Response(null, { status: 413 });
+  }
   if (
     !isValidSignature(rawBody, request.headers.get("x-hub-signature-256"), env.META_APP_SECRET!)
   ) {
+    log("info", "instagram_webhook_received", { events: 0, skipped: 1, foreignEntries: 0 });
     return new Response(null, { status: 401 });
   }
 
@@ -69,9 +77,16 @@ export async function POST(request: Request): Promise<Response> {
   try {
     payload = JSON.parse(rawBody.toString("utf8"));
   } catch {
+    log("warn", "instagram_webhook_invalid_json");
+    log("info", "instagram_webhook_received", { events: 0, skipped: 1, foreignEntries: 0 });
     return new Response("EVENT_RECEIVED", { status: 200 });
   }
   const parsed = parseInstagramWebhook(payload, env.INSTAGRAM_ACCOUNT_ID!);
+  log("info", "instagram_webhook_received", {
+    events: parsed.events.length,
+    skipped: parsed.skipped,
+    foreignEntries: parsed.foreignEntries,
+  });
   const result = await ingestConfiguredInstagramEvents(parsed.events);
   after(async () => {
     try {

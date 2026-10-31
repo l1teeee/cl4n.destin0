@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { env } from "@/infrastructure/config/env";
 import { drainMessageOutbox } from "@/infrastructure/messaging/drain-message-outbox";
+import { retryConfiguredInboundImages } from "@/infrastructure/messaging/ingest-instagram-events";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -17,6 +18,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!authorized(request)) {
     return new Response(null, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
-  const summary = await drainMessageOutbox({ limit: 50, timeBudgetMs: 60_000 });
+  await retryConfiguredInboundImages(20);
+  const summary = await drainMessageOutbox({ limit: 50, timeBudgetMs: 40_000 });
   return Response.json(summary, { headers: { "Cache-Control": "no-store" } });
 }

@@ -6,8 +6,27 @@ const REDACTED = "[Filtered]";
 
 const LOCATION_PHOTO_TOKEN = /(\/ubicacion\/foto\/)[^/?#]*/gi;
 
+function scrubMetaUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (
+      host === "graph.instagram.com" ||
+      host === "graph.facebook.com" ||
+      host === "lookaside.fbsbx.com" ||
+      host.endsWith(".cdninstagram.com") ||
+      host.endsWith(".fbcdn.net")
+    ) {
+      return url.origin;
+    }
+  } catch {
+    return value;
+  }
+  return value;
+}
+
 export function scrubTokenFromUrl(url: string): string {
-  return url
+  return scrubMetaUrl(url)
     .replace(QUERY_TOKEN, `$1${REDACTED}`)
     .replace(FRAGMENT_TOKEN, `$1${REDACTED}`)
     .replace(LOCATION_PHOTO_TOKEN, "$1[redacted]");

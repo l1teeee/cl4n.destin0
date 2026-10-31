@@ -80,6 +80,7 @@ export const auditAction = pgEnum("audit_action", [
   "WAITLIST_REORDERED",
   "MESSAGE_TEMPLATE_UPDATED",
   "MESSAGING_CONTACT_LINKED",
+  "MESSAGING_CONTACT_UNLINKED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -448,6 +449,7 @@ export const reservations = pgTable(
     termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
     linkCode: text("link_code"),
     contactId: uuid("contact_id"),
+    contactLinkedBy: text("contact_linked_by"),
     source: text("source").notNull().default("PUBLIC"),
     createdBy: uuid("created_by"),
     stage: text("stage").notNull().default("IN_REVIEW"),
@@ -503,6 +505,14 @@ export const reservations = pgTable(
     check(
       "reservations_link_code_chk",
       sql`${table.linkCode} IS NULL OR ${table.linkCode} ~ '^[A-HJ-NP-Z2-9]{6}$'`,
+    ),
+    check(
+      "reservations_contact_linked_by_chk",
+      sql`${table.contactLinkedBy} IS NULL OR ${table.contactLinkedBy} IN ('CODE', 'USERNAME', 'MANUAL')`,
+    ),
+    check(
+      "reservations_contact_link_pair_chk",
+      sql`(${table.contactId} IS NULL) = (${table.contactLinkedBy} IS NULL)`,
     ),
     check("reservations_source_chk", sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
     check(
@@ -593,6 +603,7 @@ export const waitlistEntries = pgTable(
     termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
     linkCode: text("link_code"),
     contactId: uuid("contact_id"),
+    contactLinkedBy: text("contact_linked_by"),
     source: text("source").notNull().default("PUBLIC"),
     createdBy: uuid("created_by"),
     idempotencyKey: uuid("idempotency_key").notNull(),
@@ -653,6 +664,14 @@ export const waitlistEntries = pgTable(
       "waitlist_entries_link_code_chk",
       sql`${table.linkCode} IS NULL OR ${table.linkCode} ~ '^[A-HJ-NP-Z2-9]{6}$'`,
     ),
+    check(
+      "waitlist_entries_contact_linked_by_chk",
+      sql`${table.contactLinkedBy} IS NULL OR ${table.contactLinkedBy} IN ('CODE', 'USERNAME', 'MANUAL')`,
+    ),
+    check(
+      "waitlist_entries_contact_link_pair_chk",
+      sql`(${table.contactId} IS NULL) = (${table.contactLinkedBy} IS NULL)`,
+    ),
     check("waitlist_entries_source_chk", sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
     check(
       "waitlist_entries_admin_source_chk",
@@ -711,6 +730,8 @@ export const messages = pgTable(
     body: text("body"),
     attachmentUrls: text("attachment_urls").array(),
     externalMessageId: text("external_message_id"),
+    partsSent: smallint("parts_sent").notNull().default(0),
+    externalPartIds: text("external_part_ids").array(),
     locationRevision: integer("location_revision"),
     clueId: uuid("clue_id"),
     attempts: integer("attempts").notNull().default(0),
@@ -721,6 +742,7 @@ export const messages = pgTable(
     readAt: timestamp("read_at", { withTimezone: true }),
     createdBy: uuid("created_by"),
     handledBy: uuid("handled_by"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -822,6 +844,11 @@ export const messages = pgTable(
       sql`(${table.kind} = 'LOCATION') = (${table.locationRevision} IS NOT NULL)`,
     ),
     check("messages_attempts_chk", sql`${table.attempts} >= 0`),
+    check("messages_parts_sent_chk", sql`${table.partsSent} >= 0`),
+    check(
+      "messages_external_part_ids_chk",
+      sql`${table.externalPartIds} IS NULL OR cardinality(${table.externalPartIds}) BETWEEN 1 AND 20`,
+    ),
     check(
       "messages_last_error_chk",
       sql`${table.lastError} IS NULL OR char_length(${table.lastError}) <= 200`,
