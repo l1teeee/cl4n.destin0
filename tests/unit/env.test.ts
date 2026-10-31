@@ -10,6 +10,7 @@ const validEnvironment: Record<string, string | undefined> = {
   DATABASE_POOL_MAX: "10",
   APP_SECRET: "a-local-secret-that-is-at-least-32-characters",
   EMAIL_MODE: "log",
+  MESSAGING_MODE: "log",
   APP_BASE_URL: "http://localhost:3000",
   BOT_PROTECTION_MODE: "turnstile",
   TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
@@ -30,6 +31,12 @@ const validProductionEnvironment: Record<string, string | undefined> = {
   BREVO_API_KEY: "production-brevo-api-key",
   EMAIL_FROM_ADDRESS: "reservations@clandestino.example.com",
   EMAIL_FROM_NAME: "Clandestino",
+  MESSAGING_MODE: "instagram",
+  META_APP_SECRET: "meta-app-secret-123456",
+  META_WEBHOOK_VERIFY_TOKEN: "meta-verify-token-123456",
+  INSTAGRAM_ACCOUNT_ID: "1234567890",
+  INSTAGRAM_ACCESS_TOKEN: "instagram-access-token-1234567890",
+  NEXT_PUBLIC_INSTAGRAM_USERNAME: "clandestino.sv",
   APP_BASE_URL: "https://clandestino.example.com",
   TURNSTILE_SECRET_KEY: "0x4AAAAAA-valid-production-secret",
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: "0x4AAAAAA-valid-production-site-key",
@@ -107,6 +114,45 @@ describe("parseServerEnv", () => {
         EMAIL_MODE: "log",
       }),
     ).toThrow(/EMAIL_MODE[\s\S]*brevo/);
+  });
+
+  it("rejects log messaging mode in protected environments", () => {
+    expect(() => parseServerEnv({ ...validProductionEnvironment, MESSAGING_MODE: "log" })).toThrow(
+      /MESSAGING_MODE[\s\S]*instagram/,
+    );
+  });
+
+  it("requires Instagram credentials in instagram mode", () => {
+    expect(() => parseServerEnv({ ...validEnvironment, MESSAGING_MODE: "instagram" })).toThrow(
+      /META_APP_SECRET[\s\S]*META_WEBHOOK_VERIFY_TOKEN[\s\S]*INSTAGRAM_ACCESS_TOKEN[\s\S]*INSTAGRAM_ACCOUNT_ID/,
+    );
+  });
+
+  it("validates the public Instagram username", () => {
+    expect(() =>
+      parseServerEnv({ ...validEnvironment, NEXT_PUBLIC_INSTAGRAM_USERNAME: "@Invalid" }),
+    ).toThrow(/NEXT_PUBLIC_INSTAGRAM_USERNAME/);
+  });
+
+  it("requires the public Instagram username in protected environments", () => {
+    expect(() =>
+      parseServerEnv({ ...validProductionEnvironment, NEXT_PUBLIC_INSTAGRAM_USERNAME: "" }),
+    ).toThrow(/NEXT_PUBLIC_INSTAGRAM_USERNAME/);
+  });
+
+  it("defaults the Graph API base URL", () => {
+    expect(parseServerEnv(validEnvironment).META_GRAPH_API_BASE_URL).toBe(
+      "https://graph.instagram.com/v26.0",
+    );
+  });
+
+  it("rejects a non-HTTPS Graph API base URL", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validEnvironment,
+        META_GRAPH_API_BASE_URL: "http://graph.instagram.com/v26.0",
+      }),
+    ).toThrow(/META_GRAPH_API_BASE_URL/);
   });
 
   it.each(["http://clandestino.example.com", "https://localhost"])(
