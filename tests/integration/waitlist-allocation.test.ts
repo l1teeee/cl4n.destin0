@@ -422,6 +422,15 @@ describe("waitlist promotion", () => {
         stage: "IN_REVIEW",
       },
     ]);
+    // The promoted reservation carries its own entry's code: the only allowed sharing.
+    const sharedCode = await pool.query(
+      `SELECT r.link_code = w.link_code AS same_code
+         FROM waitlist_entries w
+         JOIN reservations r ON r.id = w.promoted_reservation_id
+        WHERE w.event_id = $1 AND w.status = 'PROMOTED'`,
+      [event.id],
+    );
+    expect(sharedCode.rows).toEqual([{ same_code: true }]);
     const state = await pool.query(
       "SELECT reserved_seats, waitlisted_count FROM events WHERE id = $1",
       [event.id],
