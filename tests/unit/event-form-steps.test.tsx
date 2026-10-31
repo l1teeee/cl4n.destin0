@@ -75,7 +75,7 @@ describe("create event form steps", () => {
   });
 
   it("blocks a maximum party size above capacity", () => {
-    renderCreate(undefined, { ...validValues, capacity: 2, maxPartySize: 3 });
+    renderCreate(undefined, { ...validValues, capacity: 1, maxPartySize: 2 });
 
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
 

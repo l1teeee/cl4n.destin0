@@ -29,6 +29,18 @@ interface PromotedSeatRow {
   accepted_at: Date;
 }
 
+export interface WaitlistPromotion {
+  entryId: string;
+  reservationId: string;
+  guests: string[];
+  messageId: string;
+}
+
+interface PromotionActor {
+  type: "ADMIN" | "SYSTEM";
+  adminId?: string;
+}
+
 async function readWaitingHead(
   client: PoolClient,
   eventId: string,
@@ -46,6 +58,27 @@ async function readWaitingHead(
       LIMIT 1
       FOR UPDATE`,
     [eventId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function readWaitingEntry(
+  client: PoolClient,
+  eventId: string,
+  entryId: string,
+): Promise<WaitingEntryRow | null> {
+  const result = await client.query<WaitingEntryRow>(
+    `SELECT id, waitlist_number, full_name, instagram_handle,
+            guest2_full_name, guest2_instagram_handle,
+            phone_e164, email, email_normalized, party_size, notes, allergies,
+            terms_accepted_at, link_code, contact_id, source, created_by,
+            idempotency_key, submitted_at
+       FROM waitlist_entries
+      WHERE id = $1
+        AND event_id = $2
+        AND status = 'WAITING'
+      FOR UPDATE`,
+    [entryId, eventId],
   );
   return result.rows[0] ?? null;
 }
@@ -188,11 +221,16 @@ async function recordPromotion(
   entry: WaitingEntryRow,
   reservationId: string,
   reservationNumber: number,
-): Promise<void> {
+  actor: PromotionActor,
+): Promise<string> {
   await client.query(
-    `INSERT INTO audit_logs (actor_type, action, entity_type, entity_id, metadata)
-     VALUES ('SYSTEM', 'WAITLIST_PROMOTED', 'RESERVATION', $1, $2::jsonb)`,
+    `INSERT INTO audit_logs (
+       actor_type, actor_admin_id, action, entity_type, entity_id, metadata
+     )
+     VALUES ($1, $2, 'WAITLIST_PROMOTED', 'RESERVATION', $3, $4::jsonb)`,
     [
+      actor.type,
+      actor.adminId ?? null,
       reservationId,
       JSON.stringify({
         eventId,
@@ -205,26 +243,59 @@ async function recordPromotion(
   const subject = { reservationId };
   const values = await loadGuestMessageValues(client, subject);
   const body = await renderGuestMessage(client, "PROMOTED", values);
-  await enqueueGuestMessage(client, {
+  const message = await enqueueGuestMessage(client, {
     kind: "PROMOTED",
     subject,
     eventId,
     body,
     source: "SYSTEM",
   });
+  return message.id;
+}
+
+async function promoteLockedEntry(
+  client: PoolClient,
+  eventId: string,
+  entry: WaitingEntryRow,
+  actor: PromotionActor,
+): Promise<WaitlistPromotion | null> {
+  const seats = await takeSeats(client, eventId, entry.party_size);
+  if (!seats) return null;
+
+  const reservationId = await insertPromotedReservation(client, eventId, entry, seats);
+  await markPromoted(client, entry.id, reservationId);
+  const messageId = await recordPromotion(
+    client,
+    eventId,
+    entry,
+    reservationId,
+    seats.last_reservation_number,
+    actor,
+  );
+  return {
+    entryId: entry.id,
+    reservationId,
+    guests: [entry.full_name, entry.guest2_full_name].filter(
+      (name): name is string => name !== null,
+    ),
+    messageId,
+  };
 }
 
 /**
  * Must run inside a transaction that already holds the event row lock.
  * Strict FIFO: stops at the first head entry that does not fit.
  */
-export async function promoteWaitlist(client: PoolClient, eventId: string): Promise<string[]> {
-  const promotedEntryIds: string[] = [];
+export async function promoteWaitlistDetailed(
+  client: PoolClient,
+  eventId: string,
+): Promise<WaitlistPromotion[]> {
+  const promoted: WaitlistPromotion[] = [];
 
   for (;;) {
     const entry = await readWaitingHead(client, eventId);
     if (!entry) {
-      return promotedEntryIds;
+      return promoted;
     }
 
     if (await hasConfirmedDuplicate(client, eventId, entry)) {
@@ -232,14 +303,36 @@ export async function promoteWaitlist(client: PoolClient, eventId: string): Prom
       continue;
     }
 
-    const seats = await takeSeats(client, eventId, entry.party_size);
-    if (!seats) {
-      return promotedEntryIds;
+    const result = await promoteLockedEntry(client, eventId, entry, { type: "SYSTEM" });
+    if (!result) {
+      return promoted;
     }
-
-    const reservationId = await insertPromotedReservation(client, eventId, entry, seats);
-    await markPromoted(client, entry.id, reservationId);
-    await recordPromotion(client, eventId, entry, reservationId, seats.last_reservation_number);
-    promotedEntryIds.push(entry.id);
+    promoted.push(result);
   }
+}
+
+export async function promoteWaitlist(client: PoolClient, eventId: string): Promise<string[]> {
+  const promoted = await promoteWaitlistDetailed(client, eventId);
+  return promoted.map((entry) => entry.entryId);
+}
+
+export async function promoteSpecificWaitlistEntry(
+  client: PoolClient,
+  eventId: string,
+  entryId: string,
+  actorAdminId: string,
+): Promise<
+  | { ok: true; promotion: WaitlistPromotion }
+  | { ok: false; code: "INVALID_STAGE" | "NO_SEAT" | "DUPLICATE_HANDLE" }
+> {
+  const entry = await readWaitingEntry(client, eventId, entryId);
+  if (!entry) return { ok: false, code: "INVALID_STAGE" };
+  if (await hasConfirmedDuplicate(client, eventId, entry)) {
+    return { ok: false, code: "DUPLICATE_HANDLE" };
+  }
+  const promotion = await promoteLockedEntry(client, eventId, entry, {
+    type: "ADMIN",
+    adminId: actorAdminId,
+  });
+  return promotion ? { ok: true, promotion } : { ok: false, code: "NO_SEAT" };
 }

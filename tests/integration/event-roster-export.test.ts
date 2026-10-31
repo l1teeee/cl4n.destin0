@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 import { GET } from "@/app/admin/(protected)/events/[id]/export/route";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { listEventGuests } from "@/infrastructure/db/repositories/event-guest-queries";
 import { queryEventRoster } from "@/infrastructure/db/repositories/event-roster-queries";
 
 import { insertTestEvent } from "../helpers/reservation-test-data";
@@ -41,9 +42,10 @@ beforeAll(async () => {
     `INSERT INTO reservations (
        event_id, reservation_number, status, full_name, instagram_handle, phone_e164,
        email, email_normalized, party_size, allergies, terms_accepted_at, idempotency_key,
-       submitted_at, accepted_at
+       submitted_at, accepted_at, stage, on_list_at, paid_at
      ) VALUES ($1, 7, 'CONFIRMED', '=Ana Pérez', 'anaperez', '+50370000007',
-       'ana@example.com', 'ana@example.com', 2, '=Maní', now(), $2, now(), now())`,
+       'ana@example.com', 'ana@example.com', 2, '=Maní', now(), $2, now(), now(),
+       'PAID', now(), now())`,
     [eventId, randomUUID()],
   );
 });
@@ -60,6 +62,20 @@ describe("event roster CSV route", () => {
     expect(roster[0]!.allergies).toBe("=Maní");
   });
 
+  it("returns the staged guest read model", async () => {
+    const guests = await listEventGuests(eventId, "confirmados", pool);
+
+    expect(guests).toMatchObject([
+      {
+        number: 7,
+        guest1Name: "=Ana Pérez",
+        partySize: 2,
+        allergies: "=Maní",
+        stage: "PAID",
+      },
+    ]);
+  });
+
   it("returns 401 without a valid session", async () => {
     const token = authState.token;
     authState.token = undefined;
@@ -73,7 +89,7 @@ describe("event roster CSV route", () => {
 
   it("returns a BOM-prefixed CSV with the selected rows", async () => {
     const response = await GET(
-      new Request(`http://localhost/admin/events/${eventId}/export?vista=confirmadas`),
+      new Request(`http://localhost/admin/events/${eventId}/export?vista=confirmados`),
       { params: Promise.resolve({ id: eventId }) },
     );
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -83,13 +99,16 @@ describe("event roster CSV route", () => {
     expect(response.headers.get("content-type")).toBe("text/csv; charset=utf-8");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("content-disposition")).toMatch(
-      /^attachment; filename="clandestino-.+-confirmadas-\d{8}\.csv"$/,
+      /^attachment; filename="clandestino-.+-confirmados-\d{8}\.csv"$/,
     );
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
-    expect(body).toContain('"Confirmada","#007"');
+    expect(body).toContain('"#007","Con lugar","Confirmado","\'=Ana Pérez"');
     expect(body).toContain('"\'=Ana Pérez"');
     expect(body).toContain('"Alergias"');
     expect(body).toContain('"\'=Maní"');
+    expect(body.split("\r\n")[0]).toBe(
+      '"Número","Estado","Etapa","Invitado 1","Instagram 1","Invitado 2","Instagram 2","Personas","Alergias","Observaciones","Recibida","En la lista","Pagado","Reembolso","Contacto de Instagram"',
+    );
   });
 });
 

@@ -77,7 +77,7 @@ function createForm(slug = "cena-admin"): FormData {
   form.set("opensAt", "2027-11-01T08:00");
   form.set("closesAt", "2027-11-19T20:00");
   form.set("capacity", "20");
-  form.set("maxPartySize", "4");
+  form.set("maxPartySize", "2");
   form.set("waitlistCapacity", "5");
   form.set("status", "DRAFT");
   form.set("locationStatus", "PENDING");
@@ -92,7 +92,7 @@ function updateForm(slug: string, name = "Cena actualizada"): FormData {
   form.set("eventTime", "20:00");
   form.set("opensAt", "2027-11-01T08:00");
   form.set("closesAt", "2027-11-20T20:00");
-  form.set("maxPartySize", "5");
+  form.set("maxPartySize", "2");
   form.set("locationStatus", "PENDING");
   form.set("locationRevision", "0");
   form.set("locationStatusLoaded", "PENDING");
@@ -104,7 +104,7 @@ async function insertEvent(status: "DRAFT" | "SCHEDULED" | "CLOSED", slug: strin
     `INSERT INTO events (
        internal_name, slug, starts_at, capacity, max_party_size,
        opens_at, closes_at, auto_close_on_full, status
-     ) VALUES ($1, $2, '2027-11-21T01:30:00Z', 20, 4,
+     ) VALUES ($1, $2, '2027-11-21T01:30:00Z', 20, 2,
        '2027-11-01T14:00:00Z', '2027-11-21T02:00:00Z', false, $3)
      RETURNING id`,
     ["Cena", slug, status],
