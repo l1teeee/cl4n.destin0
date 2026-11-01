@@ -129,7 +129,7 @@ describe("migration 0007 event location email", () => {
     });
   });
 
-  it("applies 0006 through 0013 together over a database at 0005", async () => {
+  it("applies 0006 through 0014 together over a database at 0005", async () => {
     const url = testDatabaseUrl();
     const database = `${url.pathname.slice(1)}_location_email_0005`;
     url.pathname = `/${database}`;
@@ -158,7 +158,7 @@ describe("migration 0007 event location email", () => {
       const applied = await pool.query(
         "SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(applied.rows[0]!.count).toBe(14);
+      expect(applied.rows[0]!.count).toBe(15);
     } finally {
       await pool.end();
       await maintenance(async (client) => {

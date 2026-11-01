@@ -47,22 +47,22 @@ async function createFixtures(client: PoolClient): Promise<Fixtures> {
     `INSERT INTO reservations (
        event_id, reservation_number, status, full_name, instagram_handle,
        guest2_full_name, guest2_instagram_handle, party_size, terms_accepted_at,
-       idempotency_key, submitted_at, accepted_at, contact_id
+       idempotency_key, submitted_at, accepted_at, contact_id, contact_linked_by
      ) VALUES
        ($1, 1, 'CONFIRMED', 'Ana López', 'ana.lopez', 'Luis Pérez', 'luis.perez', 2,
-        now(), $2, now(), now(), $4),
+        now(), $2, now(), now(), $4, 'MANUAL'),
        ($1, 2, 'CONFIRMED', 'Carlos Ruiz', 'carlos.ruiz', NULL, NULL, 1,
-        now(), $3, now(), now(), NULL)
+        now(), $3, now(), now(), NULL, NULL)
      RETURNING id, full_name`,
     [eventId, randomUUID(), randomUUID(), contacts.rows[0]!.id],
   );
   const waitlist = await client.query<{ id: string; full_name: string }>(
     `INSERT INTO waitlist_entries (
        event_id, waitlist_number, status, full_name, instagram_handle, party_size,
-       terms_accepted_at, idempotency_key, submitted_at, contact_id
+       terms_accepted_at, idempotency_key, submitted_at, contact_id, contact_linked_by
      ) VALUES
-       ($1, 3, 'WAITING', 'José León', 'jose.leon', 1, now(), $2, now(), $4),
-       ($1, 8, 'WAITING', 'María Soto', 'maria.soto', 1, now(), $3, now(), $5)
+       ($1, 3, 'WAITING', 'José León', 'jose.leon', 1, now(), $2, now(), $4, 'MANUAL'),
+       ($1, 8, 'WAITING', 'María Soto', 'maria.soto', 1, now(), $3, now(), $5, NULL)
      RETURNING id, full_name`,
     [eventId, randomUUID(), randomUUID(), contacts.rows[1]!.id, null],
   );

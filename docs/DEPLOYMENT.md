@@ -83,6 +83,7 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
   - `SELECT has_table_privilege('clandestino_app', 'messages', 'SELECT,INSERT,UPDATE,DELETE');`
   - `SELECT has_table_privilege('clandestino_app', 'message_attachments', 'SELECT,INSERT,UPDATE,DELETE');`
   - `SELECT has_table_privilege('clandestino_app', 'message_templates', 'SELECT,INSERT,UPDATE');`
+- Migration 0014 takes ACCESS EXCLUSIVE locks on `messages`, `reservations` and `waitlist_entries`, so run it outside any reservation window. It adds resumable-delivery, receipt-time and contact-link provenance columns, backfills existing links as CODE, and adds `MESSAGING_CONTACT_UNLINKED`. It creates no tables and needs no new grants.
 - **Deploy order:**
   1. Set the Vercel env vars.
   2. Migrate production BEFORE pushing `main`, because the push auto-deploys code that expects the new schema.

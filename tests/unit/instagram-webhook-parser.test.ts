@@ -31,6 +31,7 @@ describe("Instagram webhook parser", () => {
 
     expect(result).toEqual({
       skipped: 0,
+      foreignEntries: 0,
       events: [
         expect.objectContaining({
           type: "inbound_message",
@@ -71,6 +72,25 @@ describe("Instagram webhook parser", () => {
     ]);
     expect(result.events[0]).toMatchObject({ recipientId: accountId, externalMessageId: "echo" });
     expect(result.skipped).toBe(0);
+    expect(result.foreignEntries).toBe(0);
+  });
+
+  it("skips deletion echoes and deletions sent by the configured account", () => {
+    const result = parseInstagramWebhook(
+      payload(
+        { ...base, message: { mid: "echo-delete", is_deleted: true, is_echo: true } },
+        {
+          ...base,
+          sender: { id: accountId },
+          recipient: { id: "2000" },
+          message: { mid: "self-delete", is_deleted: true },
+        },
+      ),
+      accountId,
+    );
+
+    expect(result.events).toEqual([]);
+    expect(result.skipped).toBe(2);
   });
 
   it("accepts timestamps in seconds", () => {
@@ -92,13 +112,53 @@ describe("Instagram webhook parser", () => {
       },
       accountId,
     );
-    expect(result).toEqual({ events: [], skipped: 2 });
+    expect(result).toEqual({ events: [], skipped: 1, foreignEntries: 1 });
   });
 
   it("tolerates a malformed payload", () => {
     expect(parseInstagramWebhook({ object: "page" }, accountId)).toEqual({
       events: [],
       skipped: 1,
+      foreignEntries: 0,
     });
+  });
+
+  it("treats a referral without ref as a window signal and accepts only HTTPS attachments", () => {
+    const result = parseInstagramWebhook(
+      payload(
+        { ...base, referral: { type: "OPEN_THREAD" } },
+        {
+          ...base,
+          message: {
+            mid: "secure",
+            attachments: [
+              { type: "image", payload: { url: "http://lookaside.fbsbx.com/image" } },
+              { type: "image", payload: { url: "https://lookaside.fbsbx.com/image" } },
+            ],
+          },
+        },
+      ),
+      accountId,
+    );
+
+    expect(result.events[0]?.type).toBe("window_signal");
+    expect(result.events[1]).toMatchObject({
+      attachmentUrls: ["https://lookaside.fbsbx.com/image"],
+    });
+  });
+
+  it("clamps inbound text and rejects oversized scoped ids", () => {
+    const longText = "x".repeat(2100);
+    const result = parseInstagramWebhook(
+      payload(
+        { ...base, message: { mid: "long", text: longText } },
+        { ...base, sender: { id: "1".repeat(33) }, message: { mid: "bad", text: "bad" } },
+      ),
+      accountId,
+    );
+    const inbound = result.events[0];
+    expect(inbound?.type).toBe("inbound_message");
+    expect(inbound && "text" in inbound ? inbound.text?.length : 0).toBe(2000);
+    expect(result.skipped).toBe(1);
   });
 });

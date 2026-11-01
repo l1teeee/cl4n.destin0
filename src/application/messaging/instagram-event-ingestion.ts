@@ -35,4 +35,6 @@ export interface InstagramEventRepository {
     contentType: string;
     data: Buffer;
   }): Promise<void>;
+  listMissingInboundImages(limit: number): Promise<InboundImageReference[]>;
+  markAttachmentPermanentlyFailed(messageId: string, position: number): Promise<void>;
 }
