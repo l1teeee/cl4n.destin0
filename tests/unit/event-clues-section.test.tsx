@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { EventClue } from "@/application/events/event-clue-repository";
+import type { EventClue, EventClueDelivery } from "@/application/events/event-clue-repository";
 import { EventCluesSection } from "@/ui/admin/event-clues-section";
 import { TooltipProvider } from "@/ui/primitives/tooltip";
 
@@ -30,12 +30,19 @@ const clues: EventClue[] = [
   { id: "clue-3", body: "Tercera pista", createdAt: new Date("2026-10-28T22:45:00Z"), images: [] },
 ];
 
+const delivery: Record<string, EventClueDelivery> = {
+  "clue-1": { paid: 5, received: 5, pending: 0, failed: 0 },
+  "clue-2": { paid: 5, received: 3, pending: 2, failed: 0 },
+  "clue-3": { paid: 5, received: 2, pending: 1, failed: 2 },
+};
+
 function section(overrides: Partial<ComponentProps<typeof EventCluesSection>> = {}) {
   return (
     <TooltipProvider>
       <EventCluesSection
         appBaseUrl="https://clandestino.example/"
         clues={clues}
+        delivery={delivery}
         eventId="event-1"
         phase="CLOSED"
         slug="cena privada"
@@ -58,6 +65,34 @@ describe("EventCluesSection while the experience is closed", () => {
     expect(within(items[0]!).getByText("Tercera pista")).toBeDefined();
     expect(within(items[0]!).getByText("28/10/2026 16:45")).toBeDefined();
     expect(within(items[2]!).getByText("Primera pista")).toBeDefined();
+  });
+
+  it("shows how far each clue got among the paid guests", () => {
+    render(section());
+
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[2]!).getByText("Enviada a 5 de 5 · 0 pendientes")).toBeDefined();
+    expect(within(items[1]!).getByText("Enviada a 3 de 5 · 2 pendientes")).toBeDefined();
+    expect(
+      within(items[0]!).getByText("Enviada a 2 de 5 · 1 pendiente · 2 fallidos"),
+    ).toBeDefined();
+  });
+
+  it("uses the singular for exactly one failed message", () => {
+    render(
+      section({
+        clues: [clues[0]!],
+        delivery: { "clue-1": { paid: 4, received: 3, pending: 0, failed: 1 } },
+      }),
+    );
+
+    expect(screen.getByText("Enviada a 3 de 4 · 0 pendientes · 1 fallido")).toBeDefined();
+  });
+
+  it("omits the delivery line for a clue without counts yet", () => {
+    render(section({ delivery: {} }));
+
+    expect(screen.queryByText(/Enviada a/)).toBeNull();
   });
 
   it("reveals and hides a clue when its heading is clicked", () => {

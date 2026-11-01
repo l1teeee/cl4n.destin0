@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getAdminAuditLog, getAdminEventDetail } from "@/application/events/event-use-cases";
-import { getEventLocationEmailSummary } from "@/application/events/event-location-email";
 import type { EventGuestView } from "@/application/guests/guest-views";
 import { areCluesVisible } from "@/domain/event/event-clues";
 import { auditPageSizeFor } from "@/ui/admin/view-model";
@@ -16,7 +15,7 @@ import {
 } from "@/infrastructure/db/repositories/event-guest-queries";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
-import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
+import { postgresLocationMessageRepository } from "@/infrastructure/db/repositories/postgres-location-message-repository";
 import {
   discardMessageAction,
   markSentManuallyAction,
@@ -27,6 +26,7 @@ import { EventCluesSection } from "@/ui/admin/event-clues-section";
 import { EventGuestsSection } from "@/ui/admin/guests/event-guests-section";
 import { parseGuestView } from "@/ui/admin/guests/guest-list-view";
 import { LinkPendingIndicator } from "@/ui/admin/link-pending";
+import { LocationDeliveryPanel } from "@/ui/admin/location-delivery-panel";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { StatGrid } from "@/ui/admin/stat-grid";
@@ -36,8 +36,6 @@ import {
   formatAdminDate,
   lifecycleActions,
   locationMap,
-  locationSendButtonLabel,
-  locationSendConfirmation,
   parseEventSection,
   publicEventUrl,
   publicLinkHint,
@@ -55,7 +53,6 @@ import {
   completeEventAction,
   openEventNowAction,
   publishEventAction,
-  processPendingLocationEmailsAction,
   sendEventLocationAction,
   setEventLocationStatusAction,
 } from "../actions";
@@ -103,7 +100,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const cluesVisible = areCluesVisible(event.phase);
   const section = parseEventSection(query.seccion, cluesVisible);
   const sections = eventSections(cluesVisible);
-  const [guests, audit, images, locationEmailSummary, clues] = await Promise.all([
+  const [guests, audit, images, locationDelivery, clues, clueDelivery] = await Promise.all([
     section === "invitados" ? loadEventGuests(id, guestView) : Promise.resolve(null),
     getAdminAuditLog(postgresEventRepository, {
       eventId: id,
@@ -111,17 +108,13 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
       pageSize: auditPageSizeFor("desktop"),
     }),
     postgresEventImageRepository.list(id),
-    getEventLocationEmailSummary(postgresEventLocationEmailRepository, id),
+    postgresLocationMessageRepository.getLocationDeliverySummary(id),
     cluesVisible ? postgresEventClueRepository.listForEvent(id) : Promise.resolve([]),
+    cluesVisible ? postgresEventClueRepository.getDeliveryForEvent(id) : Promise.resolve({}),
   ]);
-  if (!locationEmailSummary) notFound();
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
   const controls = lifecycleActions(event, eventResult.databaseTime);
   const map = locationMap(event.location);
-  const sendLabel = locationSendButtonLabel(
-    locationEmailSummary.firstTimeSendable,
-    locationEmailSummary.updateSendable,
-  );
 
   return (
     <main className="admin-page admin-event-detail-page space-y-10">
@@ -185,6 +178,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         <EventCluesSection
           appBaseUrl={env.APP_BASE_URL}
           clues={clues}
+          delivery={clueDelivery}
           eventId={id}
           phase={event.phase}
           slug={event.slug}
@@ -290,69 +284,12 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             label="Confirmar ubicación"
           />
         ) : null}
-        <div className="space-y-4 border-t border-border pt-5">
-          <h3 className="font-semibold">Envío a invitados</h3>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="default">
-              Confirmadas: {locationEmailSummary.confirmedReservations}
-            </Badge>
-            <Badge variant="confirmed">
-              Recibieron la ubicación actual: {locationEmailSummary.sent}
-            </Badge>
-            <Badge variant="default">
-              Por primera vez: {locationEmailSummary.firstTimeSendable}
-            </Badge>
-            <Badge variant="default">Por actualizar: {locationEmailSummary.updateSendable}</Badge>
-            <Badge variant="draft">En envío: {locationEmailSummary.pending}</Badge>
-            <Badge variant={locationEmailSummary.failed > 0 ? "rejected" : "default"}>
-              Fallidos: {locationEmailSummary.failed}
-            </Badge>
-          </div>
-          {event.location.status !== "CONFIRMED" ? (
-            <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
-          ) : (
-            <div className="flex flex-wrap items-start gap-3">
-              {sendLabel ? (
-                <MutationForm
-                  action={sendEventLocationAction.bind(null, id, loadedLocation)}
-                  label={sendLabel}
-                  confirmation={locationSendConfirmation(
-                    locationEmailSummary.firstTimeSendable,
-                    locationEmailSummary.updateSendable,
-                  )}
-                />
-              ) : null}
-              {locationEmailSummary.pending > 0 ? (
-                <MutationForm
-                  action={processPendingLocationEmailsAction.bind(null, id)}
-                  label={`Procesar envíos pendientes (${locationEmailSummary.pending})`}
-                />
-              ) : null}
-              {locationEmailSummary.failed > 0 ? (
-                <Button variant="link" asChild>
-                  <Link href="/admin/emails?estado=FAILED&tipo=EVENT_LOCATION">Ver fallidos</Link>
-                </Button>
-              ) : null}
-            </div>
-          )}
-          {event.location.status === "CONFIRMED" ? (
-            <p className="admin-muted">
-              Con la ubicación confirmada, cada nueva reservación confirmada, incluso desde la cola,
-              recibe la ubicación automáticamente. Quienes ya estaban confirmados la reciben con el
-              envío.
-            </p>
-          ) : null}
-          {event.location.status === "CONFIRMED" &&
-          locationEmailSummary.confirmedReservations > 0 &&
-          locationEmailSummary.confirmedReservations === locationEmailSummary.sent ? (
-            <p className="admin-muted">
-              Todas las personas confirmadas tienen la ubicación actual.
-              {locationEmailSummary.lastSentAt
-                ? ` Último envío: ${formatAdminDate(locationEmailSummary.lastSentAt)}.`
-                : ""}
-            </p>
-          ) : null}
-        </div>
+        <LocationDeliveryPanel
+          summary={locationDelivery}
+          locationConfirmed={event.location.status === "CONFIRMED"}
+          acceptsSends={event.status !== "COMPLETED" && event.status !== "CANCELLED"}
+          sendAction={sendEventLocationAction.bind(null, id, loadedLocation)}
+        />
       </section>
 
       <section className="admin-section space-y-4" hidden={section !== "gestion"}>

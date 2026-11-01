@@ -13,6 +13,7 @@ import type { ImageContentType } from "@/contracts/image-upload";
 
 import { pool as applicationPool } from "../client";
 import { inTransaction } from "../transaction";
+import { refreshPendingLocationPhotos } from "./postgres-location-message-repository";
 
 interface EventImageRow extends QueryResultRow {
   id: string;
@@ -97,6 +98,7 @@ export class PostgresEventImageRepository implements EventImageRepository {
         ],
       );
       const image = imageItem(inserted.rows[0]!);
+      await refreshPendingLocationPhotos(client, input.eventId);
       await insertAudit(client, input.actorId, input.eventId, {
         imageAdded: image.id,
         contentType: image.contentType,
@@ -142,11 +144,14 @@ export class PostgresEventImageRepository implements EventImageRepository {
   remove(eventId: string, imageId: string, actorId: string): Promise<boolean> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
       await lockEventImages(client, eventId);
+      // Waits for an in-flight location send or payment so the refresh sees their rows; KEY SHARE does not conflict with the allocation UPDATE (ADR-005 decision 5) and is the lock the add path's FK insert takes.
+      await client.query("SELECT 1 FROM events WHERE id = $1 FOR KEY SHARE", [eventId]);
       const deleted = await client.query<{ id: string }>(
         "DELETE FROM event_images WHERE event_id = $1 AND id = $2 RETURNING id",
         [eventId, imageId],
       );
       if (deleted.rowCount === 0) return false;
+      await refreshPendingLocationPhotos(client, eventId);
       await insertAudit(client, actorId, eventId, { imageRemoved: imageId });
       return true;
     });

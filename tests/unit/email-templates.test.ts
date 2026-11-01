@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { adminAddedEmail } from "@/infrastructure/email/templates/admin-added-email";
 import { adminDeletionCodeEmail } from "@/infrastructure/email/templates/admin-deletion-code-email";
-import { reservationConfirmationEmail } from "@/infrastructure/email/templates/reservation-confirmation-email";
-import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import type { RenderedEmail } from "@/infrastructure/email/templates/rendered-email";
 
 const hostileName = `<script>alert("x")</script> & 'Ana'`;
 const escapedHostileName = "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &#39;Ana&#39;";
 const loginUrl = "https://admin.example.com/login?next=a&b=c";
-const eventStartsAt = new Date("2026-11-14T02:00:00.000Z");
 
 function expectCleanHtml(email: RenderedEmail, allowedUrl?: string): void {
   expect(email.html).not.toContain("undefined");
@@ -25,57 +22,6 @@ function expectNoHtmlInText(email: RenderedEmail): void {
   expect(email.text).not.toMatch(/<\/?[a-z][^>]*>/i);
   expect(email.text).not.toMatch(/&(amp|lt|gt|quot|#39);/);
 }
-
-describe("reservationConfirmationEmail", () => {
-  const email = reservationConfirmationEmail({
-    fullName: "Ana Perez",
-    reservationNumber: 7,
-    partySize: 3,
-    eventStartsAt,
-  });
-
-  it("uses the specified subject and preheader", () => {
-    expect(email.subject).toBe("Tu lugar en el clan está confirmado");
-    expect(email.html).toContain("Reserva #007 confirmada.");
-  });
-
-  it("contains every input value in html and text", () => {
-    const eventDate = formatPublicEventDate(eventStartsAt);
-    for (const value of ["Ana Perez", "#007", "3", eventDate]) {
-      expect(email.html).toContain(value);
-      expect(email.text).toContain(value);
-    }
-  });
-
-  it("tells the guest the location will arrive by email", () => {
-    const sentence =
-      "Te enviaremos la ubicación por correo antes de la experiencia. No le digas a nadie.";
-    expect(email.text).toContain(sentence);
-    expect(email.html).toContain(sentence);
-  });
-
-  it("pads the reservation number to 3 digits", () => {
-    expect(email.text).toContain("Reserva: #007");
-  });
-
-  it("has clean html and text", () => {
-    expectCleanHtml(email);
-    expectNoHtmlInText(email);
-  });
-
-  it("escapes hostile names in html only", () => {
-    const hostile = reservationConfirmationEmail({
-      fullName: hostileName,
-      reservationNumber: 7,
-      partySize: 3,
-      eventStartsAt,
-    });
-    expect(hostile.html).toContain(escapedHostileName);
-    expect(hostile.html).not.toContain(hostileName);
-    expect(hostile.text).toContain(hostileName);
-    expectCleanHtml(hostile);
-  });
-});
 
 describe("adminAddedEmail", () => {
   const input = {

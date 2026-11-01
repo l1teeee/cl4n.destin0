@@ -18,6 +18,7 @@ During an experience, the owner needs to publish short text clues for diners. Th
 6. Clues are numbered chronologically: the oldest existing clue is `Pista 1`, while both admin and public lists display the newest clue first. Numbers are derived from the list order and never stored, so deleting a clue renumbers the later ones.
 7. Adds and removals use the existing `EVENT_UPDATED` audit action with the clue id in `clueAdded` or `clueRemoved` metadata.
 8. Clue inserts rely only on the foreign key's `FOR KEY SHARE` lock on the event row. They never take `FOR UPDATE`, following the event-image locking decision in ADR-005, so clue publication does not unnecessarily serialize with reservation allocation.
+9. Publishing a clue also queues it by Instagram DM for the reservations that are PAID at that moment (ADR-009 section 9). A guest who becomes PAID after a clue was published does not receive that clue by DM; the public clue page still shows it.
 
 ## Consequences
 

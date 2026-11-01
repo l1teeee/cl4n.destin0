@@ -15,6 +15,9 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/infrastructure/email/outbox/schedule-email-delivery", () => ({
   scheduleEmailDelivery: vi.fn(),
 }));
+vi.mock("@/infrastructure/messaging/schedule-message-delivery", () => ({
+  scheduleMessageDelivery: vi.fn(),
+}));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((destination: string) => {
     throw new Error(`REDIRECT:${destination}`);
@@ -24,7 +27,9 @@ vi.mock("next/navigation", () => ({
 import { deleteEventClueAction } from "@/app/admin/(protected)/events/actions";
 import { POST } from "@/app/admin/(protected)/events/[id]/clues/route";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 
+import { insertGuestReservation, insertMessagingContact } from "../helpers/guest-flow-test-data";
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 
 const initialState = { ok: false, message: "" };
@@ -117,6 +122,40 @@ describe("POST /admin/events/[id]/clues", () => {
       [eventId],
     );
     expect(audit.rows).toEqual([{ actor_admin_id: adminId, action: "EVENT_UPDATED" }]);
+  });
+
+  it("queues the clue for the paid guests and delivers it before answering", async () => {
+    const eventId = await insertEvent("CLOSED");
+    const contactId = await insertMessagingContact(pool);
+    await insertGuestReservation(pool, eventId, { contactId });
+    await insertGuestReservation(pool, eventId, { stage: "ON_LIST" });
+    vi.mocked(scheduleMessageDelivery).mockClear();
+    authState.token = sessionToken;
+
+    const response = await POST(clueRequest(eventId, "Mira bajo la mesa."), {
+      params: Promise.resolve({ id: eventId }),
+    });
+
+    expect(response.status).toBe(201);
+    const messages = await pool.query<{ kind: string; status: string; body: string }>(
+      "SELECT kind, status, body FROM messages WHERE event_id = $1",
+      [eventId],
+    );
+    expect(messages.rows).toEqual([{ kind: "CLUE", status: "SENT", body: "Mira bajo la mesa." }]);
+    expect(scheduleMessageDelivery).toHaveBeenCalledOnce();
+  });
+
+  it("does not schedule any delivery when nobody is paid yet", async () => {
+    const eventId = await insertEvent("CLOSED");
+    vi.mocked(scheduleMessageDelivery).mockClear();
+    authState.token = sessionToken;
+
+    const response = await POST(clueRequest(eventId, "Para nadie todavía."), {
+      params: Promise.resolve({ id: eventId }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(scheduleMessageDelivery).not.toHaveBeenCalled();
   });
 
   it("rejects an empty clue body", async () => {
