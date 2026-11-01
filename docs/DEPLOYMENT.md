@@ -114,11 +114,51 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 | `TURNSTILE_SECRET_KEY` / `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | real keys from Cloudflare |
 | `TURNSTILE_ALLOWED_HOSTNAMES` | production hostname(s) |
 | `RATE_LIMIT_MODE` | `enforce` |
+| `MESSAGING_MODE` | `instagram` (`log` is rejected in production) |
+| `META_APP_SECRET` | Meta app secret, from section 5.1 (16 characters or more) |
+| `META_WEBHOOK_VERIFY_TOKEN` | new random value of 16 characters or more, also typed in the Meta webhook form |
+| `INSTAGRAM_ACCOUNT_ID` | numeric id of the Instagram professional account |
+| `INSTAGRAM_ACCESS_TOKEN` | access token from section 5.1 (20 characters or more) |
+| `META_GRAPH_API_BASE_URL` | `https://graph.instagram.com/v26.0` for Instagram Login, the Facebook Graph URL with the same pinned version for Facebook Login |
+| `NEXT_PUBLIC_INSTAGRAM_USERNAME` | business username without `@`, used for the `ig.me` links |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | optional |
 
 4. **Preview deployments.** Do not give Preview the production database. Until a Railway `staging` environment exists, leave Preview without database variables (preview builds then fail env validation and touch nothing), or disable preview deployments.
 5. **Email outbox cron.** `vercel.json` schedules `/api/cron/email-outbox` once a day (`0 13 * * *`), which is the only frequency Vercel Hobby allows. It is a safety net that retries failed and stranded emails and prunes sent rows older than 90 days. Normal delivery happens right after each request, so the daily cron is not what delivers confirmations. On Vercel Pro change the schedule to `*/5 * * * *` for a faster retry cadence. See ADR-003.
 6. **Firewall.** Add a WAF rate-limit rule on `POST /api/reservations` (fixed window, per IP, generous because of carrier CGNAT, e.g. 300 per 60s) as a volumetric backstop. Capacity is enforced by PostgreSQL, never by the WAF.
+
+### 5.1 Instagram (Meta) messaging
+
+Guests are contacted only by Instagram DM (ADR-009). Do this section after the owner approves the deployment, because Meta needs a public HTTPS URL for the webhook. Never write a real secret in a file in the repository; set them only in the Vercel Production environment.
+
+1. **Instagram account.** Use a professional account (Business or Creator). In the Instagram app go to Settings > Messages and story replies > Message controls and turn on "Allow access to messages" for connected tools.
+2. **Meta app.** At developers.facebook.com create an app of type Business. Add the Instagram product. Record the app secret (App settings > Basic) as `META_APP_SECRET`.
+3. **Choose one access path.** Both end with the same app code; only the token and the base URL change.
+   - **Instagram Login (default).** In the Instagram product choose "API setup with Instagram login", add the professional account and generate the token. It lasts 60 days. Refresh it before it expires (Instagram's `refresh_access_token` endpoint), put the new value in `INSTAGRAM_ACCESS_TOKEN` and redeploy. Put a reminder in the calendar for 50 days after each token. Set `INSTAGRAM_ACCOUNT_ID` to the professional account id that Meta shows next to the token and `META_GRAPH_API_BASE_URL=https://graph.instagram.com/v26.0`.
+   - **Facebook Login.** Link the Instagram account to a Facebook Page, generate a Page access token with the messaging permissions and use the Instagram professional account id. Set `META_GRAPH_API_BASE_URL` to the Facebook Graph URL with the same pinned version. A long-lived Page token does not have the 60-day refresh chore, but it needs the Page admin to keep access.
+4. **Environment variables.** In Vercel (Production only) set `MESSAGING_MODE=instagram`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` (a new random value, at least 16 characters), `INSTAGRAM_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`, `META_GRAPH_API_BASE_URL` and `NEXT_PUBLIC_INSTAGRAM_USERNAME`. The app refuses to start in production with `MESSAGING_MODE=log`.
+5. **Webhook.** In the Instagram product, Webhooks:
+   - Callback URL: `https://<host>/api/webhooks/instagram`.
+   - Verify token: the exact `META_WEBHOOK_VERIFY_TOKEN`. Meta calls the URL with `hub.mode=subscribe`; the app answers only when the token matches, so the environment variable must be deployed first.
+   - Subscribe to these fields: `messages`, `messaging_seen`, `messaging_referral`, `message_reactions`, `messaging_postbacks` and `message_edit`.
+   - Subscribe the account to the app so events arrive: `POST https://graph.instagram.com/v26.0/<INSTAGRAM_ACCOUNT_ID>/subscribed_apps?subscribed_fields=messages,messaging_seen,messaging_referral,message_reactions,messaging_postbacks,message_edit` with `Authorization: Bearer <INSTAGRAM_ACCESS_TOKEN>`. Check it with `GET` on the same URL.
+6. **Going live.** While the app is in Development mode only people with a role on the app (testers) can talk to the account.
+   - Add a privacy policy URL in App settings > Basic: `https://<host>/privacidad`. Have the owner finish the wording of that page first.
+   - Switch the app to Live mode.
+   - Request App Review for `instagram_business_manage_messages` with advanced access, with a screencast of the flow (guest writes the code, admin replies). Meta will probably also ask for Business Verification of the owner's business.
+   - Until both are approved, the app only works with testers. Add the owner and the test guests as Instagram testers (App roles) and have them accept the invitation in Instagram.
+7. **Cron.** `vercel.json` schedules `/api/cron/messages` once a day (`0 13 * * *`), the Hobby limit. It retries failed deliveries, releases messages waiting for the 24 h window when possible and finishes image downloads. Normal delivery happens right after each request and each webhook. It uses the same `CRON_SECRET` as the email cron.
+8. **Production order.** Do all of this outside any reservation window.
+   1. Run migrations 0013 and 0014 against production (section 4), and check the grants.
+   2. Set every environment variable, including section 5.1 step 4.
+   3. Push `main`. It auto-deploys.
+   4. Configure the webhook (step 5), after the deploy is live.
+9. **Check it works.**
+   - Webhook handshake: `curl "https://<host>/api/webhooks/instagram?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=123"` must print `123`, and a wrong token must answer 403.
+   - Meta's "Verify and save" button in the webhook form succeeds.
+   - A tester sends a DM to the account with a link code from a test request. In `/admin/mensajes` the conversation appears and links to the request.
+   - From the Mensajes panel send a free-text reply. It must reach the tester's Instagram and the status must change to "Enviado", then "Leído" when the tester opens it.
+   - Create the test request only with the owner's OK (section 6, item 3).
 
 ## 6. Deploy and verify technical health
 
