@@ -5,9 +5,9 @@ import type {
   EmailOutboxRow,
   OutboxEmailComposer,
 } from "@/application/notifications/email-outbox";
+import { isRetiredGuestEmailKind } from "@/application/notifications/email-outbox";
 import { PermanentEmailCompositionError } from "@/application/notifications/email-delivery-error";
 import type { AdminRole } from "@/domain/admin/admin-access";
-import type { EventLocationStatus } from "@/domain/event/event-location";
 
 import { env } from "../../config/env";
 import { pool as applicationPool } from "../../db/client";
@@ -15,27 +15,6 @@ import type { AdminAccountNotice } from "../templates/admin-account-notice-email
 import { adminAccountNoticeEmail } from "../templates/admin-account-notice-email";
 import { adminAddedEmail } from "../templates/admin-added-email";
 import { adminSignInAlertEmail } from "../templates/admin-sign-in-alert-email";
-import { eventLocationEmail } from "../templates/event-location-email";
-import { reservationCancelledEmail } from "../templates/reservation-cancelled-email";
-import { reservationConfirmationEmail } from "../templates/reservation-confirmation-email";
-import { reservationWaitlistedEmail } from "../templates/reservation-waitlisted-email";
-import { waitlistPromotedEmail } from "../templates/waitlist-promoted-email";
-
-interface GuestRecord extends QueryResultRow {
-  email: string;
-  full_name: string;
-  party_size: number;
-  starts_at: Date;
-  reservation_number: number | null;
-  reservation_status: string;
-  location_name: string | null;
-  location_address: string | null;
-  location_maps_url: string | null;
-  location_notes: string | null;
-  location_status: EventLocationStatus;
-  location_revision: number;
-  image_tokens: string[];
-}
 
 interface AdminRecord extends QueryResultRow {
   email: string;
@@ -62,22 +41,6 @@ function payloadString(row: EmailOutboxRow, field: string): string {
   return value;
 }
 
-function payloadPosition(row: EmailOutboxRow): number {
-  const value = row.payload.position;
-  if (typeof value !== "number") {
-    throw new Error(`Outbox payload field position is missing for ${row.kind}`);
-  }
-  return value;
-}
-
-function payloadBoolean(row: EmailOutboxRow, field: string): boolean {
-  const value = row.payload[field];
-  if (typeof value !== "boolean") {
-    throw new Error(`Outbox payload field ${field} is missing for ${row.kind}`);
-  }
-  return value;
-}
-
 function payloadAdminRole(row: EmailOutboxRow): AdminRole {
   const value = payloadString(row, "role");
   if (value !== "SUPER_ADMIN" && value !== "ADMIN") {
@@ -86,170 +49,17 @@ function payloadAdminRole(row: EmailOutboxRow): AdminRole {
   return value;
 }
 
-function requireReservationNumber(row: EmailOutboxRow, guest: GuestRecord): number {
-  if (guest.reservation_number === null) {
-    throw new Error(`Reservation number is missing for ${row.kind}`);
-  }
-  return guest.reservation_number;
-}
-
 export class PostgresOutboxEmailComposer implements OutboxEmailComposer {
   constructor(private readonly pool: Pool = applicationPool) {}
 
   async compose(row: EmailOutboxRow): Promise<ComposedOutboxEmail | null> {
-    if (row.reservationId) {
-      return this.composeForReservation(row, row.reservationId);
+    if (isRetiredGuestEmailKind(row.kind)) {
+      throw new PermanentEmailCompositionError("KIND_RETIRED");
     }
-    if (row.waitlistEntryId) {
-      return this.composeForWaitlistEntry(row, row.waitlistEntryId);
+    if (!row.adminUserId) {
+      throw new Error(`Outbox row ${row.id} has no subject`);
     }
-    if (row.adminUserId) {
-      return this.composeForAdmin(row, row.adminUserId);
-    }
-    throw new Error(`Outbox row ${row.id} has no subject`);
-  }
-
-  private async composeForReservation(
-    row: EmailOutboxRow,
-    reservationId: string,
-  ): Promise<ComposedOutboxEmail | null> {
-    const result = await this.pool.query<GuestRecord>(
-      `SELECT r.email, r.full_name, r.party_size, r.status AS reservation_status,
-              r.reservation_number, e.starts_at, e.location_name, e.location_address,
-              e.location_maps_url, e.location_notes, e.location_status, e.location_revision,
-              COALESCE(
-                array_agg(i.public_token ORDER BY i.created_at, i.id)
-                  FILTER (WHERE i.id IS NOT NULL),
-                ARRAY[]::text[]
-              ) AS image_tokens
-         FROM reservations r
-         JOIN events e ON e.id = r.event_id
-         LEFT JOIN event_images i ON i.event_id = e.id
-        WHERE r.id = $1
-        GROUP BY r.id, e.id`,
-      [reservationId],
-    );
-    const guest = result.rows[0];
-    if (!guest) {
-      return null;
-    }
-
-    const to = { email: guest.email, name: guest.full_name };
-
-    switch (row.kind) {
-      case "RESERVATION_CONFIRMED":
-        return {
-          to,
-          rendered: reservationConfirmationEmail({
-            fullName: guest.full_name,
-            reservationNumber: requireReservationNumber(row, guest),
-            partySize: guest.party_size,
-            eventStartsAt: guest.starts_at,
-          }),
-        };
-      case "WAITLIST_PROMOTED":
-        return {
-          to,
-          rendered: waitlistPromotedEmail({
-            fullName: guest.full_name,
-            reservationNumber: requireReservationNumber(row, guest),
-            partySize: guest.party_size,
-            eventStartsAt: guest.starts_at,
-          }),
-        };
-      case "RESERVATION_CANCELLED":
-        return {
-          to,
-          rendered: reservationCancelledEmail({
-            fullName: guest.full_name,
-            reservationNumber: guest.reservation_number,
-            eventStartsAt: guest.starts_at,
-          }),
-        };
-      case "EVENT_LOCATION":
-        if (guest.reservation_status !== "CONFIRMED") {
-          throw new PermanentEmailCompositionError("RESERVATION_NOT_CONFIRMED");
-        }
-        if (guest.location_status !== "CONFIRMED") {
-          throw new PermanentEmailCompositionError("LOCATION_NOT_CONFIRMED");
-        }
-        if (row.locationRevision !== guest.location_revision) {
-          throw new PermanentEmailCompositionError("LOCATION_SUPERSEDED");
-        }
-        return {
-          to,
-          rendered: eventLocationEmail({
-            fullName: guest.full_name,
-            reservationNumber: requireReservationNumber(row, guest),
-            partySize: guest.party_size,
-            eventStartsAt: guest.starts_at,
-            locationName: guest.location_name,
-            locationAddress: guest.location_address,
-            locationMapsUrl: guest.location_maps_url,
-            locationNotes: guest.location_notes,
-            imageTokens: guest.image_tokens,
-            appBaseUrl: env.APP_BASE_URL,
-            isUpdate: payloadBoolean(row, "isUpdate"),
-          }),
-        };
-      default:
-        throw new Error(`Outbox kind ${row.kind} cannot target a reservation`);
-    }
-  }
-
-  private async composeForWaitlistEntry(
-    row: EmailOutboxRow,
-    waitlistEntryId: string,
-  ): Promise<ComposedOutboxEmail | null> {
-    // The promoted reservation supplies the number a promoted guest finally receives.
-    const result = await this.pool.query<GuestRecord>(
-      `SELECT w.email, w.full_name, w.party_size, e.starts_at, pr.reservation_number
-         FROM waitlist_entries w
-         JOIN events e ON e.id = w.event_id
-         LEFT JOIN reservations pr ON pr.id = w.promoted_reservation_id
-        WHERE w.id = $1`,
-      [waitlistEntryId],
-    );
-    const guest = result.rows[0];
-    if (!guest) {
-      return null;
-    }
-
-    const to = { email: guest.email, name: guest.full_name };
-
-    switch (row.kind) {
-      case "RESERVATION_WAITLISTED":
-        return {
-          to,
-          rendered: reservationWaitlistedEmail({
-            fullName: guest.full_name,
-            position: payloadPosition(row),
-            partySize: guest.party_size,
-            eventStartsAt: guest.starts_at,
-          }),
-        };
-      case "WAITLIST_PROMOTED":
-        return {
-          to,
-          rendered: waitlistPromotedEmail({
-            fullName: guest.full_name,
-            reservationNumber: requireReservationNumber(row, guest),
-            partySize: guest.party_size,
-            eventStartsAt: guest.starts_at,
-          }),
-        };
-      case "WAITLIST_CANCELLED":
-        return {
-          to,
-          rendered: reservationCancelledEmail({
-            fullName: guest.full_name,
-            reservationNumber: null,
-            eventStartsAt: guest.starts_at,
-          }),
-        };
-      default:
-        throw new Error(`Outbox kind ${row.kind} cannot target a waitlist entry`);
-    }
+    return this.composeForAdmin(row, row.adminUserId);
   }
 
   private async composeForAdmin(

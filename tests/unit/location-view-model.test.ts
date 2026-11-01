@@ -1,39 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  locationMap,
-  locationSendButtonLabel,
-  locationSendConfirmation,
-} from "@/ui/admin/view-model";
-
-describe("location send texts", () => {
-  it.each([
-    [3, 0, "Enviar ubicación a 3"],
-    [0, 2, "Enviar actualización a 2"],
-    [3, 2, "Enviar ubicación (3 por primera vez, 2 actualizaciones)"],
-    [0, 0, null],
-  ])("labels the button for %i first-time and %i updates", (firstTime, updates, label) => {
-    expect(locationSendButtonLabel(firstTime, updates)).toBe(label);
-  });
-
-  it("builds the confirmation for first-time, update and mixed sends", () => {
-    const first = "Se enviará la ubicación por primera vez a 3 personas con reserva confirmada.";
-    const update = "2 personas recibieron una ubicación anterior y recibirán la actualización.";
-    const auto =
-      "Después de este envío, quien se confirme, incluso desde la cola, recibirá la ubicación automáticamente.";
-    expect(locationSendConfirmation(3, 0)).toBe(`${first} ${auto} No se puede deshacer.`);
-    expect(locationSendConfirmation(0, 2)).toBe(`${update} ${auto} No se puede deshacer.`);
-    expect(locationSendConfirmation(3, 2)).toBe(`${first} ${update} ${auto} No se puede deshacer.`);
-  });
-
-  it("uses the singular for exactly one person", () => {
-    const auto =
-      "Después de este envío, quien se confirme, incluso desde la cola, recibirá la ubicación automáticamente.";
-    expect(locationSendConfirmation(1, 1)).toBe(
-      `Se enviará la ubicación por primera vez a 1 persona con reserva confirmada. 1 persona recibió una ubicación anterior y recibirá la actualización. ${auto} No se puede deshacer.`,
-    );
-  });
-});
+import { locationMap } from "@/ui/admin/view-model";
 
 describe("location map", () => {
   it("points at the exact coordinates when known", () => {

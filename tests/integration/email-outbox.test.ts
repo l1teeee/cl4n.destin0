@@ -15,10 +15,6 @@ import { PostgresEmailOutboxRepository } from "@/infrastructure/email/outbox/pos
 import { adminAccountNoticeEmail } from "@/infrastructure/email/templates/admin-account-notice-email";
 import { adminAddedEmail } from "@/infrastructure/email/templates/admin-added-email";
 import { adminSignInAlertEmail } from "@/infrastructure/email/templates/admin-sign-in-alert-email";
-import { reservationCancelledEmail } from "@/infrastructure/email/templates/reservation-cancelled-email";
-import { reservationConfirmationEmail } from "@/infrastructure/email/templates/reservation-confirmation-email";
-import { reservationWaitlistedEmail } from "@/infrastructure/email/templates/reservation-waitlisted-email";
-import { waitlistPromotedEmail } from "@/infrastructure/email/templates/waitlist-promoted-email";
 
 import { insertTestEvent } from "../helpers/reservation-test-data";
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
@@ -263,177 +259,82 @@ describe("email outbox repository", () => {
 });
 
 describe("outbox email composer", () => {
-  async function insertReservation(
-    eventId: string,
-    options: { number: number | null; status?: string } = { number: 7 },
-  ) {
-    const status = options.status ?? "CONFIRMED";
-    const result = await pool.query<{ id: string }>(
-      `INSERT INTO reservations (
-         event_id, reservation_number, status, full_name, instagram_handle, phone_e164,
-         email, email_normalized, party_size, terms_accepted_at, idempotency_key,
-         submitted_at, accepted_at, cancelled_at
-       ) VALUES (
-         $1, $2, $3, 'Ana Perez', 'anaperez', $4, 'ana@example.com', 'ana@example.com', 3,
-         now(), $5, now(), $6, $7
-       ) RETURNING id`,
-      [
-        eventId,
-        options.number,
-        status,
-        `+503${Math.floor(Math.random() * 1e7)}`,
-        randomUUID(),
-        status === "CONFIRMED" ? new Date() : null,
-        status === "CANCELLED" ? new Date() : null,
-      ],
-    );
-    return result.rows[0]!.id;
-  }
-
-  async function insertWaitlistEntry(eventId: string, promotedReservationId: string | null = null) {
-    const result = await pool.query<{ id: string }>(
-      `INSERT INTO waitlist_entries (
-         event_id, waitlist_number, status, full_name, instagram_handle, phone_e164,
-         email, email_normalized, party_size, terms_accepted_at, idempotency_key,
-         submitted_at, promoted_reservation_id, promoted_at
-       ) VALUES (
-         $1, 2, $2, 'Beto Gomez', 'betogomez', '+50370001111', 'beto@example.com',
-         'beto@example.com', 2, now(), $3, now(), $4, $5
-       ) RETURNING id`,
-      [
-        eventId,
-        promotedReservationId ? "PROMOTED" : "WAITING",
-        randomUUID(),
-        promotedReservationId,
-        promotedReservationId ? new Date() : null,
-      ],
-    );
-    return result.rows[0]!.id;
-  }
-
   async function claimedRow(insert: string, values: unknown[]) {
     await pool.query(`INSERT INTO email_outbox ${insert}`, values);
     const [row] = await outbox.claimDue(1);
     return row!;
   }
 
-  async function startsAt(eventId: string): Promise<Date> {
-    const result = await pool.query<{ starts_at: Date }>(
-      "SELECT starts_at FROM events WHERE id = $1",
-      [eventId],
+  async function insertLegacyReservation(): Promise<string> {
+    const event = await insertTestEvent(pool);
+    const result = await pool.query<{ id: string }>(
+      `INSERT INTO reservations (
+         event_id, reservation_number, status, full_name, instagram_handle, party_size,
+         terms_accepted_at, idempotency_key, submitted_at, accepted_at
+       ) VALUES ($1, 1, 'CONFIRMED', 'Ana Perez', 'anaperez', 1, now(), $2, now(), now())
+       RETURNING id`,
+      [event.id, randomUUID()],
     );
-    return result.rows[0]!.starts_at;
+    return result.rows[0]!.id;
   }
 
-  it("renders a reservation confirmation from reservation and event data", async () => {
-    const event = await insertTestEvent(pool);
-    const reservationId = await insertReservation(event.id);
-    const row = await claimedRow("(kind, reservation_id) VALUES ($1, $2)", [
-      "RESERVATION_CONFIRMED",
-      reservationId,
-    ]);
+  it.each([
+    "RESERVATION_CONFIRMED",
+    "RESERVATION_WAITLISTED",
+    "WAITLIST_PROMOTED",
+    "RESERVATION_CANCELLED",
+    "WAITLIST_CANCELLED",
+  ] as const)("refuses to compose the retired guest kind %s", async (kind) => {
+    const reservationId = await insertLegacyReservation();
+    const row = await claimedRow("(kind, reservation_id) VALUES ($1, $2)", [kind, reservationId]);
 
-    await expect(composer.compose(row)).resolves.toEqual({
-      to: { email: "ana@example.com", name: "Ana Perez" },
-      rendered: reservationConfirmationEmail({
-        fullName: "Ana Perez",
-        reservationNumber: 7,
-        partySize: 3,
-        eventStartsAt: await startsAt(event.id),
-      }),
+    await expect(composer.compose(row)).rejects.toMatchObject({
+      name: "PermanentEmailCompositionError",
+      code: "KIND_RETIRED",
     });
   });
 
-  it("renders a reservation cancellation with its number", async () => {
-    const event = await insertTestEvent(pool);
-    const reservationId = await insertReservation(event.id, { number: 4, status: "CANCELLED" });
-    const row = await claimedRow("(kind, reservation_id) VALUES ($1, $2)", [
-      "RESERVATION_CANCELLED",
-      reservationId,
-    ]);
+  it("refuses to compose the retired location email", async () => {
+    const reservationId = await insertLegacyReservation();
+    const row = await claimedRow(
+      "(kind, reservation_id, location_revision, payload) VALUES ('EVENT_LOCATION', $1, 0, $2)",
+      [reservationId, JSON.stringify({ isUpdate: false })],
+    );
 
-    await expect(composer.compose(row)).resolves.toMatchObject({
-      rendered: reservationCancelledEmail({
-        fullName: "Ana Perez",
-        reservationNumber: 4,
-        eventStartsAt: await startsAt(event.id),
-      }),
-    });
+    await expect(composer.compose(row)).rejects.toMatchObject({ code: "KIND_RETIRED" });
   });
 
-  it("renders a waitlisted email using the payload position", async () => {
-    const event = await insertTestEvent(pool);
-    const entryId = await insertWaitlistEntry(event.id);
-    const row = await claimedRow("(kind, waitlist_entry_id, payload) VALUES ($1, $2, $3)", [
-      "RESERVATION_WAITLISTED",
-      entryId,
-      JSON.stringify({ position: 2 }),
-    ]);
+  it("fails a retried legacy guest row permanently and never sends it", async () => {
+    const reservationId = await insertLegacyReservation();
+    const inserted = await pool.query<{ id: string }>(
+      `INSERT INTO email_outbox (kind, reservation_id, status, attempts, last_error)
+       VALUES ('RESERVATION_CONFIRMED', $1, 'FAILED', 3, 'HTTP_503')
+       RETURNING id`,
+      [reservationId],
+    );
+    const id = inserted.rows[0]!.id;
+    await expect(outbox.retry(id)).resolves.toBe(true);
+    const sent: string[] = [];
 
-    await expect(composer.compose(row)).resolves.toEqual({
-      to: { email: "beto@example.com", name: "Beto Gomez" },
-      rendered: reservationWaitlistedEmail({
-        fullName: "Beto Gomez",
-        position: 2,
-        partySize: 2,
-        eventStartsAt: await startsAt(event.id),
-      }),
-    });
-  });
+    const summary = await deliverPendingEmails(
+      {
+        repository: outbox,
+        composer,
+        sender: {
+          send: async (email) => {
+            sent.push(email.to.email);
+          },
+        },
+        now: Date.now,
+        logFailure: () => undefined,
+        logStaleLease: () => undefined,
+      },
+      { limit: 10, timeBudgetMs: 20_000 },
+    );
 
-  it("renders a promotion for a waitlist entry using the promoted reservation number", async () => {
-    const event = await insertTestEvent(pool);
-    const reservationId = await insertReservation(event.id, { number: 9 });
-    const entryId = await insertWaitlistEntry(event.id, reservationId);
-    const row = await claimedRow("(kind, waitlist_entry_id) VALUES ($1, $2)", [
-      "WAITLIST_PROMOTED",
-      entryId,
-    ]);
-
-    await expect(composer.compose(row)).resolves.toMatchObject({
-      to: { email: "beto@example.com", name: "Beto Gomez" },
-      rendered: waitlistPromotedEmail({
-        fullName: "Beto Gomez",
-        reservationNumber: 9,
-        partySize: 2,
-        eventStartsAt: await startsAt(event.id),
-      }),
-    });
-  });
-
-  it("renders a promotion for a reservation subject", async () => {
-    const event = await insertTestEvent(pool);
-    const reservationId = await insertReservation(event.id, { number: 11 });
-    const row = await claimedRow("(kind, reservation_id) VALUES ($1, $2)", [
-      "WAITLIST_PROMOTED",
-      reservationId,
-    ]);
-
-    await expect(composer.compose(row)).resolves.toMatchObject({
-      rendered: waitlistPromotedEmail({
-        fullName: "Ana Perez",
-        reservationNumber: 11,
-        partySize: 3,
-        eventStartsAt: await startsAt(event.id),
-      }),
-    });
-  });
-
-  it("renders a waitlist cancellation without a number", async () => {
-    const event = await insertTestEvent(pool);
-    const entryId = await insertWaitlistEntry(event.id);
-    const row = await claimedRow("(kind, waitlist_entry_id) VALUES ($1, $2)", [
-      "WAITLIST_CANCELLED",
-      entryId,
-    ]);
-
-    await expect(composer.compose(row)).resolves.toMatchObject({
-      rendered: reservationCancelledEmail({
-        fullName: "Beto Gomez",
-        reservationNumber: null,
-        eventStartsAt: await startsAt(event.id),
-      }),
-    });
+    expect(summary).toEqual({ delivered: 0, retried: 0, failed: 1 });
+    expect(sent).toEqual([]);
+    expect(await rowById(id)).toMatchObject({ status: "FAILED", last_error: "KIND_RETIRED" });
   });
 
   it("renders admin added and sign-in alert emails from payload data", async () => {

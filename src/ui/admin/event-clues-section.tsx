@@ -1,7 +1,7 @@
 import { ChevronDown, Trash2 } from "lucide-react";
 
 import { deleteEventClueAction } from "@/app/admin/(protected)/events/actions";
-import type { EventClue } from "@/application/events/event-clue-repository";
+import type { EventClue, EventClueDelivery } from "@/application/events/event-clue-repository";
 import { canPublishClues, numberCluesNewestFirst } from "@/domain/event/event-clues";
 import type { EventPhase } from "@/domain/event/event-phase";
 import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
@@ -13,14 +13,26 @@ import { formatAdminDate, publicCluesUrl } from "@/ui/admin/view-model";
 interface EventCluesSectionProps {
   appBaseUrl: string;
   clues: readonly EventClue[];
+  delivery: Readonly<Record<string, EventClueDelivery>>;
   eventId: string;
   phase: EventPhase;
   slug: string;
 }
 
+function ClueDeliveryLine({ delivery }: { delivery: EventClueDelivery | undefined }) {
+  // A clue published a moment ago may not have its delivery counts yet.
+  if (!delivery) return null;
+
+  const pending = delivery.pending === 1 ? "1 pendiente" : `${delivery.pending} pendientes`;
+  const failed = delivery.failed === 1 ? "1 fallido" : `${delivery.failed} fallidos`;
+  const sentLine = `Enviada a ${delivery.received} de ${delivery.paid} · ${pending}`;
+  return <span>{delivery.failed > 0 ? `${sentLine} · ${failed}` : sentLine}</span>;
+}
+
 export function EventCluesSection({
   appBaseUrl,
   clues,
+  delivery,
   eventId,
   phase,
   slug,
@@ -63,6 +75,7 @@ export function EventCluesSection({
                         Pista {clue.number}
                       </span>
                       <span>{formatAdminDate(clue.createdAt)}</span>
+                      <ClueDeliveryLine delivery={delivery[clue.id]} />
                     </span>
                     <ChevronDown
                       aria-hidden="true"

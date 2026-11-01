@@ -7,9 +7,15 @@ const state = vi.hoisted(() => ({
   image: null as null | { contentType: string; data: Uint8Array },
 }));
 const publish = vi.hoisted(() =>
-  vi.fn(async () => ({ ok: true as const, value: { id: "clue-id" } })),
+  vi.fn(async () => ({
+    ok: true as const,
+    value: { id: "clue-id" },
+    messageIds: ["message-1", "message-2"],
+  })),
 );
 const getImage = vi.hoisted(() => vi.fn(async () => state.image));
+const drain = vi.hoisted(() => vi.fn(async () => ({})));
+const scheduleDelivery = vi.hoisted(() => vi.fn());
 
 vi.mock("@/infrastructure/auth/require-admin", () => ({
   requireAdmin: vi.fn(async () =>
@@ -24,6 +30,10 @@ vi.mock("@/infrastructure/db/repositories/postgres-event-clue-repository", () =>
 }));
 vi.mock("@/infrastructure/db/repositories/postgres-event-repository", () => ({
   postgresEventRepository: {},
+}));
+vi.mock("@/infrastructure/messaging/drain-message-outbox", () => ({ drainMessagesNow: drain }));
+vi.mock("@/infrastructure/messaging/schedule-message-delivery", () => ({
+  scheduleMessageDelivery: scheduleDelivery,
 }));
 
 const { POST } = await import("@/app/admin/(protected)/events/[id]/clues/route");
@@ -48,6 +58,9 @@ beforeEach(() => {
   state.image = null;
   publish.mockClear();
   getImage.mockClear();
+  drain.mockReset();
+  drain.mockResolvedValue({});
+  scheduleDelivery.mockClear();
 });
 
 describe("event clue image routes", () => {
@@ -65,6 +78,57 @@ describe("event clue image routes", () => {
         images: [{ contentType: "image/png", data: expect.any(Buffer) }],
       }),
     );
+  });
+
+  it("delivers the queued clue messages with a 6 s budget, then schedules the rest", async () => {
+    const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
+
+    expect(response.status).toBe(201);
+    expect(drain).toHaveBeenCalledWith(["message-1", "message-2"], { timeBudgetMs: 6_000 });
+    expect(scheduleDelivery).toHaveBeenCalledOnce();
+  });
+
+  it("skips delivery when no paid guest received the clue", async () => {
+    publish.mockResolvedValueOnce({ ok: true as const, value: { id: "clue-id" }, messageIds: [] });
+
+    const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
+
+    expect(response.status).toBe(201);
+    expect(drain).not.toHaveBeenCalled();
+    expect(scheduleDelivery).not.toHaveBeenCalled();
+  });
+
+  it.each(["55P03", "57014"])(
+    "answers 503 when publishing hits the database timeout %s and delivers nothing",
+    async (code) => {
+      publish.mockRejectedValueOnce(Object.assign(new Error("timeout"), { code }));
+
+      const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: "La experiencia está ocupada; intenta de nuevo.",
+      });
+      expect(drain).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not hide other database errors behind the busy answer", async () => {
+    publish.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "23505" }));
+
+    await expect(POST(postRequest(), { params: Promise.resolve({ id: eventId }) })).rejects.toThrow(
+      "unique",
+    );
+  });
+
+  it("keeps the published clue when the inline delivery fails and still schedules a retry", async () => {
+    drain.mockRejectedValue(new Error("database unavailable"));
+
+    const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ id: "clue-id" });
+    expect(scheduleDelivery).toHaveBeenCalledOnce();
   });
 
   it("rejects unauthorized and cross-origin writes", async () => {

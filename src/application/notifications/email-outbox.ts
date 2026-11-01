@@ -22,6 +22,20 @@ export const emailOutboxKinds = [
 export type EmailOutboxKind = (typeof emailOutboxKinds)[number];
 export type EmailOutboxStatus = "PENDING" | "SENT" | "FAILED";
 
+// Guests are messaged by Instagram since ADR-009; these kinds stay valid only as history.
+const retiredGuestEmailKinds: ReadonlySet<EmailOutboxKind> = new Set([
+  "RESERVATION_CONFIRMED",
+  "RESERVATION_WAITLISTED",
+  "WAITLIST_PROMOTED",
+  "RESERVATION_CANCELLED",
+  "WAITLIST_CANCELLED",
+  "EVENT_LOCATION",
+]);
+
+export function isRetiredGuestEmailKind(kind: EmailOutboxKind): boolean {
+  return retiredGuestEmailKinds.has(kind);
+}
+
 export interface EmailOutboxRow {
   id: string;
   kind: EmailOutboxKind;

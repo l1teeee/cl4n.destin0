@@ -306,6 +306,9 @@ describe("admin formatting and query parsing", () => {
     expect(emailKindLabel("ADMIN_SIGNED_IN")).toBe("Inicio de sesión");
     expect(emailKindLabel("EVENT_LOCATION")).toBe("Ubicación del evento");
     expect(emailErrorLabel("LOCATION_SUPERSEDED")).toBe("Existe una ubicación más reciente");
+    expect(emailErrorLabel("KIND_RETIRED")).toBe(
+      "Los avisos a invitados ahora se envían por Instagram",
+    );
     expect(parseEmailLogSearchParams({ estado: "FAILED", tipo: "RESERVATION_CONFIRMED" })).toEqual({
       status: "FAILED",
       kind: "RESERVATION_CONFIRMED",
