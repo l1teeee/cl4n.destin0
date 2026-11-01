@@ -18,6 +18,7 @@ export function readCreateEventFormData(formData: FormData) {
     maxPartySize: optionalNumber(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
     waitlistCapacity: optionalNumber(formData.get("waitlistCapacity")),
+    paymentInstructions: formData.get("paymentInstructions"),
     status: formData.get("status"),
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
@@ -108,16 +109,16 @@ const eventFields = {
     .number({ error: "La capacidad debe ser un número." })
     .int("La capacidad debe ser un número entero.")
     .positive("La capacidad debe ser mayor que cero."),
-  maxPartySize: z
-    .number({ error: "El tamaño máximo del grupo debe ser un número." })
-    .int("El tamaño máximo del grupo debe ser un número entero.")
-    .positive("El tamaño máximo del grupo debe ser mayor que cero."),
+  maxPartySize: z.union([z.literal(1), z.literal(2)], {
+    error: "Máximo 2 personas por solicitud.",
+  }),
   autoCloseOnFull: z.boolean({ error: "El cierre automático debe ser verdadero o falso." }),
   waitlistCapacity: z
     .number({ error: "Los lugares en cola deben ser un número." })
     .int("Los lugares en cola deben ser un número entero.")
     .min(0, "Los lugares en cola no pueden ser negativos.")
     .max(50, "Los lugares en cola no pueden superar 50."),
+  paymentInstructions: nullableTrimmedText(600),
   ...locationFields,
 };
 
@@ -144,6 +145,7 @@ export const updateAdminEventSchema = z
     closesAt: eventFields.closesAt,
     maxPartySize: eventFields.maxPartySize,
     autoCloseOnFull: eventFields.autoCloseOnFull,
+    paymentInstructions: eventFields.paymentInstructions.optional(),
     ...locationFields,
     keepMapsUrl: z.boolean(),
     locationRevision: z.string().regex(/^\d+$/).transform(Number),

@@ -77,6 +77,7 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
     autoCloseOnFull: false,
     waitlistCapacity: 0,
     waitlistedCount: 0,
+    paymentInstructions: null,
     status: "DRAFT",
     location: {
       name: null,
@@ -93,6 +94,10 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
     phase: "DRAFT",
     availableSeats: 20,
     confirmedReservationCount: 0,
+    inReviewCount: 0,
+    onListCount: 0,
+    paidCount: 0,
+    queueCount: 0,
     ...overrides,
   };
 }
