@@ -6,14 +6,11 @@ import type {
   AuditLogQuery,
   CreateEventCommand,
   DatabaseTimedResult,
-  EventRosterCounts,
-  EventRosterRow,
   EventOperationResult,
   EventRecord,
   LoadedLocationVersion,
   PaginatedAuditLog,
   PublicEvent,
-  RosterView,
   UpdateEventCommand,
 } from "./types";
 import type { EventLocationStatus } from "@/domain/event/event-location";
@@ -54,11 +51,6 @@ export interface EventRepository {
   listAdminReservations(
     query: AdminReservationQuery,
   ): Promise<DatabaseTimedResult<AdminReservationItem[]>>;
-  listEventRoster(
-    eventId: string,
-    view: RosterView,
-  ): Promise<DatabaseTimedResult<EventRosterRow[]>>;
-  countEventRoster(eventId: string): Promise<EventRosterCounts>;
   listAuditLogs(query: AuditLogQuery): Promise<DatabaseTimedResult<PaginatedAuditLog>>;
   getPublicHomeEvents(): Promise<DatabaseTimedResult<PublicEvent[]>>;
   getPublicEventBySlug(slug: string): Promise<DatabaseTimedResult<PublicEvent | null>>;

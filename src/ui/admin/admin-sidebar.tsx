@@ -6,6 +6,7 @@ import {
   LogOut,
   Mail,
   Menu,
+  MessageCircle,
   ScrollText,
   Users,
   Wine,
@@ -31,11 +32,13 @@ import {
   useSidebar,
 } from "@/ui/primitives/sidebar";
 import { BrandMark } from "@/ui/public/brand-mark";
+import { UnreadCountBadge } from "@/ui/admin/messages/unread-count-badge";
 
 interface AdminSidebarProps {
   displayName: string;
   showUsersLink: boolean;
   signOutAction: () => Promise<void>;
+  unreadMessageCount?: number;
 }
 
 interface AdminNavItem {
@@ -43,10 +46,17 @@ interface AdminNavItem {
   label: string;
   icon: LucideIcon;
   requiresAdminManagement?: boolean;
+  showsUnreadMessages?: boolean;
 }
 
 const navItems: AdminNavItem[] = [
   { href: "/admin", label: "Experiencias", icon: CalendarDays },
+  {
+    href: "/admin/mensajes",
+    label: "Mensajes",
+    icon: MessageCircle,
+    showsUnreadMessages: true,
+  },
   { href: "/admin/drinks", label: "Bebidas", icon: Wine },
   { href: "/admin/audit", label: "Auditoría", icon: ScrollText },
   { href: "/admin/emails", label: "Correos", icon: Mail },
@@ -83,11 +93,13 @@ function AdminNavigation({
   pathname,
   reduceMotion,
   closeMobileSidebar,
+  unreadMessageCount,
 }: {
   items: AdminNavItem[];
   pathname: string;
   reduceMotion: boolean;
   closeMobileSidebar: () => void;
+  unreadMessageCount: number;
 }) {
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
@@ -117,6 +129,11 @@ function AdminNavigation({
                       {active && <ActivePill reduceMotion={reduceMotion} />}
                       <Icon className="relative z-10" />
                       <span className={menuLabelClassName}>{item.label}</span>
+                      {item.showsUnreadMessages ? (
+                        <span className="relative z-10 ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:-right-1">
+                          <UnreadCountBadge count={unreadMessageCount} />
+                        </span>
+                      ) : null}
                       {pending && (
                         <span
                           aria-hidden="true"
@@ -135,7 +152,12 @@ function AdminNavigation({
   );
 }
 
-export function AdminSidebar({ displayName, showUsersLink, signOutAction }: AdminSidebarProps) {
+export function AdminSidebar({
+  displayName,
+  showUsersLink,
+  signOutAction,
+  unreadMessageCount = 0,
+}: AdminSidebarProps) {
   const pathname = usePathname();
   const reduceMotion = useReducedMotion() ?? false;
   const { isMobile, peeking, setOpenMobile, state } = useSidebar();
@@ -167,6 +189,7 @@ export function AdminSidebar({ displayName, showUsersLink, signOutAction }: Admi
           pathname={pathname}
           reduceMotion={reduceMotion}
           closeMobileSidebar={closeMobileSidebar}
+          unreadMessageCount={unreadMessageCount}
         />
       </SidebarContent>
 

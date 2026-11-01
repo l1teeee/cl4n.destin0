@@ -1,7 +1,10 @@
 import type { Pool, QueryResultRow } from "pg";
 
 import { EVENT_GUEST_VIEWS, type EventGuestView } from "@/application/guests/guest-views";
-import { getRequestMessages } from "@/application/messaging/conversation-queries";
+import {
+  getRequestMessages,
+  getRequestMessagesForMany,
+} from "@/application/messaging/conversation-queries";
 import type { ConversationMessage } from "@/application/messaging/conversation-queries";
 import type { MessageKind, MessageStatus } from "@/domain/messaging/message-types";
 
@@ -484,4 +487,35 @@ export async function getGuestRequestDetail(
     kind === "RESERVATION" ? { reservationId: id } : { waitlistEntryId: id },
   );
   return { ...row, timeline: timelineOf(row), messages };
+}
+
+// Detail for every request of a view in one pass, so the event page does not run the three
+// queries of getGuestRequestDetail once per row.
+export async function listEventGuestDetails(
+  eventId: string,
+  view: EventGuestView,
+  targetPool: Pool = applicationPool,
+): Promise<GuestRequestDetail[]> {
+  const rows = await listEventGuests(eventId, view, targetPool);
+  // Messages tied to a request are always outbound and the list query already carries the
+  // latest one, so a request without it has no thread and needs no lookup.
+  const reservationIds: string[] = [];
+  const waitlistEntryIds: string[] = [];
+  for (const row of rows) {
+    if (row.lastMessage === null) continue;
+    if (row.kind === "RESERVATION") reservationIds.push(row.id);
+    else waitlistEntryIds.push(row.id);
+  }
+  const messages = await getRequestMessagesForMany(postgresMessageRepository, {
+    reservationIds,
+    waitlistEntryIds,
+  });
+  return rows.map((row): GuestRequestDetail => ({
+    ...row,
+    timeline: timelineOf(row),
+    messages:
+      (row.kind === "RESERVATION"
+        ? messages.byReservationId.get(row.id)
+        : messages.byWaitlistEntryId.get(row.id)) ?? [],
+  }));
 }

@@ -82,9 +82,7 @@ describe("create event form steps", () => {
     expect(
       screen.getByText("El tamaño máximo del grupo no puede superar la capacidad."),
     ).toBeDefined();
-    expect(document.querySelector('[name="maxPartySize"]')?.getAttribute("aria-invalid")).toBe(
-      "true",
-    );
+    expect(document.querySelector("#maxPartySize")?.getAttribute("aria-invalid")).toBe("true");
   });
 
   it("moves forward and back without losing values", () => {
@@ -168,5 +166,20 @@ describe("edit event form", () => {
     expect(screen.queryByText(/Paso \d de 2/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Siguiente" })).toBeNull();
     expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeDefined();
+  });
+});
+
+describe("event form guest flow fields", () => {
+  it("offers the party size select, payment instructions and the queue label", () => {
+    renderCreate();
+
+    expect(screen.getByText("Personas por solicitud")).toBeDefined();
+    expect(screen.getByText("Lugares en la cola")).toBeDefined();
+    const instructions = document.querySelector<HTMLTextAreaElement>(
+      '[name="paymentInstructions"]',
+    );
+    expect(instructions).not.toBeNull();
+    expect(instructions?.required).toBe(false);
+    expect(screen.getByText(/Se incluyen en el mensaje de .estás en la lista./)).toBeDefined();
   });
 });
