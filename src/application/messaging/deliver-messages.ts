@@ -74,7 +74,8 @@ async function deliverClaimed(
   dependencies: DeliverMessagesDependencies,
   row: DeliverableMessage,
   summary: MessageDeliverySummary,
-): Promise<void> {
+  deadline: number,
+): Promise<"CONTINUE" | "DEADLINE"> {
   if (!isStillRelevant(row.kind, row.relevance)) {
     if (
       await finish(
@@ -86,7 +87,7 @@ async function deliverClaimed(
       summary.discarded += 1;
       summary.outcomes[row.id] = "DISCARDED";
     }
-    return;
+    return "CONTINUE";
   }
 
   const parts = messageParts(row);
@@ -105,7 +106,7 @@ async function deliverClaimed(
       summary.failed += 1;
       summary.outcomes[row.id] = "FAILED";
     }
-    return;
+    return "CONTINUE";
   }
 
   if (!isMessagingWindowOpen(row.lastInboundAt, new Date(dependencies.now()))) {
@@ -119,17 +120,28 @@ async function deliverClaimed(
       summary.waitingWindow += 1;
       summary.outcomes[row.id] = "WAITING_WINDOW";
     }
-    return;
+    return "CONTINUE";
   }
 
   let lease = row.lockedUntil;
   for (let index = row.partsSent; index < parts.length; index += 1) {
+    if (dependencies.now() >= deadline) {
+      const released = await dependencies.repository.releaseClaim(row.id, lease);
+      if (!released) dependencies.logStaleLease({ messageId: row.id });
+      return "DEADLINE";
+    }
     const extendedLease = await dependencies.repository.extendLease(row.id, lease);
     if (!extendedLease) {
       dependencies.logStaleLease({ messageId: row.id });
-      return;
+      return "CONTINUE";
     }
     lease = extendedLease;
+
+    if (dependencies.now() >= deadline) {
+      const released = await dependencies.repository.releaseClaim(row.id, lease);
+      if (!released) dependencies.logStaleLease({ messageId: row.id });
+      return "DEADLINE";
+    }
 
     let response: { messageId: string } | null = null;
     let messengerError: unknown;
@@ -152,7 +164,7 @@ async function deliverClaimed(
       );
       if (!recorded) {
         dependencies.logStaleLease({ messageId: row.id });
-        return;
+        return "CONTINUE";
       }
       if (lastPart) {
         summary.sent += 1;
@@ -204,8 +216,9 @@ async function deliverClaimed(
       kind: row.kind,
       errorCode: failure.errorCode,
     });
-    return;
+    return "CONTINUE";
   }
+  return "CONTINUE";
 }
 
 async function deliver(
@@ -218,12 +231,13 @@ async function deliver(
 ): Promise<MessageDeliverySummary> {
   const summary = emptySummary();
   const startedAt = dependencies.now();
+  const deadline = startedAt + input.timeBudgetMs;
   await dependencies.repository.repairWaitingContacts();
   for (let index = 0; index < input.limit; index += 1) {
-    if (dependencies.now() - startedAt >= input.timeBudgetMs) break;
+    if (dependencies.now() >= deadline) break;
     const [row] = await dependencies.repository.claimDue(1, input.messageIds);
     if (!row) break;
-    await deliverClaimed(dependencies, row, summary);
+    if ((await deliverClaimed(dependencies, row, summary, deadline)) === "DEADLINE") break;
   }
   return summary;
 }

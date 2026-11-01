@@ -20,6 +20,7 @@ export interface MessageDeliveryRepository {
   repairWaitingContacts(): Promise<number>;
   claimDue(limit: number, messageIds?: readonly string[]): Promise<DeliverableMessage[]>;
   extendLease(id: string, lease: Date): Promise<Date | null>;
+  releaseClaim(id: string, lease: Date): Promise<boolean>;
   markDiscarded(id: string, lease: Date, errorCode: string): Promise<boolean>;
   markWaitingWindow(id: string, lease: Date, errorCode?: string): Promise<boolean>;
   recordPart(
