@@ -51,6 +51,7 @@ interface EventRow extends QueryResultRow {
   auto_close_on_full: boolean;
   waitlist_capacity: number;
   waitlisted_count: number;
+  payment_instructions: string | null;
   status: EventLifecycleStatus;
   location_name: string | null;
   location_address: string | null;
@@ -65,6 +66,9 @@ interface EventRow extends QueryResultRow {
   created_at?: Date;
   updated_at?: Date;
   confirmed_reservation_count?: string;
+  in_review_count?: string;
+  on_list_count?: string;
+  paid_count?: string;
   db_now?: Date;
 }
 
@@ -133,7 +137,8 @@ const eventColumns = `
   location_revision,
   location_released_revision,
   location_latitude,
-  location_longitude`;
+  location_longitude,
+  payment_instructions`;
 
 function eventRecord(row: EventRow): EventRecord {
   return {
@@ -149,6 +154,7 @@ function eventRecord(row: EventRow): EventRecord {
     autoCloseOnFull: row.auto_close_on_full,
     waitlistCapacity: row.waitlist_capacity,
     waitlistedCount: row.waitlisted_count,
+    paymentInstructions: row.payment_instructions,
     status: row.status,
     location: {
       name: row.location_name,
@@ -243,6 +249,7 @@ function comparableEvent(record: EventRecord): Record<string, unknown> {
     closesAt: record.closesAt.toISOString(),
     autoCloseOnFull: record.autoCloseOnFull,
     waitlistCapacity: record.waitlistCapacity,
+    paymentInstructions: record.paymentInstructions,
     status: record.status,
     locationName: record.location.name,
     locationAddress: record.location.address,
@@ -297,6 +304,9 @@ export class PostgresEventRepository implements EventRepository {
     if (command.closesAt <= command.opensAt) {
       return failed("INVALID_WINDOW");
     }
+    if (command.maxPartySize !== 1 && command.maxPartySize !== 2) {
+      return failed("MAX_PARTY_SIZE_NOT_ALLOWED");
+    }
     if (command.maxPartySize > command.capacity) {
       return failed("MAX_PARTY_SIZE_ABOVE_CAPACITY");
     }
@@ -325,12 +335,13 @@ export class PostgresEventRepository implements EventRepository {
              location_status,
              location_confirmed_at,
              location_latitude,
-             location_longitude
+             location_longitude,
+             payment_instructions
            )
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                    $15::event_location_status,
                    CASE WHEN $15::event_location_status = 'CONFIRMED' THEN clock_timestamp() ELSE NULL END,
-                   $16, $17)
+                   $16, $17, $18)
            RETURNING ${eventColumns}`,
           [
             command.internalName,
@@ -350,6 +361,7 @@ export class PostgresEventRepository implements EventRepository {
             command.location.status,
             command.coordinates?.latitude ?? null,
             command.coordinates?.longitude ?? null,
+            command.paymentInstructions ?? null,
           ],
         );
         const created = eventRecord(inserted.rows[0]!);
@@ -375,6 +387,9 @@ export class PostgresEventRepository implements EventRepository {
     }
     if (!isEventLocationConfirmationValid(command.location)) {
       return failed("LOCATION_CONFIRMATION_INCOMPLETE");
+    }
+    if (command.maxPartySize !== 1 && command.maxPartySize !== 2) {
+      return failed("MAX_PARTY_SIZE_NOT_ALLOWED");
     }
 
     try {
@@ -430,6 +445,7 @@ export class PostgresEventRepository implements EventRepository {
                   location_notes = $12,
                   location_latitude = $14,
                   location_longitude = $15,
+                  payment_instructions = $16,
                   location_status = $13::event_location_status,
                   location_confirmed_at = CASE
                     WHEN $13::event_location_status = 'PENDING' THEN NULL
@@ -465,6 +481,9 @@ export class PostgresEventRepository implements EventRepository {
             command.location.status,
             coordinates?.latitude ?? null,
             coordinates?.longitude ?? null,
+            command.paymentInstructions === undefined
+              ? locked.payment_instructions
+              : command.paymentInstructions,
           ],
         );
         const after = eventRecord(updated.rows[0]!);
@@ -680,7 +699,16 @@ export class PostgresEventRepository implements EventRepository {
       `WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS db_now)
        SELECT e.*,
               db_clock.db_now,
-              COUNT(r.id) FILTER (WHERE r.status = 'CONFIRMED') AS confirmed_reservation_count
+              COUNT(r.id) FILTER (WHERE r.status = 'CONFIRMED') AS confirmed_reservation_count,
+              COUNT(r.id) FILTER (
+                WHERE r.status = 'CONFIRMED' AND r.stage = 'IN_REVIEW'
+              ) AS in_review_count,
+              COUNT(r.id) FILTER (
+                WHERE r.status = 'CONFIRMED' AND r.stage = 'ON_LIST'
+              ) AS on_list_count,
+              COUNT(r.id) FILTER (
+                WHERE r.status = 'CONFIRMED' AND r.stage = 'PAID'
+              ) AS paid_count
          FROM events e
          CROSS JOIN db_clock
          LEFT JOIN reservations r ON r.event_id = e.id
@@ -700,7 +728,16 @@ export class PostgresEventRepository implements EventRepository {
       `WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS db_now)
        SELECT e.*,
               db_clock.db_now,
-              COUNT(r.id) FILTER (WHERE r.status = 'CONFIRMED') AS confirmed_reservation_count
+              COUNT(r.id) FILTER (WHERE r.status = 'CONFIRMED') AS confirmed_reservation_count,
+              COUNT(r.id) FILTER (
+                WHERE r.status = 'CONFIRMED' AND r.stage = 'IN_REVIEW'
+              ) AS in_review_count,
+              COUNT(r.id) FILTER (
+                WHERE r.status = 'CONFIRMED' AND r.stage = 'ON_LIST'
+              ) AS on_list_count,
+              COUNT(r.id) FILTER (
+                WHERE r.status = 'CONFIRMED' AND r.stage = 'PAID'
+              ) AS paid_count
          FROM events e
          CROSS JOIN db_clock
          LEFT JOIN reservations r ON r.event_id = e.id
@@ -908,6 +945,10 @@ export class PostgresEventRepository implements EventRepository {
       phase: derivePhase(record, databaseTime),
       availableSeats: availableSeats(record),
       confirmedReservationCount: Number(row.confirmed_reservation_count ?? 0),
+      inReviewCount: Number(row.in_review_count ?? 0),
+      onListCount: Number(row.on_list_count ?? 0),
+      paidCount: Number(row.paid_count ?? 0),
+      queueCount: record.waitlistedCount,
     };
   }
 

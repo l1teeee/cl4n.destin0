@@ -7,6 +7,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
 
 const scheduleEmailDeliveryMock = vi.hoisted(() => vi.fn());
+const scheduleMessageDeliveryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
@@ -16,6 +17,9 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/infrastructure/email/outbox/schedule-email-delivery", () => ({
   scheduleEmailDelivery: scheduleEmailDeliveryMock,
+}));
+vi.mock("@/infrastructure/messaging/schedule-message-delivery", () => ({
+  scheduleMessageDelivery: scheduleMessageDeliveryMock,
 }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((destination: string) => {
@@ -51,6 +55,7 @@ let sessionToken: string;
 
 beforeEach(async () => {
   scheduleEmailDeliveryMock.mockClear();
+  scheduleMessageDeliveryMock.mockClear();
   authState.token = undefined;
   if (pool) await pool.end();
   await resetTestDatabase();
@@ -77,7 +82,7 @@ function createForm(slug = "cena-admin"): FormData {
   form.set("opensAt", "2027-11-01T08:00");
   form.set("closesAt", "2027-11-19T20:00");
   form.set("capacity", "20");
-  form.set("maxPartySize", "4");
+  form.set("maxPartySize", "2");
   form.set("waitlistCapacity", "5");
   form.set("status", "DRAFT");
   form.set("locationStatus", "PENDING");
@@ -92,7 +97,7 @@ function updateForm(slug: string, name = "Cena actualizada"): FormData {
   form.set("eventTime", "20:00");
   form.set("opensAt", "2027-11-01T08:00");
   form.set("closesAt", "2027-11-20T20:00");
-  form.set("maxPartySize", "5");
+  form.set("maxPartySize", "2");
   form.set("locationStatus", "PENDING");
   form.set("locationRevision", "0");
   form.set("locationStatusLoaded", "PENDING");
@@ -104,7 +109,7 @@ async function insertEvent(status: "DRAFT" | "SCHEDULED" | "CLOSED", slug: strin
     `INSERT INTO events (
        internal_name, slug, starts_at, capacity, max_party_size,
        opens_at, closes_at, auto_close_on_full, status
-     ) VALUES ($1, $2, '2027-11-21T01:30:00Z', 20, 4,
+     ) VALUES ($1, $2, '2027-11-21T01:30:00Z', 20, 2,
        '2027-11-01T14:00:00Z', '2027-11-21T02:00:00Z', false, $3)
      RETURNING id`,
     ["Cena", slug, status],
@@ -298,6 +303,7 @@ describe("admin event Server Actions", () => {
     form.set("newCapacity", "25");
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: false });
     expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
+    expect(scheduleMessageDeliveryMock).not.toHaveBeenCalled();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
@@ -305,6 +311,7 @@ describe("admin event Server Actions", () => {
     await authorize();
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: true });
     expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
+    expect(scheduleMessageDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
@@ -373,11 +380,13 @@ describe("admin event Server Actions", () => {
       ).rows[0]!.status,
     ).toBe("CONFIRMED");
     expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
+    expect(scheduleMessageDeliveryMock).not.toHaveBeenCalled();
     await authorize();
     expect(
       await cancelReservationAction(eventId, reservationId, initialState, new FormData()),
     ).toMatchObject({ ok: true });
     expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
+    expect(scheduleMessageDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (
         await pool.query<{ status: string }>("SELECT status FROM reservations WHERE id = $1", [
@@ -416,12 +425,14 @@ describe("admin event Server Actions", () => {
       cancelWaitlistEntryAction(eventId, entryId, initialState, new FormData()),
     ).resolves.toMatchObject({ ok: false });
     expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
+    expect(scheduleMessageDeliveryMock).not.toHaveBeenCalled();
 
     await authorize();
     await expect(
       cancelWaitlistEntryAction(eventId, entryId, initialState, new FormData()),
     ).resolves.toMatchObject({ ok: true });
     expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
+    expect(scheduleMessageDeliveryMock).toHaveBeenCalledOnce();
     await expect(
       pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [entryId]),
     ).resolves.toMatchObject({ rows: [{ status: "CANCELLED" }] });

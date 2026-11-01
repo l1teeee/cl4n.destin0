@@ -237,20 +237,28 @@ export class PostgresMessageRepository
             AND NOT EXISTS (
               SELECT 1
                 FROM messages older
-                LEFT JOIN reservations older_r ON older_r.id = older.reservation_id
-                LEFT JOIN waitlist_entries older_w ON older_w.id = older.waitlist_entry_id
-                CROSS JOIN LATERAL (
-                  VALUES (CASE
-                    WHEN older.parts_sent <> 0 THEN older.contact_id
-                    WHEN older.reservation_id IS NOT NULL THEN older_r.contact_id
-                    WHEN older.waitlist_entry_id IS NOT NULL THEN older_w.contact_id
-                    ELSE older.contact_id
-                  END)
-                ) AS older_recipient(contact_id)
-               WHERE older_recipient.contact_id = recipient.contact_id
+               WHERE older.contact_id = recipient.contact_id
                  AND older.direction = 'OUTBOUND'
                  AND older.status IN ('QUEUED', 'WAITING_WINDOW')
                  AND (older.created_at, older.id) < (m.created_at, m.id)
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM messages leased_older
+                LEFT JOIN reservations leased_r ON leased_r.id = leased_older.reservation_id
+                LEFT JOIN waitlist_entries leased_w
+                  ON leased_w.id = leased_older.waitlist_entry_id
+               WHERE leased_older.contact_id IS DISTINCT FROM recipient.contact_id
+                 AND CASE
+                   WHEN leased_older.reservation_id IS NOT NULL THEN leased_r.contact_id
+                   WHEN leased_older.waitlist_entry_id IS NOT NULL THEN leased_w.contact_id
+                   ELSE leased_older.contact_id
+                 END = recipient.contact_id
+                 AND leased_older.direction = 'OUTBOUND'
+                 AND leased_older.status = 'QUEUED'
+                 AND leased_older.parts_sent = 0
+                 AND leased_older.locked_until >= clock_timestamp()
+                 AND (leased_older.created_at, leased_older.id) < (m.created_at, m.id)
             )
           ORDER BY m.created_at, m.id
           LIMIT $1
@@ -313,6 +321,14 @@ export class PostgresMessageRepository
       [id, lease],
     );
     return result.rows[0]?.locked_until ?? null;
+  }
+
+  releaseClaim(id: string, lease: Date): Promise<boolean> {
+    return this.complete(
+      id,
+      lease,
+      "locked_until = NULL, claims_without_progress = GREATEST(claims_without_progress - 1, 0)",
+    );
   }
 
   private async complete(
@@ -411,7 +427,7 @@ export class PostgresMessageRepository
     return this.complete(
       id,
       lease,
-      "attempts = attempts + 1, next_attempt_at = clock_timestamp() + make_interval(secs => $3), locked_until = NULL, last_error = $4",
+      "attempts = attempts + 1, next_attempt_at = clock_timestamp() + make_interval(secs => $3), locked_until = NULL, last_error = $4, claims_without_progress = 0",
       [delaySeconds, errorCode],
     );
   }

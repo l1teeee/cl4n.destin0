@@ -6,6 +6,7 @@ import {
   cancelPaidConfirmation,
   cancelUnpaidConfirmation,
   cancelledResult,
+  enteredFromQueueSentence,
   guestsLabel,
   messageOutcomeSentence,
   partySizeLabel,
@@ -297,14 +298,36 @@ describe("promotedFromQueueResult", () => {
 
 describe("removedFromQueueResult", () => {
   it("names the removed guests", () => {
-    expect(removedFromQueueResult({ guests: solo, outcome: "NOT_SENT" })).toBe(
+    expect(removedFromQueueResult({ guests: solo, promoted: [], outcome: "NOT_SENT" })).toBe(
       "Se quitó a Ana López de la cola.",
     );
   });
 
   it("names a couple and appends the outcome", () => {
-    expect(removedFromQueueResult({ guests: couple, outcome: "SENT" })).toBe(
+    expect(removedFromQueueResult({ guests: couple, promoted: [], outcome: "SENT" })).toBe(
       "Se quitó a Ana López y Luis Pérez de la cola. Mensaje enviado por Instagram.",
+    );
+  });
+
+  it("names who entered before the outcome", () => {
+    expect(removedFromQueueResult({ guests: solo, promoted: ["Carla"], outcome: "QUEUED" })).toBe(
+      "Se quitó a Ana López de la cola. Entró Carla desde la cola. El mensaje se está enviando.",
+    );
+  });
+});
+
+describe("enteredFromQueueSentence", () => {
+  it("is empty when nobody entered", () => {
+    expect(enteredFromQueueSentence([])).toBe("");
+  });
+
+  it("starts with a space so it can follow another sentence", () => {
+    expect(enteredFromQueueSentence(["Carla"])).toBe(" Entró Carla desde la cola.");
+  });
+
+  it("joins several entries with y", () => {
+    expect(enteredFromQueueSentence(["Carla", "Pedro"])).toBe(
+      " Entró Carla y Pedro desde la cola.",
     );
   });
 });

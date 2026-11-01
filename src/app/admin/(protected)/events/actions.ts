@@ -41,6 +41,7 @@ import { postgresEventImageRepository } from "@/infrastructure/db/repositories/p
 import { googleMapsLinkResolver } from "@/infrastructure/maps/google-maps-link-resolver";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
+import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import {
   localDateTimeToUtc,
@@ -99,6 +100,7 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
   EVENT_NOT_FOUND: "No se encontró la experiencia.",
   SLUG_TAKEN: "Ese slug ya está en uso.",
   SLUG_LOCKED: "El slug solo puede cambiarse mientras la experiencia está en borrador.",
+  MAX_PARTY_SIZE_NOT_ALLOWED: "Máximo 2 personas por solicitud.",
   MAX_PARTY_SIZE_ABOVE_CAPACITY: "El tamaño máximo del grupo supera la capacidad.",
   INVALID_WINDOW: "La fecha de cierre debe ser posterior a la fecha de apertura.",
   INVALID_TRANSITION: "La experiencia ya no permite esta acción.",
@@ -117,6 +119,7 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
 const operationErrorFields: Partial<Record<EventOperationErrorCode, string>> = {
   SLUG_TAKEN: "slug",
   SLUG_LOCKED: "slug",
+  MAX_PARTY_SIZE_NOT_ALLOWED: "maxPartySize",
   MAX_PARTY_SIZE_ABOVE_CAPACITY: "maxPartySize",
   INVALID_WINDOW: "closesAt",
   LOCATION_CONFIRMATION_INCOMPLETE: "locationAddress",
@@ -262,6 +265,9 @@ export async function updateEventAction(
     closesAt: formData.get("closesAt"),
     maxPartySize: optionalNumber(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
+    paymentInstructions: formData.has("paymentInstructions")
+      ? formData.get("paymentInstructions")
+      : undefined,
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
     locationMapsUrl: formData.get("locationMapsUrl"),
@@ -619,6 +625,7 @@ export async function changeCapacityAction(
   );
   if (!result.ok) return operationError(result.error);
   scheduleEmailDelivery();
+  scheduleMessageDelivery();
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Capacidad actualizada." };
 }
@@ -666,6 +673,7 @@ export async function cancelReservationAction(
   if (result === "NOT_FOUND") return invalid("No se encontró la reservación.");
   if (result === "NOT_CANCELLABLE") return invalid("La reservación ya no se puede cancelar.");
   scheduleEmailDelivery();
+  scheduleMessageDelivery();
   revalidatePath("/admin");
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");
@@ -696,6 +704,7 @@ export async function cancelWaitlistEntryAction(
   if (result === "NOT_CANCELLABLE") return invalid("La entrada ya no se puede retirar.");
 
   scheduleEmailDelivery();
+  scheduleMessageDelivery();
   revalidatePath("/admin");
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");
