@@ -1,29 +1,28 @@
-# Clandestino (cl4n.destin0) - Codex rules
+# Clandestino (cl4n.destin0) - worker rules
 
-This file extends `~/.codex/AGENTS.md`. Read `docs/PRODUCT_REQUIREMENTS.md` and `docs/architecture/ADR-001-architecture.md` before implementing anything.
+Read by Codex and by Gemini (agy). It extends your global worker contract. Read `docs/PRODUCT_REQUIREMENTS.md` and `docs/architecture/ADR-001-architecture.md` before changing domain, reservation or data code.
 
 ## Role
-- You (Codex, gpt-5.6-sol) are the primary code-writing agent. You write most of the code, including all critical work (reservation integrity, concurrency, DB, auth and security) at high effort. Claude Sonnet takes only some small, self-contained tasks. Claude Opus orchestrates, routes each task and has architectural authority.
-- Implement exactly what the brief says. If the brief conflicts with the ADR, or the ADR looks wrong for the task, stop and report the conflict. Do not choose on your own.
-- Never run `git commit`, `git push` or any history-rewriting git command. Leave changes in the working tree.
+- Claude Opus orchestrates and owns every design decision. Implement the brief exactly. If the brief conflicts with an ADR, or the ADR looks wrong for the task, stop and report the conflict. Do not choose on your own.
 
 ## Deployment gate
-- Never push to GitHub, deploy to Vercel or Railway, create deployments, touch production environments or domains, or expose the app publicly. You may write deployment config files and env templates only.
-- Never connect to a remote or production database. Use only the local PostgreSQL described in the ADR.
-- Never commit or write real secrets. `.env.example` holds placeholders and documented local dev values only.
+- Never push, deploy to Vercel or Railway, create deployments, touch production environments, domains or databases, or expose the app publicly. Deployment config files and env templates are fine.
+- Use only the local PostgreSQL described in the ADR. Never write real secrets; `.env.example` holds placeholders and documented local values only.
 
-## Testing
-- Automated engineering tests are mandatory and are not QA. After every task, run the relevant tests plus typecheck, lint and build when they apply. Report the exact commands, the pass/fail counts and any failure output. Never call a task done while tests are failing or skipped without saying so explicitly.
+## Checks
+- Run exactly the brief's Checks and report the commands, pass/fail counts and the first failure lines. Never call a task done while a check fails or was skipped without saying so.
+- Tests: inside the Codex sandbox use `npm run test:agent` and `npm run test:concurrency:agent`; elsewhere `npm run test` and `npm run test:concurrency`. Always add `-- --maxWorkers=2` (low RAM).
+- `npm run db:generate` and `next dev` fail inside the Codex sandbox (spawn EPERM). If a step needs them, stop and report.
 - Never claim "QA passed", "production approved", "user acceptance passed" or "ready for production". Engineering ends at READY FOR OWNER REVIEW.
 
 ## Reservation integrity
 - The system must never overbook. Any path that could allocate more seats than capacity, partially allocate a party, or allocate twice for one idempotency key is a critical defect, not an edge case.
 - The database is authoritative. Never trust client-provided event IDs, capacity, availability, price, timestamps or statuses. Use DB time, stored in UTC.
-- Test concurrent paths against a real PostgreSQL, not mocks, and never against PGlite.
-- Follow the lock order defined in the ADR.
+- Test concurrent paths against a real PostgreSQL, never mocks or PGlite. Follow the lock order defined in the ADR.
 
 ## Environment
-- The dev machine runs Windows 11 with no Docker and no WSL. Scripts must work under npm on Windows: no bash-only syntax in package.json scripts.
+- Windows 11, no Docker, no WSL. package.json scripts must work under npm on Windows: no bash-only syntax.
+- Spanish UI text must stay valid UTF-8; `tests/unit/source-encoding.test.ts` catches broken accents.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
