@@ -73,10 +73,10 @@ function createForm(slug = "cena-admin"): FormData {
   const form = new FormData();
   form.set("internalName", "Cena administrativa");
   form.set("slug", slug);
-  form.set("eventDate", "2027-11-20");
+  form.set("eventDate", "2098-11-20");
   form.set("eventTime", "19:30");
-  form.set("opensAt", "2027-11-01T08:00");
-  form.set("closesAt", "2027-11-19T20:00");
+  form.set("opensAt", "2098-11-01T08:00");
+  form.set("closesAt", "2098-11-19T20:00");
   form.set("capacity", "20");
   form.set("maxPartySize", "2");
   form.set("waitlistCapacity", "5");
@@ -89,10 +89,10 @@ function updateForm(slug: string, name = "Cena actualizada"): FormData {
   const form = new FormData();
   form.set("internalName", name);
   form.set("slug", slug);
-  form.set("eventDate", "2027-11-21");
+  form.set("eventDate", "2098-11-21");
   form.set("eventTime", "20:00");
-  form.set("opensAt", "2027-11-01T08:00");
-  form.set("closesAt", "2027-11-20T20:00");
+  form.set("opensAt", "2098-11-01T08:00");
+  form.set("closesAt", "2098-11-20T20:00");
   form.set("maxPartySize", "2");
   form.set("locationStatus", "PENDING");
   form.set("locationRevision", "0");
@@ -105,8 +105,8 @@ async function insertEvent(status: "DRAFT" | "SCHEDULED" | "CLOSED", slug: strin
     `INSERT INTO events (
        internal_name, slug, starts_at, capacity, max_party_size,
        opens_at, closes_at, auto_close_on_full, status
-     ) VALUES ($1, $2, '2027-11-21T01:30:00Z', 20, 2,
-       '2027-11-01T14:00:00Z', '2027-11-21T02:00:00Z', false, $3)
+     ) VALUES ($1, $2, '2098-11-21T01:30:00Z', 20, 2,
+       '2098-11-01T14:00:00Z', '2098-11-21T02:00:00Z', false, $3)
      RETURNING id`,
     ["Cena", slug, status],
   );
