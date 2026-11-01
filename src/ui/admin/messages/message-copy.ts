@@ -3,41 +3,21 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
+import {
+  MESSAGE_KINDS,
+  MESSAGE_STATUSES,
+  type MessageKind as DomainMessageKind,
+  type MessageStatus as DomainMessageStatus,
+} from "@/domain/messaging/message-types";
 import type { BadgeVariant } from "@/ui/primitives/badge";
 
 const EL_SALVADOR_TIME_ZONE = "America/El_Salvador";
 
-export const messageStatuses = [
-  "WAITING_CONTACT",
-  "WAITING_WINDOW",
-  "QUEUED",
-  "SENT",
-  "READ",
-  "FAILED",
-  "SENT_MANUALLY",
-  "DISCARDED",
-  "RECEIVED",
-] as const;
+export const messageStatuses = MESSAGE_STATUSES;
+export type MessageStatus = DomainMessageStatus;
 
-export type MessageStatus = (typeof messageStatuses)[number];
-
-export const messageKinds = [
-  "REQUEST_RECEIVED",
-  "WAITLISTED",
-  "PROMOTED",
-  "ON_LIST",
-  "PAID",
-  "REJECTED",
-  "CANCELLED_UNPAID",
-  "CANCELLED_PAID",
-  "REFUNDED",
-  "LOCATION",
-  "CLUE",
-  "FREE_TEXT",
-  "INBOUND",
-] as const;
-
-export type MessageKind = (typeof messageKinds)[number];
+export const messageKinds = MESSAGE_KINDS;
+export type MessageKind = DomainMessageKind;
 
 export interface ConversationListItemView {
   contactId: string;
