@@ -3,9 +3,11 @@ import type { MessageKind, MessageSource, MessageStatus } from "@/domain/messagi
 export interface LinkedRequestSummary {
   id: string;
   type: "RESERVATION" | "WAITLIST_ENTRY";
+  eventId: string;
   eventName: string;
   eventStartsAt: Date;
   guests: string[];
+  instagramHandles: string[];
   status: string;
   stage: string | null;
 }
@@ -28,6 +30,7 @@ export interface ConversationMessage {
   status: MessageStatus;
   body: string | null;
   attachmentIds: string[];
+  attachmentUrls: string[];
   lastError: string | null;
   sentAt: Date | null;
   readAt: Date | null;

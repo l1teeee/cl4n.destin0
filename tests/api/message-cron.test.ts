@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const drain = vi.fn();
+const retryImages = vi.fn();
 const secret = "cron-secret-with-at-least-32-characters";
 
 vi.mock("@/infrastructure/config/env", () => ({ env: { CRON_SECRET: secret } }));
 vi.mock("@/infrastructure/messaging/drain-message-outbox", () => ({
   drainMessageOutbox: drain,
 }));
+vi.mock("@/infrastructure/messaging/ingest-instagram-events", () => ({
+  retryConfiguredInboundImages: retryImages,
+}));
 
 const { GET } = await import("@/app/api/cron/messages/route");
 
 beforeEach(() => {
   drain.mockReset().mockResolvedValue({ sent: 2, retried: 1, failed: 0 });
+  retryImages.mockReset().mockResolvedValue(undefined);
 });
 
 describe("message cron route", () => {
@@ -35,6 +40,7 @@ describe("message cron route", () => {
       }),
     );
     expect(response.status).toBe(200);
-    expect(drain).toHaveBeenCalledWith({ limit: 50, timeBudgetMs: 60_000 });
+    expect(retryImages).toHaveBeenCalledWith(20);
+    expect(drain).toHaveBeenCalledWith({ limit: 50, timeBudgetMs: 40_000 });
   });
 });

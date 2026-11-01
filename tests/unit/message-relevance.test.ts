@@ -11,6 +11,8 @@ const base: MessageRelevanceState = {
   messageLocationRevision: 2,
   currentLocationRevision: 2,
   cluePresent: true,
+  eventStatus: "SCHEDULED",
+  eventDeleted: false,
 };
 
 describe("message relevance", () => {
@@ -28,6 +30,8 @@ describe("message relevance", () => {
     ["LOCATION", { locationStatus: "PENDING" }, false],
     ["CLUE", {}, true],
     ["CLUE", { cluePresent: false }, false],
+    ["PAID", { eventStatus: "COMPLETED" }, false],
+    ["CLUE", { eventDeleted: true }, false],
     ["REJECTED", { reservationStatus: null }, true],
     ["CANCELLED_UNPAID", { reservationStatus: null }, true],
     ["CANCELLED_PAID", { reservationStatus: null }, true],

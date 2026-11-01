@@ -10,6 +10,7 @@ import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import {
   discardMessage as discardMessageUseCase,
   linkContact as linkContactUseCase,
+  linkContactByCode as linkContactByCodeUseCase,
   markConversationRead as markConversationReadUseCase,
   markSentManually as markSentManuallyUseCase,
   retryMessage as retryMessageUseCase,
@@ -24,6 +25,7 @@ import { postgresMessageRepository } from "@/infrastructure/db/repositories/post
 import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
 import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
 import { ingestConfiguredInstagramEvents } from "@/infrastructure/messaging/ingest-instagram-events";
+import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
 const idSchema = z.uuid("El identificador no es válido.");
@@ -38,10 +40,17 @@ const simulatorSchema = z.object({
 });
 
 function unauthorized(): AdminActionState {
-  return { ok: false, message: "Tu sesión no es válida. Inicia sesión nuevamente." };
+  return {
+    ok: false,
+    message: "Tu sesión no es válida. Inicia sesión nuevamente.",
+  };
 }
 
-function deliveryMessage(status: string, lastError: string | null): AdminActionState {
+async function deliveryMessage(
+  messageId: string,
+  status: string,
+  lastError: string | null,
+): Promise<AdminActionState> {
   if (status === "SENT") return { ok: true, message: "Mensaje enviado." };
   if (status === "WAITING_WINDOW") {
     return {
@@ -51,7 +60,18 @@ function deliveryMessage(status: string, lastError: string | null): AdminActionS
     };
   }
   if (status === "QUEUED") {
-    return { ok: false, message: "No se pudo enviar ahora: se reintentará automáticamente." };
+    scheduleMessageDelivery();
+    if (await postgresMessageRepository.isBlockedByWaitingWindow(messageId)) {
+      return {
+        ok: true,
+        message:
+          "Hay mensajes anteriores esperando que la persona escriba; este saldrá después de ellos.",
+      };
+    }
+    return {
+      ok: false,
+      message: "No se pudo enviar ahora: se reintentará automáticamente.",
+    };
   }
   return { ok: false, message: `No se pudo enviar: ${lastError ?? status}.` };
 }
@@ -109,7 +129,7 @@ export async function sendFreeTextAction(
     return { ok: false, message: messages[result.error] };
   }
   refreshMessages();
-  return deliveryMessage(result.status, result.lastError);
+  return deliveryMessage(result.messageId, result.status, result.lastError);
 }
 
 export async function retryMessageAction(
@@ -123,13 +143,23 @@ export async function retryMessageAction(
   if (!authorization.authorized) return unauthorized();
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]!.message };
-  if (!(await retryMessageUseCase(postgresMessageRepository, parsed.data))) {
+  const retried = await retryMessageUseCase(postgresMessageRepository, parsed.data);
+  if (retried === "LIVE_LEASE") {
+    return {
+      ok: false,
+      message: "El mensaje se está enviando en este momento. Intenta de nuevo en unos segundos.",
+    };
+  }
+  if (retried !== "UPDATED") {
     return { ok: false, message: "Este mensaje no se puede reintentar." };
   }
-  const summary = await drainMessagesNow([parsed.data], { timeBudgetMs: 6_000 });
+  const summary = await drainMessagesNow([parsed.data], {
+    timeBudgetMs: 6_000,
+  });
   const state = await postgresMessageRepository.getDeliveryState(parsed.data);
   refreshMessages();
   return deliveryMessage(
+    parsed.data,
     summary.outcomes[parsed.data] ?? state?.status ?? "QUEUED",
     state?.lastError ?? null,
   );
@@ -151,7 +181,18 @@ export async function markSentManuallyAction(
     parsed.data,
     authorization.session.admin.id,
   );
-  if (!updated) return { ok: false, message: "Este mensaje no se puede marcar como enviado." };
+  if (updated === "LIVE_LEASE") {
+    return {
+      ok: false,
+      message: "El mensaje se está enviando en este momento. Intenta de nuevo en unos segundos.",
+    };
+  }
+  if (updated !== "UPDATED") {
+    return {
+      ok: false,
+      message: "Este mensaje no se puede marcar como enviado.",
+    };
+  }
   refreshMessages();
   return { ok: true, message: "Mensaje marcado como enviado manualmente." };
 }
@@ -172,7 +213,15 @@ export async function discardMessageAction(
     parsed.data,
     authorization.session.admin.id,
   );
-  if (!updated) return { ok: false, message: "Este mensaje no se puede descartar." };
+  if (updated === "LIVE_LEASE") {
+    return {
+      ok: false,
+      message: "El mensaje se está enviando en este momento. Intenta de nuevo en unos segundos.",
+    };
+  }
+  if (updated !== "UPDATED") {
+    return { ok: false, message: "Este mensaje no se puede descartar." };
+  }
   refreshMessages();
   return { ok: true, message: "Mensaje descartado." };
 }
@@ -188,6 +237,18 @@ export async function linkContactAction(
   const contactId = idSchema.safeParse(id);
   const subject = subjectFrom(formData);
   if (!contactId.success || !subject) return { ok: false, message: "La vinculación no es válida." };
+  const rateLimit = await consume({
+    scope: "admin-message:link",
+    subject: authorization.session.admin.id,
+    limit: 60,
+    windowSeconds: 600,
+  });
+  if (!rateLimit.allowed) {
+    return {
+      ok: false,
+      message: "Alcanzaste el límite de vinculaciones. Intenta más tarde.",
+    };
+  }
   const linked = await linkContactUseCase(
     postgresMessageRepository,
     contactId.data,
@@ -195,6 +256,49 @@ export async function linkContactAction(
     authorization.session.admin.id,
   );
   if (!linked) return { ok: false, message: "No se pudo vincular la solicitud." };
+  refreshMessages();
+  return { ok: true, message: "Conversación vinculada." };
+}
+
+export async function linkContactByCodeAction(
+  id: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  if (!authorization.authorized) return unauthorized();
+  const contactId = idSchema.safeParse(id);
+  const code = String(formData.get("code") ?? "")
+    .trim()
+    .toUpperCase();
+  if (!contactId.success || !isLinkCode(code)) {
+    return { ok: false, message: "El código de vinculación no es válido." };
+  }
+  const rateLimit = await consume({
+    scope: "admin-message:link",
+    subject: authorization.session.admin.id,
+    limit: 60,
+    windowSeconds: 600,
+  });
+  if (!rateLimit.allowed) {
+    return {
+      ok: false,
+      message: "Alcanzaste el límite de vinculaciones. Intenta más tarde.",
+    };
+  }
+  const linked = await linkContactByCodeUseCase(
+    postgresMessageRepository,
+    contactId.data,
+    code,
+    authorization.session.admin.id,
+  );
+  if (linked === 0) {
+    return {
+      ok: false,
+      message: "Ese código no corresponde a ninguna solicitud.",
+    };
+  }
   refreshMessages();
   return { ok: true, message: "Conversación vinculada." };
 }
@@ -217,7 +321,15 @@ export async function unlinkContactAction(
     subject,
     authorization.session.admin.id,
   );
-  if (!unlinked) return { ok: false, message: "No se pudo desvincular la solicitud." };
+  if (unlinked === "LIVE_LEASE") {
+    return {
+      ok: false,
+      message: "El mensaje se está enviando en este momento. Intenta de nuevo en unos segundos.",
+    };
+  }
+  if (unlinked !== "UPDATED") {
+    return { ok: false, message: "No se pudo desvincular la solicitud." };
+  }
   refreshMessages();
   return { ok: true, message: "Conversación desvinculada." };
 }
@@ -251,7 +363,10 @@ export async function simulateInboundMessageAction(
   const authorization = await requireAdmin("action");
   if (!authorization.authorized) return unauthorized();
   if (env.MESSAGING_MODE !== "log" || !["local", "test"].includes(env.APP_ENV)) {
-    return { ok: false, message: "El simulador solo está disponible en modo local." };
+    return {
+      ok: false,
+      message: "El simulador solo está disponible en modo local.",
+    };
   }
   const parsed = simulatorSchema.safeParse({
     username: formData.get("username"),
@@ -267,7 +382,12 @@ export async function simulateInboundMessageAction(
   const timestamp = new Date();
   const events: InstagramWebhookEvent[] = [];
   if (parsed.data.linkCode) {
-    events.push({ type: "referral", senderId, ref: parsed.data.linkCode, timestamp });
+    events.push({
+      type: "referral",
+      senderId,
+      ref: parsed.data.linkCode,
+      timestamp,
+    });
   }
   events.push({
     type: "inbound_message",

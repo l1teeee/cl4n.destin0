@@ -53,7 +53,16 @@ export function classifyMessageDeliveryFailure(
   error: unknown,
   attempts: number,
 ): MessageDeliveryFailure {
+  if (error instanceof Error && error.message === "META_NO_MESSAGE_ID") {
+    return { action: "FAIL", errorCode: "META_NO_MESSAGE_ID" };
+  }
   if (error instanceof MessengerError) {
+    if (
+      error.status === 200 &&
+      error.message === "Instagram response did not include a message id"
+    ) {
+      return { action: "FAIL", errorCode: "META_NO_MESSAGE_ID" };
+    }
     if (isWindowError(error)) {
       return { action: "WAIT_WINDOW", errorCode: "META_WINDOW_CLOSED" };
     }
@@ -76,5 +85,9 @@ export function classifyMessageDeliveryFailure(
   const code = error instanceof MessengerError ? errorCode(error) : "INTERNAL";
   return attempts >= MAX_ATTEMPTS
     ? { action: "FAIL", errorCode: code }
-    : { action: "RETRY", errorCode: code, delaySeconds: retryDelaySeconds(attempts) };
+    : {
+        action: "RETRY",
+        errorCode: code,
+        delaySeconds: retryDelaySeconds(attempts),
+      };
 }

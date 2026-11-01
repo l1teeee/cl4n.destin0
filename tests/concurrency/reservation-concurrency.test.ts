@@ -16,6 +16,7 @@ import {
   allowAllRateLimiter,
   insertTestEvent,
   reservationBody,
+  type TestEvent,
 } from "../helpers/reservation-test-data";
 
 interface RequestResult {
@@ -351,14 +352,77 @@ async function waitForEventLockWaiters(expected: number): Promise<void> {
     const waiters = await pool.query<{ waiting: number }>(
       `SELECT COUNT(*)::int AS waiting
          FROM pg_stat_activity
-        WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE 'UPDATE events%'`,
     );
-    if (waiters.rows[0]!.waiting >= expected) {
+    if (waiters.rows[0]!.waiting === expected) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`Expected ${expected} requests waiting on the event lock`);
+  throw new Error(`Expected exactly ${expected} requests waiting on the event lock`);
+}
+
+// Requests queue on the held lock in the order given, so the winner of the race is fixed
+// by the test instead of by timing.
+async function fireBehindHeldEventLock(
+  event: TestEvent,
+  requests: Array<{ sequence: number; overrides?: Record<string, unknown> }>,
+): Promise<RequestResult[]> {
+  const holder = await pool.connect();
+  let committed = false;
+
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT id FROM events WHERE id = $1 FOR UPDATE", [event.id]);
+
+    const pending: Array<Promise<RequestResult[]>> = [];
+    for (const [index, request] of requests.entries()) {
+      pending.push(fireTogether(event.slug, [request]));
+      await waitForEventLockWaiters(index + 1);
+    }
+
+    await holder.query("COMMIT");
+    committed = true;
+    return (await Promise.all(pending)).flat();
+  } finally {
+    // A holder that never committed must not return to the pool with the event row locked.
+    holder.release(!committed);
+  }
+}
+
+async function activeIdentitiesForHandle(
+  eventId: string,
+  handle: string,
+): Promise<Array<{ source: string }>> {
+  const identities = await pool.query<{ source: string }>(
+    `SELECT 'CONFIRMED' AS source
+       FROM reservations
+      WHERE event_id = $1
+        AND status = 'CONFIRMED'
+        AND (instagram_handle = $2 OR guest2_instagram_handle = $2)
+      UNION ALL
+     SELECT 'WAITING' AS source
+       FROM waitlist_entries
+      WHERE event_id = $1
+        AND status = 'WAITING'
+        AND (instagram_handle = $2 OR guest2_instagram_handle = $2)`,
+    [eventId, handle],
+  );
+  return identities.rows;
+}
+
+// The unlocked pre-check stores its DUPLICATE_RESERVATION answer in idempotency_records.
+// Only the re-check under the event lock rolls back, so a missing record proves it ran.
+async function expectDuplicateRolledBackUnderLock(results: RequestResult[]): Promise<void> {
+  const duplicates = results.filter((result) => resultCode(result) === "DUPLICATE_RESERVATION");
+  expect(duplicates).toHaveLength(1);
+
+  const stored = await pool.query("SELECT 1 FROM idempotency_records WHERE key = $1", [
+    duplicates[0]!.key,
+  ]);
+  expect(stored.rowCount).toBe(0);
 }
 
 describe("reservation allocation concurrency", () => {
@@ -500,26 +564,13 @@ describe("reservation allocation concurrency", () => {
         },
       ]);
       const summary = await assertInvariants(event.id, results);
-      const identities = await pool.query<{ source: string }>(
-        `SELECT 'CONFIRMED' AS source
-           FROM reservations
-          WHERE event_id = $1
-            AND status = 'CONFIRMED'
-            AND (instagram_handle = $2 OR guest2_instagram_handle = $2)
-          UNION ALL
-         SELECT 'WAITING' AS source
-           FROM waitlist_entries
-          WHERE event_id = $1
-            AND status = 'WAITING'
-            AND (instagram_handle = $2 OR guest2_instagram_handle = $2)`,
-        [event.id, sharedHandle],
-      );
+      const identities = await activeIdentitiesForHandle(event.id, sharedHandle);
 
       const codes = results.map(resultCode);
       expect(codes.filter((code) => code === "DUPLICATE_RESERVATION")).toHaveLength(1);
       expect(codes.filter((code) => code === "RECEIVED" || code === "WAITLISTED")).toHaveLength(1);
-      expect(identities.rows).toHaveLength(1);
-      expect(summary.waiting).toBe(identities.rows[0]!.source === "WAITING" ? 1 : 0);
+      expect(identities).toHaveLength(1);
+      expect(summary.waiting).toBe(identities[0]!.source === "WAITING" ? 1 : 0);
     }
   });
 
@@ -531,50 +582,50 @@ describe("reservation allocation concurrency", () => {
     });
     await seedReservations(event.slug, 19, 660_000);
     const sharedHandle = "reverse.direction";
-    const holder = await pool.connect();
-    let results: RequestResult[];
 
-    try {
-      await holder.query("BEGIN");
-      await holder.query("SELECT id FROM events WHERE id = $1 FOR UPDATE", [event.id]);
-
-      const queued = fireTogether(event.slug, [
-        {
-          sequence: 661_000,
-          overrides: { partySize: 2, guest2Instagram: sharedHandle },
-        },
-      ]);
-      await waitForEventLockWaiters(1);
-      const seated = fireTogether(event.slug, [
-        { sequence: 661_001, overrides: { guest1Instagram: sharedHandle } },
-      ]);
-      await waitForEventLockWaiters(2);
-      await holder.query("COMMIT");
-      results = (await Promise.all([queued, seated])).flat();
-    } finally {
-      holder.release();
-    }
+    const results = await fireBehindHeldEventLock(event, [
+      {
+        sequence: 661_000,
+        overrides: { partySize: 2, guest2Instagram: sharedHandle },
+      },
+      { sequence: 661_001, overrides: { guest1Instagram: sharedHandle } },
+    ]);
 
     const summary = await assertInvariants(event.id, results);
-    const identities = await pool.query<{ source: string }>(
-      `SELECT 'CONFIRMED' AS source
-         FROM reservations
-        WHERE event_id = $1
-          AND status = 'CONFIRMED'
-          AND (instagram_handle = $2 OR guest2_instagram_handle = $2)
-        UNION ALL
-       SELECT 'WAITING' AS source
-         FROM waitlist_entries
-        WHERE event_id = $1
-          AND status = 'WAITING'
-          AND (instagram_handle = $2 OR guest2_instagram_handle = $2)`,
-      [event.id, sharedHandle],
-    );
+    const identities = await activeIdentitiesForHandle(event.id, sharedHandle);
 
     expect(results.map(resultCode)).toEqual(["WAITLISTED", "DUPLICATE_RESERVATION"]);
-    expect(identities.rows).toEqual([{ source: "WAITING" }]);
+    expect(identities).toEqual([{ source: "WAITING" }]);
     expect(summary.reservedSeats).toBe(19);
     expect(summary.waiting).toBe(1);
+    await expectDuplicateRolledBackUnderLock(results);
+  });
+
+  it("never queues a guest who was seated while the queue request waited on the event lock", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 20,
+      maxPartySize: 2,
+      waitlistCapacity: 5,
+    });
+    await seedReservations(event.slug, 19, 670_000);
+    const sharedHandle = "forward.direction";
+
+    const results = await fireBehindHeldEventLock(event, [
+      { sequence: 671_000, overrides: { guest1Instagram: sharedHandle } },
+      {
+        sequence: 671_001,
+        overrides: { partySize: 2, guest2Instagram: sharedHandle },
+      },
+    ]);
+
+    const summary = await assertInvariants(event.id, results);
+    const identities = await activeIdentitiesForHandle(event.id, sharedHandle);
+
+    expect(results.map(resultCode)).toEqual(["RECEIVED", "DUPLICATE_RESERVATION"]);
+    expect(identities).toEqual([{ source: "CONFIRMED" }]);
+    expect(summary.reservedSeats).toBe(20);
+    expect(summary.waiting).toBe(0);
+    await expectDuplicateRolledBackUnderLock(results);
   });
 
   it("G: preserves invariants while cancelling five and submitting 50 on a full event", async () => {

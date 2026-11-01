@@ -8,22 +8,37 @@ export interface MessageRelevanceState {
   messageLocationRevision: number | null;
   currentLocationRevision: number | null;
   cluePresent: boolean;
+  eventStatus: string | null;
+  eventDeleted: boolean;
 }
 
 export function isStillRelevant(kind: MessageKind, state: MessageRelevanceState): boolean {
+  const eventIsLive =
+    !state.eventDeleted && state.eventStatus !== "CANCELLED" && state.eventStatus !== "COMPLETED";
   switch (kind) {
     case "REQUEST_RECEIVED":
-      return state.reservationStatus === "CONFIRMED";
+      return eventIsLive && state.reservationStatus === "CONFIRMED";
     case "WAITLISTED":
-      return state.waitlistStatus === "WAITING";
+      return eventIsLive && state.waitlistStatus === "WAITING";
     case "PROMOTED":
-      return state.reservationStatus === "CONFIRMED" && state.reservationStage === "IN_REVIEW";
+      return (
+        eventIsLive &&
+        state.reservationStatus === "CONFIRMED" &&
+        state.reservationStage === "IN_REVIEW"
+      );
     case "ON_LIST":
-      return state.reservationStatus === "CONFIRMED" && state.reservationStage === "ON_LIST";
+      return (
+        eventIsLive &&
+        state.reservationStatus === "CONFIRMED" &&
+        state.reservationStage === "ON_LIST"
+      );
     case "PAID":
-      return state.reservationStatus === "CONFIRMED" && state.reservationStage === "PAID";
+      return (
+        eventIsLive && state.reservationStatus === "CONFIRMED" && state.reservationStage === "PAID"
+      );
     case "LOCATION":
       return (
+        eventIsLive &&
         state.reservationStatus === "CONFIRMED" &&
         state.reservationStage === "PAID" &&
         state.locationStatus === "CONFIRMED" &&
@@ -31,6 +46,7 @@ export function isStillRelevant(kind: MessageKind, state: MessageRelevanceState)
       );
     case "CLUE":
       return (
+        eventIsLive &&
         state.reservationStatus === "CONFIRMED" &&
         state.reservationStage === "PAID" &&
         state.cluePresent

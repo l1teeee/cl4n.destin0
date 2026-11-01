@@ -2,6 +2,8 @@ import { InstagramMessenger, MessengerError } from "@/application/messaging/inst
 
 const TIMEOUT_MS = 8_000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGE_REDIRECTS = 3;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 interface MetaErrorBody {
   error?: { code?: unknown; error_subcode?: unknown; message?: unknown };
@@ -47,6 +49,21 @@ function imageType(data: Buffer): string | null {
   }
   const signature = data.toString("ascii", 0, 6);
   return signature === "GIF87a" || signature === "GIF89a" ? "image/gif" : null;
+}
+
+function isAllowedImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      (hostname === "lookaside.fbsbx.com" ||
+        hostname.endsWith(".cdninstagram.com") ||
+        hostname.endsWith(".fbcdn.net"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export class GraphInstagramMessenger implements InstagramMessenger {
@@ -123,15 +140,28 @@ export class GraphInstagramMessenger implements InstagramMessenger {
   }
 
   async downloadImage(url: string): Promise<{ contentType: string; data: Buffer }> {
-    let response: Response;
-    try {
-      response = await this.request(url, {
-        redirect: "follow",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch (error) {
-      throw new MessengerError("Image download failed", { status: null }, { cause: error });
+    let currentUrl = url;
+    let response: Response | null = null;
+    for (let redirects = 0; ; redirects += 1) {
+      if (!isAllowedImageUrl(currentUrl)) {
+        throw new MessengerError("Image URL is not an allowed Meta host", { status: 400 });
+      }
+      try {
+        response = await this.request(currentUrl, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+      } catch (error) {
+        throw new MessengerError("Image download failed", { status: null }, { cause: error });
+      }
+      if (!REDIRECT_STATUSES.has(response.status)) break;
+      const location = response.headers.get("location");
+      if (!location || redirects >= MAX_IMAGE_REDIRECTS) {
+        throw new MessengerError("Image redirect limit exceeded", { status: 400 });
+      }
+      currentUrl = new URL(location, currentUrl).toString();
     }
+    if (!response) throw new MessengerError("Image download failed", { status: null });
     if (!response.ok)
       throw new MessengerError("Image download failed", { status: response.status });
     if (!response.body)
@@ -139,7 +169,7 @@ export class GraphInstagramMessenger implements InstagramMessenger {
 
     const declaredLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(declaredLength) && declaredLength > MAX_IMAGE_BYTES) {
-      throw new MessengerError("Image exceeds size limit", { status: response.status });
+      throw new MessengerError("Image exceeds size limit", { status: 413 });
     }
 
     const chunks: Buffer[] = [];
@@ -152,7 +182,7 @@ export class GraphInstagramMessenger implements InstagramMessenger {
         total += value.byteLength;
         if (total > MAX_IMAGE_BYTES) {
           await reader.cancel();
-          throw new MessengerError("Image exceeds size limit", { status: response.status });
+          throw new MessengerError("Image exceeds size limit", { status: 413 });
         }
         chunks.push(Buffer.from(value));
       }
@@ -165,7 +195,7 @@ export class GraphInstagramMessenger implements InstagramMessenger {
     const contentType = imageType(data);
     if (!contentType) {
       throw new MessengerError("Downloaded content is not a supported image", {
-        status: response.status,
+        status: 415,
       });
     }
     return { contentType, data };
