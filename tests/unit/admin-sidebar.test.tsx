@@ -116,6 +116,15 @@ describe("AdminSidebar", () => {
     );
   });
 
+  it("shows the unread badge on Mensajes", () => {
+    renderSidebar({ unreadMessageCount: 12 });
+
+    const messages = screen.getByRole("link", { name: /Mensajes/ });
+    expect(messages.getAttribute("href")).toBe("/admin/mensajes");
+    expect(within(messages).getByText("9+")).toBeDefined();
+    expect(within(messages).getByText("12 mensajes sin leer")).toBeDefined();
+  });
+
   it("renders sign out as a submit button inside a form", () => {
     renderSidebar();
     const button = screen.getByRole("button", { name: "Cerrar sesión" });
