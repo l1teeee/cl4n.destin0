@@ -256,6 +256,8 @@ export async function linkContactAction(
     authorization.session.admin.id,
   );
   if (!linked) return { ok: false, message: "No se pudo vincular la solicitud." };
+  // Linking turns the request's waiting messages into QUEUED rows; without a drain they wait for the daily cron.
+  scheduleMessageDelivery();
   refreshMessages();
   return { ok: true, message: "Conversación vinculada." };
 }
@@ -299,6 +301,7 @@ export async function linkContactByCodeAction(
       message: "Ese código no corresponde a ninguna solicitud.",
     };
   }
+  scheduleMessageDelivery();
   refreshMessages();
   return { ok: true, message: "Conversación vinculada." };
 }
