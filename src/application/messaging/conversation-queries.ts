@@ -51,6 +51,16 @@ export interface ConversationDetail {
 
 export type RequestMessageSubject = { reservationId: string } | { waitlistEntryId: string };
 
+export interface RequestMessagesBySubject {
+  byReservationId: Map<string, ConversationMessage[]>;
+  byWaitlistEntryId: Map<string, ConversationMessage[]>;
+}
+
+export interface RequestMessageSubjects {
+  reservationIds: readonly string[];
+  waitlistEntryIds: readonly string[];
+}
+
 export interface ConversationQueryRepository {
   listConversations(input: {
     search?: string;
@@ -61,6 +71,7 @@ export interface ConversationQueryRepository {
   getConversation(contactId: string): Promise<ConversationDetail | null>;
   countUnreadConversations(): Promise<number>;
   getRequestMessages(subject: RequestMessageSubject): Promise<ConversationMessage[]>;
+  getRequestMessagesForMany(subjects: RequestMessageSubjects): Promise<RequestMessagesBySubject>;
 }
 
 export function listConversations(
@@ -83,4 +94,11 @@ export function getRequestMessages(
   subject: RequestMessageSubject,
 ) {
   return repository.getRequestMessages(subject);
+}
+
+export function getRequestMessagesForMany(
+  repository: ConversationQueryRepository,
+  subjects: RequestMessageSubjects,
+) {
+  return repository.getRequestMessagesForMany(subjects);
 }

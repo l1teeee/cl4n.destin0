@@ -78,6 +78,24 @@ export function cancelPaidConfirmation({ guests, replacements }: ConfirmationInp
   return `${guestsLabel(guests)} ya ${paid}. Se le enviará un mensaje lamentando la cancelación y quedará pendiente el reembolso. Va a quedar un espacio vacío. ${replacementSentence(replacements)}${newcomerNote} ¿Estás seguro?`;
 }
 
+export const acceptConfirmation =
+  "Se le enviará por Instagram que está en la lista, con 48 horas para pagar.";
+
+export function verifyPaymentConfirmation(guests: readonly string[]): string {
+  const couple = isCouple(guests);
+  const paid = couple ? "pagaron" : "pagó";
+  const confirmed = couple ? "Quedarán confirmados" : "Quedará confirmado";
+  return `Confirma que ${guestsLabel(guests)} ya ${paid}. ${confirmed} y se le enviará un mensaje por Instagram.`;
+}
+
+export function removeFromQueueConfirmation(guests: readonly string[]): string {
+  return `Se quitará a ${guestsLabel(guests)} de la cola. ¿Estás seguro?`;
+}
+
+export function refundConfirmation(guests: readonly string[]): string {
+  return `Confirma que ya le devolviste el pago a ${guestsLabel(guests)}.`;
+}
+
 export function messageOutcomeSentence(outcome: MessageOutcome): string {
   return outcomeSentences[outcome];
 }

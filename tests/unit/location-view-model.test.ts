@@ -1,42 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { EventRosterRow } from "@/application/events/types";
 import {
   locationMap,
   locationSendButtonLabel,
   locationSendConfirmation,
-  rosterLocationCell,
 } from "@/ui/admin/view-model";
-
-describe("roster location cell", () => {
-  const sentAt = new Date("2026-10-05T18:30:00Z");
-
-  function row(overrides: Partial<EventRosterRow>): EventRosterRow {
-    return { kind: "RESERVATION", locationEmail: null, ...overrides } as EventRosterRow;
-  }
-
-  function email(status: "SENT" | "PENDING" | "FAILED", isUpdate = false, current = true) {
-    return { status, isUpdate, sentAt: status === "SENT" ? sentAt : null, current };
-  }
-
-  it.each([
-    [row({}), "No enviada", false],
-    [row({ locationEmail: email("SENT") }), "Enviada 05/10/2026 12:30", false],
-    [row({ locationEmail: email("SENT", true) }), "Actualización enviada 05/10/2026 12:30", false],
-    [row({ locationEmail: email("PENDING") }), "En envío", false],
-    [row({ locationEmail: email("FAILED") }), "Falló", true],
-    [row({ locationEmail: email("SENT", false, false) }), "Desactualizada", false],
-    [row({ kind: "WAITLIST_ENTRY" }), "-", false],
-  ])("labels case %#", (input, text, failed) => {
-    expect(rosterLocationCell(input)).toMatchObject({ text, failed });
-  });
-
-  it("explains an outdated location in the title", () => {
-    expect(rosterLocationCell(row({ locationEmail: email("SENT", false, false) })).title).toBe(
-      "Recibió una ubicación anterior",
-    );
-  });
-});
 
 describe("location send texts", () => {
   it.each([

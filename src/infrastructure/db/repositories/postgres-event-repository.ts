@@ -14,12 +14,9 @@ import type {
   EventOperationErrorCode,
   EventRecord,
   LoadedLocationVersion,
-  EventRosterCounts,
-  EventRosterRow,
   PaginatedAuditLog,
   PublicEvent,
   ReservationSortKey,
-  RosterView,
   SortDirection,
   UpdateEventCommand,
 } from "@/application/events/types";
@@ -35,7 +32,6 @@ import { availableSeats, derivePhase, type EventLifecycleStatus } from "@/domain
 
 import { pool as applicationPool } from "../client";
 import { inTransaction as runInTransaction } from "../transaction";
-import { queryEventRoster, queryEventRosterCounts } from "./event-roster-queries";
 import { promoteWaitlist } from "./waitlist-promotion";
 
 interface EventRow extends QueryResultRow {
@@ -809,18 +805,6 @@ export class PostgresEventRepository implements EventRepository {
         notes: row.notes,
       })),
     };
-  }
-
-  async listEventRoster(
-    eventId: string,
-    view: RosterView,
-  ): Promise<DatabaseTimedResult<EventRosterRow[]>> {
-    const databaseTime = await this.databaseTime();
-    return { databaseTime, value: await queryEventRoster(this.pool, eventId, view) };
-  }
-
-  countEventRoster(eventId: string): Promise<EventRosterCounts> {
-    return queryEventRosterCounts(this.pool, eventId);
   }
 
   async listAuditLogs(query: AuditLogQuery): Promise<DatabaseTimedResult<PaginatedAuditLog>> {

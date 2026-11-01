@@ -1,64 +1,54 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import {
-  getAdminAuditLog,
-  getAdminEventDetail,
-  getEventRoster,
-  getEventRosterCounts,
-} from "@/application/events/event-use-cases";
+import { getAdminAuditLog, getAdminEventDetail } from "@/application/events/event-use-cases";
 import { getEventLocationEmailSummary } from "@/application/events/event-location-email";
+import type { EventGuestView } from "@/application/guests/guest-views";
 import { areCluesVisible } from "@/domain/event/event-clues";
 import { auditPageSizeFor } from "@/ui/admin/view-model";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
+import {
+  countEventGuests,
+  listEventGuestDetails,
+  previewPromotion,
+} from "@/infrastructure/db/repositories/event-guest-queries";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
+import {
+  discardMessageAction,
+  markSentManuallyAction,
+  retryMessageAction,
+} from "@/app/admin/(protected)/mensajes/actions";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
-import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
 import { EventCluesSection } from "@/ui/admin/event-clues-section";
+import { EventGuestsSection } from "@/ui/admin/guests/event-guests-section";
+import { parseGuestView } from "@/ui/admin/guests/guest-list-view";
 import { LinkPendingIndicator } from "@/ui/admin/link-pending";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import {
-  emailStatusLabel,
   eventPhaseLabel,
+  eventSections,
   formatAdminDate,
-  formatReservationNumber,
   lifecycleActions,
   locationMap,
   locationSendButtonLabel,
   locationSendConfirmation,
-  parseRosterView,
+  parseEventSection,
   publicEventUrl,
   publicLinkHint,
-  rosterEmailLabel,
-  rosterLocationCell,
-  rosterStatusBadgeVariant,
-  rosterStatusLabel,
-  rosterViews,
-  type RosterLocationCell,
 } from "@/ui/admin/view-model";
 import { Badge } from "@/ui/primitives/badge";
 import { Button } from "@/ui/primitives/button";
 import { Input } from "@/ui/primitives/input";
 import { Label } from "@/ui/primitives/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/ui/primitives/table";
 
 import {
   cancelEventAction,
-  cancelReservationAction,
-  cancelWaitlistEntryAction,
   changeCapacityAction,
   changeWaitlistCapacityAction,
   closeEventNowAction,
@@ -69,12 +59,34 @@ import {
   sendEventLocationAction,
   setEventLocationStatusAction,
 } from "../actions";
+import {
+  acceptRequestAction,
+  addRequestAction,
+  cancelRequestAction,
+  markRefundedAction,
+  moveEntryAction,
+  promoteEntryAction,
+  rejectRequestAction,
+  removeEntryAction,
+  updateEntryAction,
+  updateRequestAction,
+  verifyPaymentAction,
+} from "../guest-actions";
 
 export const maxDuration = 60;
 
 interface EventDetailPageProps {
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+async function loadEventGuests(eventId: string, view: EventGuestView) {
+  const [guests, counts, preview] = await Promise.all([
+    listEventGuestDetails(eventId, view),
+    countEventGuests(eventId),
+    previewPromotion(eventId),
+  ]);
+  return { guests, counts, preview };
 }
 
 export default async function EventDetailPage({ params, searchParams }: EventDetailPageProps) {
@@ -85,28 +97,14 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   if (!event) notFound();
 
   const query = await searchParams;
-  const view = parseRosterView(query.vista, "confirmadas");
+  const guestView = parseGuestView(query.vista);
   const auditPageValue = Number(Array.isArray(query.page) ? query.page[0] : query.page);
   const auditPage = Number.isInteger(auditPageValue) && auditPageValue > 0 ? auditPageValue : 1;
   const cluesVisible = areCluesVisible(event.phase);
-  const requestedSection = query.seccion;
-  const section =
-    requestedSection === "ubicacion" ||
-    requestedSection === "gestion" ||
-    requestedSection === "auditoria" ||
-    (requestedSection === "pistas" && cluesVisible)
-      ? requestedSection
-      : "reservaciones";
-  const sections = [
-    { id: "reservaciones", label: "Reservaciones" },
-    ...(cluesVisible ? [{ id: "pistas", label: "Pistas" }] : []),
-    { id: "ubicacion", label: "Ubicación" },
-    { id: "gestion", label: "Gestión" },
-    { id: "auditoria", label: "Auditoría" },
-  ];
-  const [roster, rosterCounts, audit, images, locationEmailSummary, clues] = await Promise.all([
-    getEventRoster(postgresEventRepository, id, view),
-    getEventRosterCounts(postgresEventRepository, id),
+  const section = parseEventSection(query.seccion, cluesVisible);
+  const sections = eventSections(cluesVisible);
+  const [guests, audit, images, locationEmailSummary, clues] = await Promise.all([
+    section === "invitados" ? loadEventGuests(id, guestView) : Promise.resolve(null),
     getAdminAuditLog(postgresEventRepository, {
       eventId: id,
       page: auditPage,
@@ -169,7 +167,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           {sections.map((item) => (
             <Link
               key={item.id}
-              href={`/admin/events/${id}?seccion=${item.id}&vista=${view}`}
+              href={`/admin/events/${id}?seccion=${item.id}&vista=${guestView}`}
               aria-current={section === item.id ? "page" : undefined}
               className={`border-b-2 px-1 pb-3 text-sm whitespace-nowrap transition-colors ${
                 section === item.id
@@ -443,119 +441,32 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         ) : null}
       </section>
 
-      <section
-        className="admin-section admin-tab-section space-y-4"
-        hidden={section !== "reservaciones"}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="admin-section-title">Listado de asistentes</h2>
-          <Button variant="outline" asChild>
-            <Link href={`/admin/events/${id}/export?vista=${view}`}>Exportar CSV</Link>
-          </Button>
-        </div>
-        <ActionFeedbackProvider>
-          <nav className="flex flex-wrap gap-3" aria-label="Vistas del listado">
-            {rosterViews.map((item) => (
-              <Button variant={item.view === view ? "default" : "outline"} asChild key={item.view}>
-                <Link href={`/admin/events/${id}?seccion=reservaciones&vista=${item.view}`}>
-                  {item.label} ({rosterCounts[item.view]})
-                </Link>
-              </Button>
-            ))}
-          </nav>
-          {roster.value.length === 0 ? (
-            <p className="admin-empty">No hay personas en esta vista.</p>
-          ) : (
-            <Table className="min-w-[1400px]">
-              <TableHeader>
-                <TableRow>
-                  {[
-                    view === "en-cola" ? "Posición en cola" : "Número",
-                    "Nombre",
-                    "Instagram",
-                    "Teléfono",
-                    "Email",
-                    "Personas",
-                    "Alergias",
-                    "Estado",
-                    "Recibida",
-                    "Correo",
-                    "Ubicación",
-                    "Acciones",
-                  ].map((heading) => (
-                    <TableHead key={heading}>{heading}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {roster.value.map((row, index) => (
-                  <TableRow
-                    className="animate-in fill-mode-both fade-in-0 slide-in-from-bottom-1 align-top duration-300"
-                    key={`${row.kind}-${row.id}`}
-                    style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
-                  >
-                    <TableCell className="font-mono">
-                      {row.status === "WAITING" && row.queuePosition !== null
-                        ? `#${row.queuePosition}`
-                        : formatReservationNumber(row.reservationNumber)}
-                    </TableCell>
-                    <TableCell>{row.fullName}</TableCell>
-                    <TableCell>@{row.instagram}</TableCell>
-                    <TableCell>{row.phone}</TableCell>
-                    <TableCell>{row.email}</TableCell>
-                    <TableCell>{row.partySize}</TableCell>
-                    <TableCell>{row.allergies ?? "No"}</TableCell>
-                    <TableCell>
-                      <Badge variant={rosterStatusBadgeVariant(row.status)}>
-                        {rosterStatusLabel(row.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{formatAdminDate(row.submittedAt)}</TableCell>
-                    <TableCell>
-                      <span
-                        className={row.emailStatus === "FAILED" ? "text-destructive" : undefined}
-                        title={
-                          row.emailStatus === "FAILED"
-                            ? (row.emailLastError ?? undefined)
-                            : undefined
-                        }
-                      >
-                        {row.emailStatus ? rosterEmailLabel(row.emailStatus, row.emailSentAt) : "-"}
-                      </span>
-                      <span className="sr-only">
-                        {row.emailStatus ? emailStatusLabel(row.emailStatus) : "Sin correo"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <LocationCell cell={rosterLocationCell(row)} />
-                    </TableCell>
-                    <TableCell>
-                      {row.kind === "RESERVATION" && row.status === "CONFIRMED" ? (
-                        <MutationForm
-                          action={cancelReservationAction.bind(null, id, row.id)}
-                          label="Cancelar reservación"
-                          reportToSection
-                          confirmation="Se liberarán los cupos de esta reservación. Confirma para continuar."
-                          danger
-                        />
-                      ) : null}
-                      {row.kind === "WAITLIST_ENTRY" && row.status === "WAITING" ? (
-                        <MutationForm
-                          action={cancelWaitlistEntryAction.bind(null, id, row.id)}
-                          label="Retirar de la cola"
-                          reportToSection
-                          confirmation="La persona perderá su posición en la cola. Confirma para continuar."
-                          danger
-                        />
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </ActionFeedbackProvider>
-      </section>
+      {section === "invitados" && guests ? (
+        <EventGuestsSection
+          eventId={id}
+          view={guestView}
+          maxPartySize={event.maxPartySize}
+          counts={guests.counts}
+          guests={guests.guests}
+          preview={guests.preview}
+          handlers={{
+            accept: acceptRequestAction,
+            verifyPayment: verifyPaymentAction,
+            reject: rejectRequestAction,
+            cancel: cancelRequestAction,
+            markRefunded: markRefundedAction,
+            move: moveEntryAction,
+            promote: promoteEntryAction,
+            remove: removeEntryAction,
+            updateRequest: updateRequestAction,
+            updateEntry: updateEntryAction,
+            add: addRequestAction,
+            retryMessage: retryMessageAction,
+            markMessageSent: markSentManuallyAction,
+            discardMessage: discardMessageAction,
+          }}
+        />
+      ) : null}
 
       <section
         className="admin-section admin-tab-section space-y-4"
@@ -568,7 +479,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           page={audit.value.page}
           pageSize={audit.value.pageSize}
           total={audit.value.total}
-          view={view}
+          view={guestView}
         />
       </section>
     </main>
@@ -609,12 +520,5 @@ function AuditPagination({
         </Button>
       ) : null}
     </nav>
-  );
-}
-function LocationCell({ cell }: { cell: RosterLocationCell }) {
-  return (
-    <span className={cell.failed ? "text-destructive" : undefined} title={cell.title ?? undefined}>
-      {cell.text}
-    </span>
   );
 }

@@ -2,12 +2,8 @@ import type {
   AdminEventSummary,
   AuditLogItem,
   EventLocationRecord,
-  EventRosterRow,
   ReservationSortKey,
   ReservationStatus,
-  RosterEmailStatus,
-  RosterStatus,
-  RosterView,
   SortDirection,
 } from "@/application/events/types";
 import {
@@ -252,47 +248,49 @@ export function auditPageSizeFor(deviceType: string | undefined): number {
   return deviceType === "mobile" ? AUDIT_PAGE_SIZE_MOBILE : AUDIT_PAGE_SIZE_DESKTOP;
 }
 
-export const rosterViews: readonly { view: RosterView; label: string }[] = [
-  { view: "confirmadas", label: "Confirmadas" },
-  { view: "en-cola", label: "En cola" },
-  { view: "rechazadas", label: "Rechazadas" },
-  { view: "canceladas", label: "Canceladas" },
-  { view: "todas", label: "Todas" },
+export type EventSection = "invitados" | "pistas" | "ubicacion" | "gestion" | "auditoria";
+
+export function parseEventSection(
+  value: string | string[] | undefined,
+  cluesVisible: boolean,
+): EventSection {
+  const raw = first(value);
+  // "reservaciones" is the id this section had before the guest list replaced it.
+  if (raw === "reservaciones") return "invitados";
+  if (raw === "ubicacion" || raw === "gestion" || raw === "auditoria") return raw;
+  if (raw === "pistas" && cluesVisible) return "pistas";
+  return "invitados";
+}
+
+export function eventSections(cluesVisible: boolean): { id: EventSection; label: string }[] {
+  return [
+    { id: "invitados", label: "Invitados" },
+    ...(cluesVisible ? [{ id: "pistas" as const, label: "Pistas" }] : []),
+    { id: "ubicacion", label: "Ubicación" },
+    { id: "gestion", label: "Gestión" },
+    { id: "auditoria", label: "Auditoría" },
+  ];
+}
+
+export const dashboardGuestColumns: readonly {
+  heading: string;
+  value: (event: AdminEventSummary) => string;
+}[] = [
+  {
+    heading: "Ocupados",
+    value: (event) => `${formatCount(event.reservedSeats)}/${formatCount(event.capacity)}`,
+  },
+  { heading: "Por revisar", value: (event) => formatCount(event.inReviewCount) },
+  { heading: "En la lista", value: (event) => formatCount(event.onListCount) },
+  { heading: "Confirmados", value: (event) => formatCount(event.paidCount) },
+  {
+    heading: "Cola",
+    value: (event) => `${formatCount(event.queueCount)} / ${formatCount(event.waitlistCapacity)}`,
+  },
 ];
 
-export function parseRosterView(
-  value: string | string[] | undefined,
-  fallback: RosterView,
-): RosterView {
-  const raw = first(value);
-  const match = rosterViews.find((entry) => entry.view === raw);
-  return match ? match.view : fallback;
-}
-
-export function rosterStatusLabel(status: RosterStatus): string {
-  const labels: Record<RosterStatus, string> = {
-    CONFIRMED: "Confirmada",
-    WAITING: "En cola",
-    REJECTED: "Rechazada",
-    CANCELLED: "Cancelada",
-    PROMOTED: "Promovida",
-  };
-  return labels[status];
-}
-
-export function rosterStatusBadgeVariant(status: RosterStatus): BadgeVariant {
-  const badgeStatus: Record<RosterStatus, BadgeVariant> = {
-    CONFIRMED: "confirmed",
-    WAITING: "waitlist",
-    REJECTED: "rejected",
-    CANCELLED: "cancelled",
-    PROMOTED: "confirmed",
-  };
-  return badgeStatus[status];
-}
-
-export function emailStatusLabel(status: RosterEmailStatus): string {
-  const labels: Record<RosterEmailStatus, string> = {
+export function emailStatusLabel(status: EmailOutboxStatus): string {
+  const labels: Record<EmailOutboxStatus, string> = {
     SENT: "Enviado",
     PENDING: "Pendiente",
     FAILED: "Falló",
@@ -307,14 +305,6 @@ export function emailStatusBadgeVariant(status: EmailOutboxStatus): BadgeVariant
     FAILED: "rejected",
   };
   return badgeStatus[status];
-}
-
-export function rosterEmailLabel(status: RosterEmailStatus | null, sentAt: Date | null): string {
-  if (status === null) return "-";
-  if (status === "SENT" && sentAt) {
-    return `Enviado ${formatUtcForElSalvador(sentAt, "HH:mm")}`;
-  }
-  return emailStatusLabel(status);
 }
 
 export function emailKindLabel(kind: EmailOutboxKind): string {
@@ -371,30 +361,6 @@ export function parseEmailLogSearchParams(params: Record<string, string | string
     ...(status ? { status } : {}),
     ...(kind ? { kind } : {}),
   };
-}
-
-export interface RosterLocationCell {
-  text: string;
-  failed: boolean;
-  title: string | null;
-}
-
-export function rosterLocationCell(row: EventRosterRow): RosterLocationCell {
-  const cell = (text: string, failed = false, title: string | null = null) => ({
-    text,
-    failed,
-    title,
-  });
-  if (row.kind !== "RESERVATION") return cell("-");
-
-  const email = row.locationEmail;
-  if (email === null) return cell("No enviada");
-  if (!email.current) return cell("Desactualizada", false, "Recibió una ubicación anterior");
-  if (email.status === "PENDING") return cell("En envío");
-  if (email.status === "FAILED") return cell("Falló", true);
-
-  const prefix = email.isUpdate ? "Actualización enviada" : "Enviada";
-  return cell(`${prefix} ${formatAdminDate(email.sentAt)}`);
 }
 
 export function locationSendButtonLabel(firstTime: number, updates: number): string | null {

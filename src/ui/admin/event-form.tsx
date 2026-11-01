@@ -41,7 +41,10 @@ const createStepOneFields = new Set([
   "closesAt",
   "status",
   "autoCloseOnFull",
+  "paymentInstructions",
 ]);
+const paymentInstructionsHint =
+  "Se incluyen en el mensaje de 'estás en la lista'. Por ejemplo: monto, banco, cuenta y a nombre de quién.";
 
 type FieldErrors = AdminActionState["fieldErrors"];
 
@@ -56,6 +59,7 @@ export interface EventFormValues {
   maxPartySize: number;
   autoCloseOnFull: boolean;
   waitlistCapacity?: number;
+  paymentInstructions?: string | null;
   status?: "DRAFT" | "SCHEDULED";
   locationName: string | null;
   locationAddress: string | null;
@@ -163,22 +167,27 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
           <FieldError id="capacity-error" message={errors?.capacity} />
         </Label>
       ) : null}
-      <Label className="grid gap-2">
-        <span>Tamaño máximo del grupo</span>
-        <Input
-          name="maxPartySize"
-          type="number"
-          min={1}
-          defaultValue={values?.maxPartySize}
-          required
-          aria-invalid={Boolean(errors?.maxPartySize)}
-          aria-describedby={errors?.maxPartySize ? "maxPartySize-error" : undefined}
-        />
+      <div className="grid gap-2">
+        <Label htmlFor="maxPartySize">Personas por solicitud</Label>
+        {/* Events saved before couples existed can hold a larger group; the select shows couples. */}
+        <Select name="maxPartySize" defaultValue={values?.maxPartySize === 1 ? "1" : "2"}>
+          <SelectTrigger
+            id="maxPartySize"
+            aria-invalid={Boolean(errors?.maxPartySize)}
+            aria-describedby={errors?.maxPartySize ? "maxPartySize-error" : undefined}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1">Solo personas individuales</SelectItem>
+            <SelectItem value="2">Individuales y parejas</SelectItem>
+          </SelectContent>
+        </Select>
         <FieldError id="maxPartySize-error" message={errors?.maxPartySize} />
-      </Label>
+      </div>
       {mode === "create" ? (
         <Label className="grid gap-2">
-          <span>Lugares en cola</span>
+          <span>Lugares en la cola</span>
           <Input
             name="waitlistCapacity"
             type="number"
@@ -245,6 +254,28 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
           defaultChecked={values?.autoCloseOnFull}
         />
         <Label htmlFor="autoCloseOnFull">Cerrar automáticamente al alcanzar la capacidad</Label>
+      </div>
+      {grouped ? (
+        <h3 className={`${sectionHeadingClass} border-t border-border pt-5`}>Pago</h3>
+      ) : null}
+      <div className="grid gap-2 md:col-span-2">
+        <Label htmlFor="paymentInstructions">Instrucciones de pago</Label>
+        <Textarea
+          id="paymentInstructions"
+          name="paymentInstructions"
+          defaultValue={values?.paymentInstructions ?? ""}
+          maxLength={600}
+          aria-invalid={Boolean(errors?.paymentInstructions)}
+          aria-describedby={
+            errors?.paymentInstructions
+              ? "paymentInstructions-error paymentInstructions-hint"
+              : "paymentInstructions-hint"
+          }
+        />
+        <FieldError id="paymentInstructions-error" message={errors?.paymentInstructions} />
+        <p id="paymentInstructions-hint" className="admin-muted">
+          {paymentInstructionsHint}
+        </p>
       </div>
     </>
   );

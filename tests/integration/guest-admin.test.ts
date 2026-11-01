@@ -21,6 +21,7 @@ import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import {
   countEventGuests,
   getGuestRequestDetail,
+  listEventGuestDetails,
   listEventGuests,
   previewPromotion,
 } from "@/infrastructure/db/repositories/event-guest-queries";
@@ -1125,5 +1126,27 @@ describe("guest admin use cases", () => {
       position: null,
       timeline: [{ label: "Recibida" }, { label: "Cancelada" }],
     });
+  });
+
+  it("lists the requests of a view with their timeline and message thread in one call", async () => {
+    const eventId = await insertEvent({ capacity: 2 });
+    const accepted = await insertReservation(eventId, { name: "Aceptada Lista" });
+    const silent = await insertReservation(eventId, { name: "Silenciosa Lista" });
+    await acceptRequest(repository, { reservationId: accepted.id, actorAdminId: adminId });
+
+    const onList = await listEventGuestDetails(eventId, "en-la-lista", pool);
+    const inReview = await listEventGuestDetails(eventId, "por-revisar", pool);
+
+    expect(onList).toMatchObject([
+      {
+        id: accepted.id,
+        timeline: [{ label: "Recibida" }, { label: "En la lista" }],
+        messages: [{ kind: "ON_LIST", status: "WAITING_CONTACT" }],
+      },
+    ]);
+    expect(inReview).toMatchObject([
+      { id: silent.id, lastMessage: null, timeline: [{ label: "Recibida" }], messages: [] },
+    ]);
+    expect(await listEventGuestDetails(eventId, "cola", pool)).toEqual([]);
   });
 });
