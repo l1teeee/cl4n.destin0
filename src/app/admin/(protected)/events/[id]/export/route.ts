@@ -1,6 +1,6 @@
 import { getAdminEventDetail } from "@/application/events/event-use-cases";
 import type { EventGuestView } from "@/application/guests/guest-views";
-import { eventGuestViewSchema } from "@/contracts/admin-guest";
+import { adminGuestIdSchema, eventGuestViewSchema } from "@/contracts/admin-guest";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { listEventGuests } from "@/infrastructure/db/repositories/event-guest-queries";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
@@ -50,6 +50,9 @@ export async function GET(
   }
 
   const { id } = await context.params;
+  if (!adminGuestIdSchema.safeParse(id).success) {
+    return new Response("Experiencia no encontrada", { status: 404 });
+  }
   const view = exportView(new URL(request.url).searchParams.get("vista"));
   const [eventResult, guests] = await Promise.all([
     getAdminEventDetail(postgresEventRepository, id),

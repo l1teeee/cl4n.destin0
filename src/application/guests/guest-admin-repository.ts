@@ -3,6 +3,8 @@ export type GuestAdminErrorCode =
   | "WAITLIST_CHANGED"
   | "NO_SEAT"
   | "NO_SPACE"
+  | "TRY_AGAIN"
+  | "PARTY_SIZE_NOT_ALLOWED"
   | "DUPLICATE_HANDLE"
   | "EVENT_NOT_EDITABLE"
   | "AT_EDGE";
@@ -36,6 +38,7 @@ export interface GuestMutationFailure {
   ok: false;
   code: GuestAdminErrorCode;
   field?: "guest1Instagram" | "guest2Instagram";
+  maxPartySize?: number;
 }
 
 export type GuestMutationResult<T extends object = Record<string, never>> =
@@ -53,6 +56,10 @@ export interface VerifyPaymentCommand extends ReservationCommand {
 export interface ReleaseReservationCommand extends ReservationCommand {
   sendMessage: boolean;
   expectedPromotedEntryIds: string[];
+}
+
+export interface CancelReservationCommand extends ReleaseReservationCommand {
+  expectedStage: "ON_LIST" | "PAID";
 }
 
 export interface MarkRefundedCommand extends ReservationCommand {
@@ -84,7 +91,6 @@ export interface AddRequestCommand {
   eventId: string;
   actorAdminId: string;
   fields: GuestFields;
-  linkCode: string;
   idempotencyKey: string;
 }
 
@@ -93,7 +99,7 @@ export interface GuestAdminRepository {
   verifyPayment(command: VerifyPaymentCommand): Promise<GuestMutationResult>;
   reject(command: ReleaseReservationCommand): Promise<GuestMutationResult>;
   cancel(
-    command: ReleaseReservationCommand,
+    command: CancelReservationCommand,
   ): Promise<GuestMutationResult<{ refundPending: boolean }>>;
   markRefunded(command: MarkRefundedCommand): Promise<GuestMutationResult>;
   update(command: UpdateReservationCommand): Promise<GuestMutationResult>;

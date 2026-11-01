@@ -68,6 +68,8 @@ async function insertEvent(
     capacity?: number;
     reservedSeats?: number;
     waitlistCapacity?: number;
+    maxPartySize?: 1 | 2;
+    started?: boolean;
     status?: "DRAFT" | "SCHEDULED" | "CLOSED" | "COMPLETED" | "CANCELLED";
   } = {},
 ) {
@@ -77,7 +79,10 @@ async function insertEvent(
        internal_name, slug, starts_at, capacity, reserved_seats, max_party_size,
        opens_at, closes_at, waitlist_capacity, status
      )
-     VALUES ($1, $2, clock_timestamp() + interval '7 days', $3, $4, LEAST(2, $3),
+     VALUES ($1, $2,
+             CASE WHEN $8 THEN clock_timestamp() - interval '1 hour'
+                  ELSE clock_timestamp() + interval '7 days' END,
+             $3, $4, $7,
              clock_timestamp() - interval '1 day', clock_timestamp() + interval '6 days',
              $5, $6)
      RETURNING id`,
@@ -88,6 +93,8 @@ async function insertEvent(
       input.reservedSeats ?? 0,
       input.waitlistCapacity ?? 5,
       input.status ?? "SCHEDULED",
+      input.maxPartySize ?? Math.min(2, input.capacity ?? 4),
+      input.started ?? false,
     ],
   );
   return result.rows[0]!.id;
@@ -231,6 +238,7 @@ describe("guest admin use cases", () => {
       actorAdminId: adminId,
       sendMessage: false,
       expectedPromotedEntryIds: [],
+      expectedStage: "PAID",
     });
     expect(cancelled).toMatchObject({ ok: true, refundPending: true, messageIds: [] });
 
@@ -313,8 +321,9 @@ describe("guest admin use cases", () => {
   });
 
   it("guards growth, detects duplicate handles, and promotes after a shrink", async () => {
-    const fullEventId = await insertEvent({ capacity: 1 });
+    const fullEventId = await insertEvent({ capacity: 2, maxPartySize: 2 });
     const single = await insertReservation(fullEventId, { name: "Dalia" });
+    await insertReservation(fullEventId, { name: "Dalia Ocupa" });
     const couple = {
       ...single.fields,
       partySize: 2 as const,
@@ -364,13 +373,192 @@ describe("guest admin use cases", () => {
     await invariant(eventId);
   });
 
-  it("edits, reorders, promotes a specific queue entry, and removes without a message", async () => {
+  it("uses the stage seen by the admin when cancelling", async () => {
+    const eventId = await insertEvent({ capacity: 3 });
+    const acceptedReservation = await insertReservation(eventId, { name: "Etapa Lista" });
+    expect(
+      await acceptRequest(repository, {
+        reservationId: acceptedReservation.id,
+        actorAdminId: adminId,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await cancelRequest(repository, {
+        reservationId: acceptedReservation.id,
+        actorAdminId: adminId,
+        sendMessage: false,
+        expectedPromotedEntryIds: [],
+        expectedStage: "ON_LIST",
+      }),
+    ).toMatchObject({ ok: true, refundPending: false });
+
+    const onList = await insertReservation(eventId, { name: "Etapa Incorrecta", stage: "ON_LIST" });
+    const before = await pool.query(
+      "SELECT status, stage, refund_status, cancelled_at FROM reservations WHERE id = $1",
+      [onList.id],
+    );
+    expect(
+      await cancelRequest(repository, {
+        reservationId: onList.id,
+        actorAdminId: adminId,
+        sendMessage: true,
+        expectedPromotedEntryIds: [],
+        expectedStage: "PAID",
+      }),
+    ).toEqual({ ok: false, code: "INVALID_STAGE" });
+    const after = await pool.query(
+      "SELECT status, stage, refund_status, cancelled_at FROM reservations WHERE id = $1",
+      [onList.id],
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(
+      await pool.query("SELECT 1 FROM messages WHERE reservation_id = $1", [onList.id]),
+    ).toHaveProperty("rowCount", 0);
+
+    const paid = await insertReservation(eventId, { name: "Etapa Pagada", stage: "PAID" });
+    expect(
+      await cancelRequest(repository, {
+        reservationId: paid.id,
+        actorAdminId: adminId,
+        sendMessage: false,
+        expectedPromotedEntryIds: [],
+        expectedStage: "PAID",
+      }),
+    ).toMatchObject({ ok: true, refundPending: true });
+    await expect(
+      pool.query("SELECT refund_status FROM reservations WHERE id = $1", [paid.id]),
+    ).resolves.toMatchObject({ rows: [{ refund_status: "PENDING" }] });
+    await invariant(eventId);
+  });
+
+  it("keeps previews and releases aligned when an event cannot promote", async () => {
+    const cases = [
+      { status: "CANCELLED" as const, started: false },
+      { status: "COMPLETED" as const, started: false },
+      { status: "DRAFT" as const, started: false },
+      { status: "SCHEDULED" as const, started: true },
+    ];
+
+    for (const eventCase of cases) {
+      const eventId = await insertEvent({ capacity: 2, ...eventCase });
+      const review = await insertReservation(eventId, { name: `Rechazo ${eventCase.status}` });
+      const waiting = await insertWaitlistEntry(eventId, { name: `Cola ${eventCase.status}` });
+      const rejectPreview = await previewPromotion(eventId, pool);
+      expect(rejectPreview).toEqual({ oneSeat: [], twoSeats: [] });
+      expect(
+        await rejectRequest(repository, {
+          reservationId: review.id,
+          actorAdminId: adminId,
+          sendMessage: false,
+          expectedPromotedEntryIds: rejectPreview.oneSeat.map((entry) => entry.id),
+        }),
+      ).toMatchObject({ ok: true, promoted: [] });
+
+      const onList = await insertReservation(eventId, {
+        name: `Cancelar ${eventCase.status}`,
+        stage: "ON_LIST",
+      });
+      const cancelPreview = await previewPromotion(eventId, pool);
+      expect(cancelPreview).toEqual({ oneSeat: [], twoSeats: [] });
+      expect(
+        await cancelRequest(repository, {
+          reservationId: onList.id,
+          actorAdminId: adminId,
+          sendMessage: false,
+          expectedPromotedEntryIds: cancelPreview.oneSeat.map((entry) => entry.id),
+          expectedStage: "ON_LIST",
+        }),
+      ).toMatchObject({ ok: true, promoted: [] });
+      await expect(
+        pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [waiting.id]),
+      ).resolves.toMatchObject({ rows: [{ status: "WAITING" }] });
+      await invariant(eventId);
+    }
+  });
+
+  it("skips duplicate queue heads in the preview and refuses to override-promote them", async () => {
     const eventId = await insertEvent({ capacity: 2 });
-    await insertReservation(eventId, { name: "Gina" });
+    const reservation = await insertReservation(eventId, { name: "Duplicada Activa" });
+    const duplicate = await insertWaitlistEntry(eventId, { name: "Duplicada Cola", partySize: 2 });
+    await pool.query("UPDATE waitlist_entries SET instagram_handle = $2 WHERE id = $1", [
+      duplicate.id,
+      reservation.fields.guest1Instagram,
+    ]);
+    const next = await insertWaitlistEntry(eventId, { name: "Siguiente Válida" });
+
+    expect(await previewPromotion(eventId, pool)).toMatchObject({
+      oneSeat: [{ id: next.id }],
+      twoSeats: [{ id: next.id }],
+    });
+    // A general refusal without a field, because the admin did not type the handle.
+    expect(
+      await promoteEntry(repository, { entryId: duplicate.id, actorAdminId: adminId }),
+    ).toEqual({ ok: false, code: "DUPLICATE_HANDLE" });
+    await expect(
+      pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [duplicate.id]),
+    ).resolves.toMatchObject({ rows: [{ status: "WAITING" }] });
+  });
+
+  it("promotes after removing, editing, or moving the queue head", async () => {
+    const removeEventId = await insertEvent({ capacity: 2 });
+    await insertReservation(removeEventId, { name: "Ocupa Remover" });
+    const oversizedHead = await insertWaitlistEntry(removeEventId, {
+      name: "Cabeza Grande",
+      partySize: 2,
+    });
+    const next = await insertWaitlistEntry(removeEventId, { name: "Cabeza Siguiente" });
+    expect(
+      await removeEntry(repository, {
+        entryId: oversizedHead.id,
+        actorAdminId: adminId,
+        sendMessage: false,
+      }),
+    ).toMatchObject({ ok: true, promoted: [{ entryId: next.id }] });
+
+    const updateEventId = await insertEvent({ capacity: 2 });
+    await insertReservation(updateEventId, { name: "Ocupa Editar" });
+    const editedHead = await insertWaitlistEntry(updateEventId, {
+      name: "Cabeza Editable",
+      partySize: 2,
+    });
+    expect(
+      await updateEntry(repository, {
+        entryId: editedHead.id,
+        actorAdminId: adminId,
+        fields: {
+          ...editedHead.fields,
+          partySize: 1,
+          guest2Name: null,
+          guest2Instagram: null,
+        },
+      }),
+    ).toMatchObject({ ok: true, promoted: [{ entryId: editedHead.id }] });
+
+    const moveEventId = await insertEvent({ capacity: 2 });
+    await insertReservation(moveEventId, { name: "Ocupa Mover" });
+    await insertWaitlistEntry(moveEventId, { name: "Cabeza Bloquea", partySize: 2 });
+    const moved = await insertWaitlistEntry(moveEventId, { name: "Segunda Cabeza" });
+    expect(
+      await moveEntry(repository, {
+        entryId: moved.id,
+        actorAdminId: adminId,
+        direction: "UP",
+      }),
+    ).toMatchObject({ ok: true, promoted: [{ entryId: moved.id }] });
+
+    await invariant(removeEventId);
+    await invariant(updateEventId);
+    await invariant(moveEventId);
+  });
+
+  it("edits, overrides the oversized head, reorders and removes queue entries", async () => {
+    const eventId = await insertEvent({ capacity: 3 });
+    await insertReservation(eventId, { name: "Gina", partySize: 2 });
     const head = await insertWaitlistEntry(eventId, { name: "Hugo", partySize: 2 });
     const selected = await insertWaitlistEntry(eventId, { name: "Iris" });
     const third = await insertWaitlistEntry(eventId, { name: "Julia" });
 
+    // One seat is free and the strict FIFO head needs two, so nobody is promoted.
     const editedFields = { ...selected.fields, notes: "Invitada por administración" };
     expect(
       await updateEntry(repository, {
@@ -378,37 +566,31 @@ describe("guest admin use cases", () => {
         actorAdminId: adminId,
         fields: editedFields,
       }),
-    ).toMatchObject({ ok: true, guests: ["Iris"] });
-    expect(
-      await moveEntry(repository, {
-        entryId: selected.id,
-        actorAdminId: adminId,
-        direction: "UP",
-      }),
-    ).toMatchObject({ ok: true });
-    expect(
-      await moveEntry(repository, {
-        entryId: selected.id,
-        actorAdminId: adminId,
-        direction: "UP",
-      }),
-    ).toEqual({ ok: false, code: "AT_EDGE" });
+    ).toMatchObject({ ok: true, guests: ["Iris"], promoted: [] });
 
-    const promoted = await promoteEntry(repository, {
-      entryId: selected.id,
-      actorAdminId: adminId,
-    });
-    expect(promoted).toMatchObject({
-      ok: true,
-      promoted: [{ entryId: selected.id, guests: ["Iris"] }],
-    });
+    // The override skips the oversized head for the entry that fits.
+    expect(
+      await promoteEntry(repository, { entryId: selected.id, actorAdminId: adminId }),
+    ).toMatchObject({ ok: true, promoted: [{ entryId: selected.id, guests: ["Iris"] }] });
+
+    // The event is now full, so moving the next entry to the front promotes nobody.
+    expect(
+      await moveEntry(repository, { entryId: third.id, actorAdminId: adminId, direction: "UP" }),
+    ).toMatchObject({ ok: true, promoted: [] });
+    expect(
+      await moveEntry(repository, { entryId: third.id, actorAdminId: adminId, direction: "UP" }),
+    ).toEqual({ ok: false, code: "AT_EDGE" });
+    expect(
+      await moveEntry(repository, { entryId: selected.id, actorAdminId: adminId, direction: "UP" }),
+    ).toEqual({ ok: false, code: "INVALID_STAGE" });
+
     expect(
       await removeEntry(repository, {
         entryId: third.id,
         actorAdminId: adminId,
         sendMessage: false,
       }),
-    ).toMatchObject({ ok: true, messageIds: [] });
+    ).toMatchObject({ ok: true, messageIds: [], promoted: [] });
     expect(await promoteEntry(repository, { entryId: head.id, actorAdminId: adminId })).toEqual({
       ok: false,
       code: "NO_SEAT",
@@ -423,7 +605,6 @@ describe("guest admin use cases", () => {
       eventId: listEventId,
       actorAdminId: adminId,
       fields: listFields,
-      linkCode: generateLinkCode(),
       idempotencyKey: randomUUID(),
     });
     expect(listed).toMatchObject({ ok: true, placement: "LIST", position: null, messageIds: [] });
@@ -434,7 +615,6 @@ describe("guest admin use cases", () => {
       eventId: queueEventId,
       actorAdminId: adminId,
       fields: guestFields("Marta"),
-      linkCode: generateLinkCode(),
       idempotencyKey: randomUUID(),
     });
     expect(queued).toMatchObject({ ok: true, placement: "QUEUE", position: 1, messageIds: [] });
@@ -444,7 +624,6 @@ describe("guest admin use cases", () => {
       eventId: queueEventId,
       actorAdminId: adminId,
       fields: guestFields("Nora"),
-      linkCode: generateLinkCode(),
       idempotencyKey: randomUUID(),
     });
     expect(noSpace).toEqual({ ok: false, code: "NO_SPACE" });
@@ -455,12 +634,167 @@ describe("guest admin use cases", () => {
         eventId: completedEventId,
         actorAdminId: adminId,
         fields: guestFields("Olga"),
-        linkCode: generateLinkCode(),
         idempotencyKey: randomUUID(),
       }),
     ).toEqual({ ok: false, code: "EVENT_NOT_EDITABLE" });
     await invariant(listEventId);
     await invariant(queueEventId);
+  });
+
+  it("retries admin link codes across both tables without leaking unique violations", async () => {
+    const occupiedEventId = await insertEvent({ capacity: 1 });
+    const existingEntry = await insertWaitlistEntry(occupiedEventId, { name: "Código Existente" });
+    await pool.query("UPDATE waitlist_entries SET link_code = 'ABC234' WHERE id = $1", [
+      existingEntry.id,
+    ]);
+    const generated = ["ABC234", "DEF235"];
+    const retryingRepository = new PostgresGuestAdminRepository(pool, () => generated.shift()!);
+    const eventId = await insertEvent({ capacity: 1 });
+
+    expect(
+      await addRequest(retryingRepository, {
+        eventId,
+        actorAdminId: adminId,
+        fields: guestFields("Código Nuevo"),
+        idempotencyKey: randomUUID(),
+      }),
+    ).toMatchObject({ ok: true, placement: "LIST" });
+    await expect(
+      pool.query("SELECT link_code FROM reservations WHERE event_id = $1", [eventId]),
+    ).resolves.toMatchObject({ rows: [{ link_code: "DEF235" }] });
+
+    const seatedEventId = await insertEvent({ capacity: 1 });
+    const seated = await insertReservation(seatedEventId, { name: "Código Sentado" });
+    await pool.query("UPDATE reservations SET link_code = 'GHJ345' WHERE id = $1", [seated.id]);
+    const queueGenerated = ["GHJ345", "KLM346"];
+    const queueRepository = new PostgresGuestAdminRepository(pool, () => queueGenerated.shift()!);
+    expect(
+      await addRequest(queueRepository, {
+        eventId: seatedEventId,
+        actorAdminId: adminId,
+        fields: guestFields("Código Cola"),
+        idempotencyKey: randomUUID(),
+      }),
+    ).toMatchObject({ ok: true, placement: "QUEUE" });
+    await expect(
+      pool.query("SELECT link_code FROM waitlist_entries WHERE event_id = $1", [seatedEventId]),
+    ).resolves.toMatchObject({ rows: [{ link_code: "KLM346" }] });
+
+    const exhaustedRepository = new PostgresGuestAdminRepository(pool, () => "ABC234");
+    const exhaustedEventId = await insertEvent({ capacity: 1 });
+    expect(
+      await addRequest(exhaustedRepository, {
+        eventId: exhaustedEventId,
+        actorAdminId: adminId,
+        fields: guestFields("Código Agotado"),
+        idempotencyKey: randomUUID(),
+      }),
+    ).toEqual({ ok: false, code: "TRY_AGAIN" });
+    await expect(
+      pool.query("SELECT reserved_seats, last_reservation_number FROM events WHERE id = $1", [
+        exhaustedEventId,
+      ]),
+    ).resolves.toMatchObject({
+      rows: [{ reserved_seats: 0, last_reservation_number: 0 }],
+    });
+  });
+
+  it("enforces the event maximum party size on every admin edit path", async () => {
+    const eventId = await insertEvent({ capacity: 2, maxPartySize: 1 });
+    const couple = guestFields("Pareja Bloqueada", 2);
+    expect(
+      await addRequest(repository, {
+        eventId,
+        actorAdminId: adminId,
+        fields: couple,
+        idempotencyKey: randomUUID(),
+      }),
+    ).toEqual({ ok: false, code: "PARTY_SIZE_NOT_ALLOWED", maxPartySize: 1 });
+
+    const reservation = await insertReservation(eventId, { name: "Editar Máximo" });
+    expect(
+      await updateRequest(repository, {
+        reservationId: reservation.id,
+        actorAdminId: adminId,
+        fields: { ...couple, guest1Instagram: reservation.fields.guest1Instagram },
+      }),
+    ).toEqual({ ok: false, code: "PARTY_SIZE_NOT_ALLOWED", maxPartySize: 1 });
+
+    const entry = await insertWaitlistEntry(eventId, { name: "Cola Máximo" });
+    expect(
+      await updateEntry(repository, {
+        entryId: entry.id,
+        actorAdminId: adminId,
+        fields: { ...couple, guest1Instagram: entry.fields.guest1Instagram },
+      }),
+    ).toEqual({ ok: false, code: "PARTY_SIZE_NOT_ALLOWED", maxPartySize: 1 });
+    await invariant(eventId);
+  });
+
+  it("refuses accept and payment verification on terminal or deleted events", async () => {
+    for (const status of ["CANCELLED", "COMPLETED"] as const) {
+      const eventId = await insertEvent({ capacity: 2, status });
+      const review = await insertReservation(eventId, { name: `Aceptar ${status}` });
+      const onList = await insertReservation(eventId, {
+        name: `Pagar ${status}`,
+        stage: "ON_LIST",
+      });
+      expect(
+        await acceptRequest(repository, { reservationId: review.id, actorAdminId: adminId }),
+      ).toEqual({ ok: false, code: "EVENT_NOT_EDITABLE" });
+      expect(
+        await verifyPayment(repository, {
+          reservationId: onList.id,
+          actorAdminId: adminId,
+          paymentNote: null,
+        }),
+      ).toEqual({ ok: false, code: "EVENT_NOT_EDITABLE" });
+    }
+
+    const deletedEventId = await insertEvent({ capacity: 2 });
+    const deletedReview = await insertReservation(deletedEventId, { name: "Aceptar Borrada" });
+    await pool.query("UPDATE events SET deleted_at = clock_timestamp() WHERE id = $1", [
+      deletedEventId,
+    ]);
+    expect(
+      await acceptRequest(repository, {
+        reservationId: deletedReview.id,
+        actorAdminId: adminId,
+      }),
+    ).toEqual({ ok: false, code: "EVENT_NOT_EDITABLE" });
+  });
+
+  it("attributes an admin override promotion to the admin without changing the request origin", async () => {
+    const eventId = await insertEvent({ capacity: 1 });
+    const entry = await insertWaitlistEntry(eventId, { name: "Promoción Manual" });
+
+    const promoted = await promoteEntry(repository, { entryId: entry.id, actorAdminId: adminId });
+    expect(promoted).toMatchObject({ ok: true });
+    if (!promoted.ok) throw new Error("The override promotion must succeed");
+    const reservationId = promoted.promoted[0]!.reservationId;
+
+    await expect(
+      pool.query(
+        `SELECT r.source, r.created_by, m.source AS message_source, m.created_by AS message_creator
+           FROM reservations r
+           JOIN messages m ON m.reservation_id = r.id AND m.kind = 'PROMOTED'
+          WHERE r.id = $1`,
+        [reservationId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        { source: "PUBLIC", created_by: null, message_source: "ADMIN", message_creator: adminId },
+      ],
+    });
+    await expect(
+      pool.query(
+        `SELECT actor_type, actor_admin_id
+           FROM audit_logs
+          WHERE action = 'WAITLIST_PROMOTED' AND entity_id = $1`,
+        [reservationId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ actor_type: "ADMIN", actor_admin_id: adminId }] });
+    await invariant(eventId);
   });
 
   it("refuses invalid stages and keeps cancelled reservation edits out of seat math", async () => {
@@ -494,6 +828,7 @@ describe("guest admin use cases", () => {
         actorAdminId: adminId,
         sendMessage: false,
         expectedPromotedEntryIds: [],
+        expectedStage: "ON_LIST",
       }),
     ).toEqual({ ok: false, code: "INVALID_STAGE" });
     expect(
@@ -512,6 +847,7 @@ describe("guest admin use cases", () => {
       actorAdminId: adminId,
       sendMessage: true,
       expectedPromotedEntryIds: [],
+      expectedStage: "ON_LIST",
     });
     expect(cancelled).toMatchObject({ ok: true, refundPending: false });
     const cancelledMessage = await pool.query<{ kind: string; status: string; body: string }>(
@@ -531,6 +867,7 @@ describe("guest admin use cases", () => {
       actorAdminId: adminId,
       fields: {
         ...onList.fields,
+        guest1Instagram: review.fields.guest1Instagram,
         partySize: 2,
         guest2Name: "Pedro Dos",
         guest2Instagram: `${onList.fields.guest1Instagram}.dos`,
@@ -629,5 +966,63 @@ describe("guest admin use cases", () => {
     });
     expect(paid.id).toBeTruthy();
     await invariant(eventId);
+  });
+
+  it("starts every admin transaction with the idle, lock and statement timeouts", async () => {
+    const statements: string[] = [];
+    const recordingPool = {
+      connect: async () => {
+        const client = await pool.connect();
+        return {
+          query: (text: string, values?: unknown[]) => {
+            statements.push(text);
+            return client.query(text, values);
+          },
+          release: (error?: Error | boolean) => client.release(error),
+        };
+      },
+    } as unknown as Pool;
+    const eventId = await insertEvent({ capacity: 1 });
+    const reservation = await insertReservation(eventId, { name: "Tiempos" });
+
+    await acceptRequest(new PostgresGuestAdminRepository(recordingPool), {
+      reservationId: reservation.id,
+      actorAdminId: adminId,
+    });
+
+    expect(statements.slice(0, 4)).toEqual([
+      "BEGIN ISOLATION LEVEL READ COMMITTED",
+      "SET LOCAL idle_in_transaction_session_timeout = '5s'",
+      "SET LOCAL lock_timeout = '3s'",
+      "SET LOCAL statement_timeout = '5s'",
+    ]);
+  });
+
+  it("reads one queue entry with its rank, and nothing for a mismatched kind or id", async () => {
+    const eventId = await insertEvent({ capacity: 1 });
+    await insertReservation(eventId, { name: "Ocupa Detalle" });
+    const first = await insertWaitlistEntry(eventId, { name: "Primera Detalle" });
+    const second = await insertWaitlistEntry(eventId, { name: "Segunda Detalle" });
+
+    expect(await getGuestRequestDetail("WAITLIST_ENTRY", second.id, pool)).toMatchObject({
+      kind: "WAITLIST_ENTRY",
+      id: second.id,
+      status: "WAITING",
+      position: 2,
+      timeline: [{ label: "Recibida", at: expect.any(Date) }],
+      messages: [],
+    });
+    expect(await getGuestRequestDetail("RESERVATION", second.id, pool)).toBeNull();
+    expect(await getGuestRequestDetail("WAITLIST_ENTRY", randomUUID(), pool)).toBeNull();
+
+    await removeEntry(repository, { entryId: first.id, actorAdminId: adminId, sendMessage: false });
+    expect(await getGuestRequestDetail("WAITLIST_ENTRY", second.id, pool)).toMatchObject({
+      position: 1,
+    });
+    expect(await getGuestRequestDetail("WAITLIST_ENTRY", first.id, pool)).toMatchObject({
+      status: "CANCELLED",
+      position: null,
+      timeline: [{ label: "Recibida" }, { label: "Cancelada" }],
+    });
   });
 });

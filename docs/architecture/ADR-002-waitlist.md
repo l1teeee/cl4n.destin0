@@ -55,7 +55,7 @@ Promotion never changes `events.status`.
 
 - `cancelReservation`, after the seats of a CONFIRMED reservation are freed (it also writes `RESERVATION_CANCELLED` to the outbox).
 - `changeCapacity`, after a capacity increase, in the same transaction.
-- `cancelWaitlistEntry` (new, admin) never promotes. It locks the event first and then the entry, accepts only WAITING entries, decrements `waitlisted_count`, audits `WAITLIST_CANCELLED` with the ADMIN actor and writes `WAITLIST_CANCELLED` to the outbox.
+- `cancelWaitlistEntry` (admin), after removing a WAITING entry and decrementing `waitlisted_count`. Removing a head that did not fit can expose a later entry that does fit, so it promotes in the same transaction. Reordering or editing a WAITING entry also promotes afterward because either operation can change which party is at the head or whether that party fits.
 
 Because promotion happens inside the transaction that freed the seats and that transaction holds the event lock, a concurrent new request never observes freed seats while someone is waiting. It either sees the seats still full or blocks on the lock and re-evaluates against the post-promotion state.
 

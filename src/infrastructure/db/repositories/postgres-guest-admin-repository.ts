@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from "pg";
 
 import type {
   AddRequestCommand,
+  CancelReservationCommand,
   GuestAdminRepository,
   GuestFields,
   GuestMutationFailure,
@@ -18,6 +19,7 @@ import type {
   WaitlistEntryCommand,
 } from "@/application/guests/guest-admin-repository";
 import type { TemplateKey } from "@/domain/messaging/message-types";
+import { generateLinkCode as defaultGenerateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 
 import { pool as applicationPool } from "../client";
 import { enqueueGuestMessage, loadGuestMessageValues, renderGuestMessage } from "./guest-messages";
@@ -35,6 +37,8 @@ interface EventRow {
   reserved_seats: number;
   waitlist_capacity: number;
   waitlisted_count: number;
+  max_party_size: number;
+  deleted_at: Date | null;
 }
 
 interface ReservationRow {
@@ -50,8 +54,6 @@ interface ReservationRow {
   allergies: string | null;
   notes: string | null;
   refund_status: "PENDING" | "REFUNDED" | null;
-  on_list_at: Date | null;
-  transaction_started_at: Date;
 }
 
 interface WaitlistRow {
@@ -74,8 +76,26 @@ class RollbackResult extends Error {
   }
 }
 
-function failed(code: GuestMutationFailure["code"]): GuestMutationFailure {
-  return { ok: false, code };
+const linkCodeConstraints = new Set(["reservations_link_code_uq", "waitlist_entries_link_code_uq"]);
+
+function isLinkCodeUniqueViolation(error: unknown): boolean {
+  const details = error as { code?: string; constraint?: string };
+  return details.code === "23505" && linkCodeConstraints.has(details.constraint ?? "");
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: string }).code === "23505";
+}
+
+function isLiveEvent(event: EventRow): boolean {
+  return event.deleted_at === null && !["CANCELLED", "COMPLETED"].includes(event.status);
+}
+
+function failed(
+  code: GuestMutationFailure["code"],
+  details: Omit<GuestMutationFailure, "ok" | "code"> = {},
+): GuestMutationFailure {
+  return { ok: false, code, ...details };
 }
 
 function guestsOf(row: Pick<ReservationRow | WaitlistRow, "full_name" | "guest2_full_name">) {
@@ -108,6 +128,7 @@ async function runTransaction<T>(
     await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
     await client.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
     await client.query("SET LOCAL lock_timeout = '3s'");
+    await client.query("SET LOCAL statement_timeout = '5s'");
     const result = await work(client);
     await client.query("COMMIT");
     return result;
@@ -130,11 +151,10 @@ async function lockEventForReservation(
 ): Promise<EventRow | null> {
   const result = await client.query<EventRow>(
     `SELECT e.id, e.status, e.starts_at, e.capacity, e.reserved_seats,
-            e.waitlist_capacity, e.waitlisted_count
+            e.waitlist_capacity, e.waitlisted_count, e.max_party_size, e.deleted_at
        FROM reservations r
        JOIN events e ON e.id = r.event_id
       WHERE r.id = $1
-        AND e.deleted_at IS NULL
       FOR UPDATE OF e`,
     [reservationId],
   );
@@ -144,7 +164,7 @@ async function lockEventForReservation(
 async function lockEventForWaitlist(client: PoolClient, entryId: string): Promise<EventRow | null> {
   const result = await client.query<EventRow>(
     `SELECT e.id, e.status, e.starts_at, e.capacity, e.reserved_seats,
-            e.waitlist_capacity, e.waitlisted_count
+            e.waitlist_capacity, e.waitlisted_count, e.max_party_size, e.deleted_at
        FROM waitlist_entries w
        JOIN events e ON e.id = w.event_id
       WHERE w.id = $1
@@ -158,7 +178,7 @@ async function lockEventForWaitlist(client: PoolClient, entryId: string): Promis
 async function lockEvent(client: PoolClient, eventId: string): Promise<EventRow | null> {
   const result = await client.query<EventRow>(
     `SELECT id, status, starts_at, capacity, reserved_seats,
-            waitlist_capacity, waitlisted_count
+            waitlist_capacity, waitlisted_count, max_party_size, deleted_at
        FROM events
       WHERE id = $1
         AND deleted_at IS NULL
@@ -175,8 +195,7 @@ async function lockReservation(
   const result = await client.query<ReservationRow>(
     `SELECT id, event_id, status, stage, full_name, instagram_handle,
             guest2_full_name, guest2_instagram_handle, party_size,
-            allergies, notes, refund_status, on_list_at,
-            transaction_timestamp() AS transaction_started_at
+            allergies, notes, refund_status
        FROM reservations
       WHERE id = $1
       FOR UPDATE`,
@@ -341,13 +360,50 @@ async function updateGuestData(
   );
 }
 
+async function insertWithFreshLinkCode<T>(
+  client: PoolClient,
+  generateLinkCode: () => string,
+  insert: (linkCode: string) => Promise<T | null>,
+): Promise<T | null> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const linkCode = generateLinkCode();
+    const collision = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM reservations WHERE link_code = $1
+         UNION ALL
+         SELECT 1 FROM waitlist_entries WHERE link_code = $1
+       ) AS exists`,
+      [linkCode],
+    );
+    if (collision.rows[0]!.exists) continue;
+
+    await client.query("SAVEPOINT admin_link_code_attempt");
+    try {
+      const inserted = await insert(linkCode);
+      await client.query("RELEASE SAVEPOINT admin_link_code_attempt");
+      if (inserted) return inserted;
+    } catch (error) {
+      await client.query("ROLLBACK TO SAVEPOINT admin_link_code_attempt");
+      await client.query("RELEASE SAVEPOINT admin_link_code_attempt");
+      if (isLinkCodeUniqueViolation(error)) continue;
+      if (isUniqueViolation(error)) return null;
+      throw error;
+    }
+  }
+  return null;
+}
+
 export class PostgresGuestAdminRepository implements GuestAdminRepository {
-  constructor(private readonly pool: Pool = applicationPool) {}
+  constructor(
+    private readonly pool: Pool = applicationPool,
+    private readonly generateLinkCode: () => string = defaultGenerateLinkCode,
+  ) {}
 
   async accept(command: ReservationCommand): Promise<GuestMutationResult> {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEventForReservation(client, command.reservationId);
       if (!event) return failed("INVALID_STAGE");
+      if (!isLiveEvent(event)) return failed("EVENT_NOT_EDITABLE");
       const reservation = await lockReservation(client, command.reservationId);
       if (!reservation || reservation.status !== "CONFIRMED" || reservation.stage !== "IN_REVIEW") {
         return failed("INVALID_STAGE");
@@ -385,6 +441,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEventForReservation(client, command.reservationId);
       if (!event) return failed("INVALID_STAGE");
+      if (!isLiveEvent(event)) return failed("EVENT_NOT_EDITABLE");
       const reservation = await lockReservation(client, command.reservationId);
       if (!reservation || reservation.status !== "CONFIRMED" || reservation.stage !== "ON_LIST") {
         return failed("INVALID_STAGE");
@@ -422,7 +479,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
   async reject(command: ReleaseReservationCommand): Promise<GuestMutationResult> {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEventForReservation(client, command.reservationId);
-      if (!event) return failed("INVALID_STAGE");
+      if (!event || event.deleted_at) return failed("INVALID_STAGE");
       const reservation = await lockReservation(client, command.reservationId);
       if (!reservation || reservation.status !== "CONFIRMED" || reservation.stage !== "IN_REVIEW") {
         return failed("INVALID_STAGE");
@@ -479,19 +536,16 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
   }
 
   async cancel(
-    command: ReleaseReservationCommand,
+    command: CancelReservationCommand,
   ): Promise<GuestMutationResult<{ refundPending: boolean }>> {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEventForReservation(client, command.reservationId);
-      if (!event) return failed("INVALID_STAGE");
+      if (!event || event.deleted_at) return failed("INVALID_STAGE");
       const reservation = await lockReservation(client, command.reservationId);
       if (
         !reservation ||
         reservation.status !== "CONFIRMED" ||
-        !["ON_LIST", "PAID"].includes(reservation.stage) ||
-        (reservation.stage === "ON_LIST" &&
-          reservation.on_list_at !== null &&
-          reservation.on_list_at >= reservation.transaction_started_at)
+        reservation.stage !== command.expectedStage
       ) {
         return failed("INVALID_STAGE");
       }
@@ -553,7 +607,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
   async markRefunded(command: MarkRefundedCommand): Promise<GuestMutationResult> {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEventForReservation(client, command.reservationId);
-      if (!event) return failed("INVALID_STAGE");
+      if (!event || event.deleted_at) return failed("INVALID_STAGE");
       const reservation = await lockReservation(client, command.reservationId);
       if (
         !reservation ||
@@ -605,15 +659,20 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
   async update(command: UpdateReservationCommand): Promise<GuestMutationResult> {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEventForReservation(client, command.reservationId);
-      if (!event) return failed("INVALID_STAGE");
+      if (!event || event.deleted_at) return failed("INVALID_STAGE");
       const reservation = await lockReservation(client, command.reservationId);
       if (!reservation || !["CONFIRMED", "CANCELLED"].includes(reservation.status)) {
         return failed("INVALID_STAGE");
       }
-      const duplicate = await duplicateHandle(client, event.id, command.fields, {
-        reservationId: reservation.id,
-      });
-      if (duplicate) return duplicate;
+      if (command.fields.partySize > event.max_party_size) {
+        return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
+      }
+      if (reservation.status === "CONFIRMED") {
+        const duplicate = await duplicateHandle(client, event.id, command.fields, {
+          reservationId: reservation.id,
+        });
+        if (duplicate) return duplicate;
+      }
 
       const seatDelta = command.fields.partySize - reservation.party_size;
       if (reservation.status === "CONFIRMED" && seatDelta > 0) {
@@ -664,12 +723,16 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       if (!event) return failed("INVALID_STAGE");
       const entry = await lockWaitlistEntry(client, command.entryId);
       if (!entry || entry.status !== "WAITING") return failed("INVALID_STAGE");
+      if (command.fields.partySize > event.max_party_size) {
+        return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
+      }
       const duplicate = await duplicateHandle(client, event.id, command.fields, {
         entryId: entry.id,
       });
       if (duplicate) return duplicate;
       const changed = changedFields(entry, command.fields);
       await updateGuestData(client, "waitlist_entries", entry.id, command.fields);
+      const promotions = await promoteWaitlistDetailed(client, event.id);
       await insertAudit(client, {
         actorAdminId: command.actorAdminId,
         action: "WAITLIST_UPDATED",
@@ -683,8 +746,8 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         guests: [command.fields.guest1Name, command.fields.guest2Name].filter(
           (name): name is string => name !== null,
         ),
-        messageIds: [],
-        promoted: [],
+        messageIds: promotions.map((promotion) => promotion.messageId),
+        promoted: promotedGuests(promotions),
       };
     }) as Promise<GuestMutationResult>;
   }
@@ -711,14 +774,18 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       );
       const neighbour = neighbourResult.rows[0];
       if (!neighbour) return failed("AT_EDGE");
-      await client.query("UPDATE waitlist_entries SET waitlist_number = $2 WHERE id = $1", [
-        entry.id,
-        -entry.waitlist_number,
-      ]);
-      await client.query("UPDATE waitlist_entries SET waitlist_number = $2 WHERE id = $1", [
-        neighbour.id,
-        entry.waitlist_number,
-      ]);
+      await client.query(
+        `UPDATE waitlist_entries
+            SET waitlist_number = $2, updated_at = clock_timestamp()
+          WHERE id = $1`,
+        [entry.id, -entry.waitlist_number],
+      );
+      await client.query(
+        `UPDATE waitlist_entries
+            SET waitlist_number = $2, updated_at = clock_timestamp()
+          WHERE id = $1`,
+        [neighbour.id, entry.waitlist_number],
+      );
       await client.query(
         `UPDATE waitlist_entries
             SET waitlist_number = $2, updated_at = clock_timestamp()
@@ -737,12 +804,13 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           to: neighbour.waitlist_number,
         },
       });
+      const promotions = await promoteWaitlistDetailed(client, event.id);
       return {
         ok: true,
         eventId: event.id,
         guests: guestsOf(entry),
-        messageIds: [],
-        promoted: [],
+        messageIds: promotions.map((promotion) => promotion.messageId),
+        promoted: promotedGuests(promotions),
       };
     }) as Promise<GuestMutationResult>;
   }
@@ -757,8 +825,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         command.entryId,
         command.actorAdminId,
       );
-      if (!result.ok)
-        return failed(result.code === "DUPLICATE_HANDLE" ? "DUPLICATE_HANDLE" : result.code);
+      if (!result.ok) return failed(result.code);
       return {
         ok: true,
         eventId: event.id,
@@ -788,6 +855,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           WHERE id = $1`,
         [event.id],
       );
+      const promotions = await promoteWaitlistDetailed(client, event.id);
       const messageIds: string[] = [];
       if (command.sendMessage) {
         messageIds.push(
@@ -804,14 +872,19 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         action: "WAITLIST_CANCELLED",
         entityType: "WAITLIST_ENTRY",
         entityId: entry.id,
-        metadata: { eventId: event.id, partySize: entry.party_size },
+        metadata: {
+          eventId: event.id,
+          partySize: entry.party_size,
+          promotedCount: promotions.length,
+        },
       });
+      messageIds.push(...promotions.map((promotion) => promotion.messageId));
       return {
         ok: true,
         eventId: event.id,
         guests: guestsOf(entry),
         messageIds,
-        promoted: [],
+        promoted: promotedGuests(promotions),
       };
     }) as Promise<GuestMutationResult>;
   }
@@ -821,14 +894,15 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
   ): Promise<GuestMutationResult<{ placement: "LIST" | "QUEUE"; position: number | null }>> {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEvent(client, command.eventId);
-      if (!event || ["CANCELLED", "COMPLETED"].includes(event.status)) {
-        return failed("EVENT_NOT_EDITABLE");
-      }
+      if (!event || !isLiveEvent(event)) return failed("EVENT_NOT_EDITABLE");
       const currentTime = await client.query<{ editable: boolean }>(
         "SELECT $1::timestamptz > clock_timestamp() AS editable",
         [event.starts_at],
       );
       if (!currentTime.rows[0]!.editable) return failed("EVENT_NOT_EDITABLE");
+      if (command.fields.partySize > event.max_party_size) {
+        return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
+      }
       const duplicate = await duplicateHandle(client, event.id, command.fields);
       if (duplicate) return duplicate;
 
@@ -844,34 +918,45 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       );
       const acquired = seats.rows[0];
       if (acquired) {
-        const inserted = await client.query<{ id: string }>(
-          `INSERT INTO reservations (
-             event_id, reservation_number, status, stage,
-             full_name, instagram_handle, guest2_full_name, guest2_instagram_handle,
-             party_size, notes, allergies, terms_accepted_at, link_code,
-             source, created_by, idempotency_key, submitted_at, accepted_at
-           )
-           VALUES ($1, $2, 'CONFIRMED', 'IN_REVIEW', $3, $4, $5, $6,
-                   $7, $8, $9, NULL, $10, 'ADMIN', $11, $12,
-                   transaction_timestamp(), $13)
-           RETURNING id`,
-          [
-            event.id,
-            acquired.last_reservation_number,
-            command.fields.guest1Name,
-            command.fields.guest1Instagram,
-            command.fields.guest2Name,
-            command.fields.guest2Instagram,
-            command.fields.partySize,
-            command.fields.notes,
-            command.fields.allergies,
-            command.linkCode,
-            command.actorAdminId,
-            command.idempotencyKey,
-            acquired.accepted_at,
-          ],
+        const inserted = await insertWithFreshLinkCode(
+          client,
+          this.generateLinkCode,
+          async (linkCode) => {
+            const result = await client.query<{ id: string }>(
+              `INSERT INTO reservations (
+                 event_id, reservation_number, status, stage,
+                 full_name, instagram_handle, guest2_full_name, guest2_instagram_handle,
+                 party_size, notes, allergies, terms_accepted_at, link_code,
+                 source, created_by, idempotency_key, submitted_at, accepted_at
+               )
+               SELECT $1, $2, 'CONFIRMED', 'IN_REVIEW', $3, $4, $5, $6,
+                      $7, $8, $9, NULL, $10, 'ADMIN', $11, $12,
+                      transaction_timestamp(), $13
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM waitlist_entries WHERE link_code = $10
+                )
+               RETURNING id`,
+              [
+                event.id,
+                acquired.last_reservation_number,
+                command.fields.guest1Name,
+                command.fields.guest1Instagram,
+                command.fields.guest2Name,
+                command.fields.guest2Instagram,
+                command.fields.partySize,
+                command.fields.notes,
+                command.fields.allergies,
+                linkCode,
+                command.actorAdminId,
+                command.idempotencyKey,
+                acquired.accepted_at,
+              ],
+            );
+            return result.rows[0] ?? null;
+          },
         );
-        const reservationId = inserted.rows[0]!.id;
+        if (!inserted) throw new RollbackResult(failed("TRY_AGAIN"));
+        const reservationId = inserted.id;
         await insertAudit(client, {
           actorAdminId: command.actorAdminId,
           action: "RESERVATION_CREATED",
@@ -909,32 +994,43 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       );
       const queued = place.rows[0];
       if (!queued) return failed("NO_SPACE");
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO waitlist_entries (
-           event_id, waitlist_number, status,
-           full_name, instagram_handle, guest2_full_name, guest2_instagram_handle,
-           party_size, notes, allergies, terms_accepted_at, link_code,
-           source, created_by, idempotency_key, submitted_at
-         )
-         VALUES ($1, $2, 'WAITING', $3, $4, $5, $6, $7, $8, $9,
-                 NULL, $10, 'ADMIN', $11, $12, transaction_timestamp())
-         RETURNING id`,
-        [
-          event.id,
-          queued.last_waitlist_number,
-          command.fields.guest1Name,
-          command.fields.guest1Instagram,
-          command.fields.guest2Name,
-          command.fields.guest2Instagram,
-          command.fields.partySize,
-          command.fields.notes,
-          command.fields.allergies,
-          command.linkCode,
-          command.actorAdminId,
-          command.idempotencyKey,
-        ],
+      const inserted = await insertWithFreshLinkCode(
+        client,
+        this.generateLinkCode,
+        async (linkCode) => {
+          const result = await client.query<{ id: string }>(
+            `INSERT INTO waitlist_entries (
+               event_id, waitlist_number, status,
+               full_name, instagram_handle, guest2_full_name, guest2_instagram_handle,
+               party_size, notes, allergies, terms_accepted_at, link_code,
+               source, created_by, idempotency_key, submitted_at
+             )
+             SELECT $1, $2, 'WAITING', $3, $4, $5, $6, $7, $8, $9,
+                    NULL, $10, 'ADMIN', $11, $12, transaction_timestamp()
+              WHERE NOT EXISTS (
+                SELECT 1 FROM reservations WHERE link_code = $10
+              )
+             RETURNING id`,
+            [
+              event.id,
+              queued.last_waitlist_number,
+              command.fields.guest1Name,
+              command.fields.guest1Instagram,
+              command.fields.guest2Name,
+              command.fields.guest2Instagram,
+              command.fields.partySize,
+              command.fields.notes,
+              command.fields.allergies,
+              linkCode,
+              command.actorAdminId,
+              command.idempotencyKey,
+            ],
+          );
+          return result.rows[0] ?? null;
+        },
       );
-      const entryId = inserted.rows[0]!.id;
+      if (!inserted) throw new RollbackResult(failed("TRY_AGAIN"));
+      const entryId = inserted.id;
       await insertAudit(client, {
         actorAdminId: command.actorAdminId,
         action: "RESERVATION_WAITLISTED",

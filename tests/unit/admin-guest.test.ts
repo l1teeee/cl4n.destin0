@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   adminGuestFieldsSchema,
+  expectedCancellationStageSchema,
   expectedPromotedEntryIdsSchema,
   paymentNoteSchema,
   readAdminGuestFields,
@@ -101,6 +102,13 @@ describe("admin guest contract", () => {
     ).toEqual([first, second]);
     expect(paymentNoteSchema.parse("  Transferencia  ")).toBe("Transferencia");
     expect(paymentNoteSchema.parse(null)).toBeNull();
+    expect(paymentNoteSchema.safeParse("Pago\u0007manual").success).toBe(false);
+    expect(paymentNoteSchema.safeParse(`Pago${String.fromCharCode(9)}manual`).success).toBe(false);
+    expect(paymentNoteSchema.safeParse(`Pago${String.fromCharCode(10)}manual`).success).toBe(false);
+    expect(expectedCancellationStageSchema.parse("ON_LIST")).toBe("ON_LIST");
+    expect(expectedCancellationStageSchema.parse("PAID")).toBe("PAID");
+    expect(expectedCancellationStageSchema.safeParse("IN_REVIEW").success).toBe(false);
+    expect(expectedCancellationStageSchema.safeParse(null).success).toBe(false);
     expect(readSendMessage(guestForm())).toBe(false);
   });
 });

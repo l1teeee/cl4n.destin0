@@ -1,5 +1,6 @@
 import type {
   AddRequestCommand,
+  CancelReservationCommand,
   GuestAdminRepository,
   MarkRefundedCommand,
   MoveWaitlistEntryCommand,
@@ -27,10 +28,7 @@ export function rejectRequest(
   return repository.reject(command);
 }
 
-export function cancelRequest(
-  repository: GuestAdminRepository,
-  command: ReleaseReservationCommand,
-) {
+export function cancelRequest(repository: GuestAdminRepository, command: CancelReservationCommand) {
   return repository.cancel(command);
 }
 

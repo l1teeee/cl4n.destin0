@@ -131,10 +131,14 @@ export const expectedPromotedEntryIdsSchema = z.array(
   z.uuid("La entrada esperada de la cola no es válida."),
 );
 export const moveEntryDirectionSchema = z.enum(["UP", "DOWN"]);
+export const expectedCancellationStageSchema = z.enum(["ON_LIST", "PAID"], {
+  error: "La etapa esperada es obligatoria.",
+});
 export const paymentNoteSchema = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? null : value),
   z
     .string({ error: "La nota de pago debe ser texto." })
+    .refine((value) => !controlCharacters.test(value), controlCharacterMessage)
     .trim()
     .min(1, "La nota de pago no puede estar vacía.")
     .max(200, "La nota de pago no puede superar 200 caracteres.")

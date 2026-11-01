@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { GuestFields } from "@/application/guests/guest-admin-repository";
@@ -9,7 +9,9 @@ import {
   addRequest,
   cancelRequest,
   moveEntry,
+  promoteEntry,
   rejectRequest,
+  removeEntry,
   updateRequest,
   verifyPayment,
 } from "@/application/guests/guest-admin-use-cases";
@@ -178,6 +180,51 @@ async function race<const Operations extends readonly (() => Promise<unknown>)[]
   }>;
 }
 
+async function waitForEventLockWaiters(expected: number): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const result = await pool.query<{ waiting: number }>(
+      `SELECT COUNT(*)::int AS waiting
+         FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND (
+            query ILIKE '%FOR UPDATE OF e%'
+            OR query ILIKE '%FROM events%FOR UPDATE%'
+            OR query ILIKE 'UPDATE events%'
+          )`,
+    );
+    if (result.rows[0]!.waiting === expected) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Expected exactly ${expected} operations waiting on the event lock`);
+}
+
+async function fireBehindHeldEventLock<
+  const Operations extends readonly (() => Promise<unknown>)[],
+>(
+  eventId: string,
+  operations: Operations,
+): Promise<{ [Index in keyof Operations]: Awaited<ReturnType<Operations[Index]>> }> {
+  const holder = await pool.connect();
+  let committed = false;
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT id FROM events WHERE id = $1 FOR UPDATE", [eventId]);
+    const pending: Promise<unknown>[] = [];
+    for (const [index, operation] of operations.entries()) {
+      pending.push(operation());
+      await waitForEventLockWaiters(index + 1);
+    }
+    await holder.query("COMMIT");
+    committed = true;
+    return Promise.all(pending) as Promise<{
+      [Index in keyof Operations]: Awaited<ReturnType<Operations[Index]>>;
+    }>;
+  } finally {
+    holder.release(!committed);
+  }
+}
+
 async function assertInvariants(eventId: string): Promise<void> {
   const state = await pool.query<{
     capacity: number;
@@ -212,6 +259,70 @@ async function assertInvariants(eventId: string): Promise<void> {
   );
   const values = numbers.rows.map((entry) => entry.waitlist_number);
   expect(new Set(values).size).toBe(values.length);
+
+  const invalidPromotions = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+       FROM waitlist_entries w
+       LEFT JOIN reservations r ON r.id = w.promoted_reservation_id
+      WHERE w.event_id = $1
+        AND w.status = 'PROMOTED'
+        AND (r.id IS NULL OR r.status <> 'CONFIRMED')`,
+    [eventId],
+  );
+  expect(invalidPromotions.rows[0]!.count).toBe(0);
+}
+
+// Keeps the code reserved inside an open transaction, so the pre-insert check cannot see it
+// but the unique index still makes a competing insert wait for this transaction.
+async function holdUncommittedLinkCode(
+  table: "reservations" | "waitlist_entries",
+  eventId: string,
+  linkCode: string,
+): Promise<PoolClient> {
+  const holder = await pool.connect();
+  try {
+    await holder.query("BEGIN");
+    const holderFields = fields("Titular Codigo");
+    if (table === "reservations") {
+      await holder.query(
+        `INSERT INTO reservations (
+           event_id, reservation_number, status, stage, full_name, instagram_handle,
+           party_size, terms_accepted_at, link_code, idempotency_key, submitted_at, accepted_at
+         )
+         VALUES ($1, 1, 'CONFIRMED', 'IN_REVIEW', $2, $3, 1, now(), $4, $5, now(), now())`,
+        [eventId, holderFields.guest1Name, holderFields.guest1Instagram, linkCode, randomUUID()],
+      );
+    } else {
+      await holder.query(
+        `INSERT INTO waitlist_entries (
+           event_id, waitlist_number, status, full_name, instagram_handle,
+           party_size, terms_accepted_at, link_code, idempotency_key, submitted_at
+         )
+         VALUES ($1, 1, 'WAITING', $2, $3, 1, now(), $4, $5, now())`,
+        [eventId, holderFields.guest1Name, holderFields.guest1Instagram, linkCode, randomUUID()],
+      );
+    }
+    return holder;
+  } catch (error) {
+    holder.release(true);
+    throw error;
+  }
+}
+
+async function waitForBlockedInsert(table: "reservations" | "waitlist_entries"): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const result = await pool.query<{ waiting: number }>(
+      `SELECT COUNT(*)::int AS waiting
+         FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE $1`,
+      [`INSERT INTO ${table} (%`],
+    );
+    if (result.rows[0]!.waiting === 1) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Expected the ${table} insert to wait for the transaction holding its link code`);
 }
 
 describe("guest admin concurrency", () => {
@@ -229,7 +340,7 @@ describe("guest admin concurrency", () => {
       ),
     );
 
-    const results = await race([
+    const results = await fireBehindHeldEventLock(event.id, [
       () =>
         rejectRequest(repository, {
           reservationId: firstReservation.id,
@@ -250,6 +361,12 @@ describe("guest admin concurrency", () => {
     expect(
       results.filter((result) => !result.ok && result.code === "WAITLIST_CHANGED"),
     ).toHaveLength(1);
+    await expect(
+      pool.query("SELECT status, stage FROM reservations WHERE id = $1", [secondReservation.id]),
+    ).resolves.toMatchObject({ rows: [{ status: "CONFIRMED", stage: "IN_REVIEW" }] });
+    await expect(
+      pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [entries[1]!.id]),
+    ).resolves.toMatchObject({ rows: [{ status: "WAITING" }] });
     await assertInvariants(event.id);
   });
 
@@ -300,27 +417,37 @@ describe("guest admin concurrency", () => {
     await assertInvariants(event.id);
   });
 
-  it("allows exactly one of accept and cancel to win for the same request", async () => {
-    const event = await insertTestEvent(pool, { capacity: 1, maxPartySize: 1 });
-    const reservation = await insertReservation(event.id, "Aceptar Cancelar");
-
-    const [accepted, cancelled] = await race([
-      () => acceptRequest(repository, { reservationId: reservation.id, actorAdminId: adminId }),
-      () =>
-        cancelRequest(repository, {
+  it.each([
+    { winner: "accept", expected: { status: "CONFIRMED", stage: "ON_LIST" } },
+    { winner: "reject", expected: { status: "CANCELLED", stage: "IN_REVIEW" } },
+  ] as const)(
+    "lets exactly one of accept and reject win for the same request when $winner is first",
+    async ({ winner, expected }) => {
+      const event = await insertTestEvent(pool, { capacity: 1, maxPartySize: 1 });
+      const reservation = await insertReservation(event.id, `Aceptar Rechazar ${winner}`);
+      const accept = () =>
+        acceptRequest(repository, { reservationId: reservation.id, actorAdminId: adminId });
+      const reject = () =>
+        rejectRequest(repository, {
           reservationId: reservation.id,
           actorAdminId: adminId,
           sendMessage: false,
           expectedPromotedEntryIds: [],
-        }),
-    ]);
+        });
 
-    expect([accepted, cancelled].filter((result) => result.ok)).toHaveLength(1);
-    expect([accepted, cancelled].filter((result) => !result.ok)).toEqual([
-      { ok: false, code: "INVALID_STAGE" },
-    ]);
-    await assertInvariants(event.id);
-  });
+      const [first, second] = await fireBehindHeldEventLock(
+        event.id,
+        winner === "accept" ? [accept, reject] : [reject, accept],
+      );
+
+      expect(first).toMatchObject({ ok: true });
+      expect(second).toEqual({ ok: false, code: "INVALID_STAGE" });
+      await expect(
+        pool.query("SELECT status, stage FROM reservations WHERE id = $1", [reservation.id]),
+      ).resolves.toMatchObject({ rows: [expected] });
+      await assertInvariants(event.id);
+    },
+  );
 
   it("serializes party growth with thirty public submissions for the last seat", async () => {
     const event = await insertTestEvent(pool, {
@@ -380,7 +507,6 @@ describe("guest admin concurrency", () => {
           eventId: event.id,
           actorAdminId: adminId,
           fields: adminFields,
-          linkCode: generateLinkCode(),
           idempotencyKey: randomUUID(),
         }),
       ...Array.from(
@@ -407,15 +533,59 @@ describe("guest admin concurrency", () => {
     await assertInvariants(event.id);
   });
 
-  it("promotes the head at commit time when reorder races a promotion", async () => {
+  it.each([
+    { first: "shrink", promotedEntry: "head", reorder: { ok: false, code: "AT_EDGE" } },
+    { first: "reorder", promotedEntry: "second", reorder: { ok: true } },
+  ] as const)(
+    "promotes the $promotedEntry entry when a reorder races a shrink and $first goes first",
+    async ({ first, promotedEntry, reorder: expectedReorder }) => {
+      const event = await insertTestEvent(pool, {
+        capacity: 2,
+        maxPartySize: 2,
+        waitlistCapacity: 3,
+      });
+      const reservation = await insertReservation(event.id, `Reduce ${first}`, "IN_REVIEW", 2);
+      const head = await insertWaitlistEntry(event.id, `Cabeza Reordenada ${first}`);
+      const second = await insertWaitlistEntry(event.id, `Segunda Reordenada ${first}`);
+      const shrinkFields: GuestFields = {
+        ...reservation.fields,
+        partySize: 1,
+        guest2Name: null,
+        guest2Instagram: null,
+      };
+      const shrink = () =>
+        updateRequest(repository, {
+          reservationId: reservation.id,
+          actorAdminId: adminId,
+          fields: shrinkFields,
+        });
+      const reorder = () =>
+        moveEntry(repository, { entryId: second.id, actorAdminId: adminId, direction: "UP" });
+
+      const results = await fireBehindHeldEventLock(
+        event.id,
+        first === "shrink" ? [shrink, reorder] : [reorder, shrink],
+      );
+      const shrinkResult = first === "shrink" ? results[0] : results[1];
+      const reorderResult = first === "shrink" ? results[1] : results[0];
+
+      expect(reorderResult).toMatchObject(expectedReorder);
+      expect(shrinkResult).toMatchObject({
+        ok: true,
+        promoted: [{ entryId: promotedEntry === "head" ? head.id : second.id }],
+      });
+      await assertInvariants(event.id);
+    },
+  );
+
+  it("serializes an admin override with FIFO promotion of the same entry", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 2,
       maxPartySize: 2,
-      waitlistCapacity: 3,
+      waitlistCapacity: 2,
     });
-    const reservation = await insertReservation(event.id, "Reduce", "IN_REVIEW", 2);
-    const head = await insertWaitlistEntry(event.id, "Cabeza Reordenada");
-    const second = await insertWaitlistEntry(event.id, "Segunda Reordenada");
+    const reservation = await insertReservation(event.id, "Reduce FIFO", "IN_REVIEW", 2);
+    const head = await insertWaitlistEntry(event.id, "Misma Entrada");
     const shrunkFields: GuestFields = {
       ...reservation.fields,
       partySize: 1,
@@ -423,67 +593,205 @@ describe("guest admin concurrency", () => {
       guest2Instagram: null,
     };
 
-    const [shrink, reorder] = await race([
+    const [fifo, override] = await fireBehindHeldEventLock(event.id, [
       () =>
         updateRequest(repository, {
           reservationId: reservation.id,
           actorAdminId: adminId,
           fields: shrunkFields,
         }),
-      () => moveEntry(repository, { entryId: second.id, actorAdminId: adminId, direction: "UP" }),
+      () => promoteEntry(repository, { entryId: head.id, actorAdminId: adminId }),
     ]);
 
-    expect(shrink).toMatchObject({ ok: true });
-    if (!shrink.ok) throw new Error("The shrink operation must succeed");
-    expect(shrink.promoted).toHaveLength(1);
-    expect(shrink.promoted[0]!.entryId).toBe(reorder.ok ? second.id : head.id);
-    if (!reorder.ok) expect(reorder).toEqual({ ok: false, code: "AT_EDGE" });
+    expect(fifo).toMatchObject({ ok: true, promoted: [{ entryId: head.id }] });
+    expect(override).toEqual({ ok: false, code: "INVALID_STAGE" });
+    await expect(
+      pool.query(
+        "SELECT COUNT(*)::int AS count FROM reservations WHERE event_id = $1 AND status = 'CONFIRMED'",
+        [event.id],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 2 }] });
     await assertInvariants(event.id);
   });
 
-  it("keeps payment and cancellation consistent when they race", async () => {
-    const event = await insertTestEvent(pool, { capacity: 1, maxPartySize: 1 });
-    const reservation = await insertReservation(event.id, "Pago Cancelación", "ON_LIST");
-
-    const [payment, cancellation] = await race([
+  it("serializes admin adds with queue moves and removals", async () => {
+    const moveEvent = await insertTestEvent(pool, {
+      capacity: 1,
+      maxPartySize: 1,
+      waitlistCapacity: 4,
+    });
+    await insertReservation(moveEvent.id, "Ocupa Alta Mover");
+    await insertWaitlistEntry(moveEvent.id, "Primera Mover");
+    const second = await insertWaitlistEntry(moveEvent.id, "Segunda Mover");
+    const [addedBeforeMove, moved] = await fireBehindHeldEventLock(moveEvent.id, [
       () =>
+        addRequest(repository, {
+          eventId: moveEvent.id,
+          actorAdminId: adminId,
+          fields: fields("Alta Mientras Mueve"),
+          idempotencyKey: randomUUID(),
+        }),
+      () => moveEntry(repository, { entryId: second.id, actorAdminId: adminId, direction: "UP" }),
+    ]);
+    expect(addedBeforeMove).toMatchObject({ ok: true, placement: "QUEUE", position: 3 });
+    expect(moved).toMatchObject({ ok: true });
+    await assertInvariants(moveEvent.id);
+
+    const removeEvent = await insertTestEvent(pool, {
+      capacity: 1,
+      maxPartySize: 1,
+      waitlistCapacity: 3,
+    });
+    await insertReservation(removeEvent.id, "Ocupa Alta Remover");
+    const removedEntry = await insertWaitlistEntry(removeEvent.id, "Primera Remover");
+    const [addedBeforeRemove, removed] = await fireBehindHeldEventLock(removeEvent.id, [
+      () =>
+        addRequest(repository, {
+          eventId: removeEvent.id,
+          actorAdminId: adminId,
+          fields: fields("Alta Mientras Remueve"),
+          idempotencyKey: randomUUID(),
+        }),
+      () =>
+        removeEntry(repository, {
+          entryId: removedEntry.id,
+          actorAdminId: adminId,
+          sendMessage: false,
+        }),
+    ]);
+    expect(addedBeforeRemove).toMatchObject({ ok: true, placement: "QUEUE", position: 2 });
+    expect(removed).toMatchObject({ ok: true });
+    await expect(
+      pool.query(
+        `SELECT waitlisted_count,
+                (SELECT COUNT(*)::int FROM waitlist_entries
+                  WHERE event_id = events.id AND status = 'WAITING') AS waiting_rows
+           FROM events WHERE id = $1`,
+        [removeEvent.id],
+      ),
+    ).resolves.toMatchObject({ rows: [{ waitlisted_count: 1, waiting_rows: 1 }] });
+    await assertInvariants(removeEvent.id);
+  });
+
+  it("rolls back the second concurrent cancel when a party of two reaches the head", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 2,
+      maxPartySize: 2,
+      waitlistCapacity: 2,
+    });
+    const first = await insertReservation(event.id, "Cancela Uno", "ON_LIST");
+    const second = await insertReservation(event.id, "Cancela Dos", "ON_LIST");
+    const head = await insertWaitlistEntry(event.id, "Cabeza Pareja", 2);
+
+    const results = await fireBehindHeldEventLock(
+      event.id,
+      [first, second].map(
+        (reservation) => () =>
+          cancelRequest(repository, {
+            reservationId: reservation.id,
+            actorAdminId: adminId,
+            sendMessage: false,
+            expectedPromotedEntryIds: [],
+            expectedStage: "ON_LIST",
+          }),
+      ),
+    );
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toEqual([
+      { ok: false, code: "WAITLIST_CHANGED" },
+    ]);
+    await expect(
+      pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [head.id]),
+    ).resolves.toMatchObject({ rows: [{ status: "WAITING" }] });
+    await assertInvariants(event.id);
+  });
+
+  it.each([
+    {
+      first: "payment",
+      expected: { status: "CONFIRMED", stage: "PAID", paid_at: expect.any(Date) },
+    },
+    { first: "cancellation", expected: { status: "CANCELLED", stage: "ON_LIST", paid_at: null } },
+  ] as const)(
+    "lets exactly one of cancel ON_LIST and payment verification commit when the $first is first",
+    async ({ first, expected }) => {
+      const event = await insertTestEvent(pool, { capacity: 1, maxPartySize: 1 });
+      const reservation = await insertReservation(event.id, `Pago Cancelacion ${first}`, "ON_LIST");
+      const pay = () =>
         verifyPayment(repository, {
           reservationId: reservation.id,
           actorAdminId: adminId,
           paymentNote: null,
-        }),
-      () =>
+        });
+      const cancel = () =>
         cancelRequest(repository, {
           reservationId: reservation.id,
           actorAdminId: adminId,
           sendMessage: false,
           expectedPromotedEntryIds: [],
-        }),
-    ]);
+          expectedStage: "ON_LIST",
+        });
 
-    expect(cancellation).toMatchObject({ ok: true });
-    const stored = await pool.query<{
-      status: string;
-      stage: string;
-      paid_at: Date | null;
-      refund_status: string | null;
-    }>("SELECT status, stage, paid_at, refund_status FROM reservations WHERE id = $1", [
-      reservation.id,
-    ]);
-    const row = stored.rows[0]!;
-    expect(row.status).toBe("CANCELLED");
-    if (payment.ok) {
-      expect(row).toMatchObject({
-        stage: "PAID",
-        paid_at: expect.any(Date),
-        refund_status: "PENDING",
+      const [winner, loser] = await fireBehindHeldEventLock(
+        event.id,
+        first === "payment" ? [pay, cancel] : [cancel, pay],
+      );
+
+      expect(winner).toMatchObject({ ok: true });
+      expect(loser).toEqual({ ok: false, code: "INVALID_STAGE" });
+      // A cancellation decided on the unpaid stage must never leave a refund behind.
+      await expect(
+        pool.query("SELECT status, stage, paid_at, refund_status FROM reservations WHERE id = $1", [
+          reservation.id,
+        ]),
+      ).resolves.toMatchObject({ rows: [{ ...expected, refund_status: null }] });
+      await assertInvariants(event.id);
+    },
+  );
+
+  it.each([
+    { table: "reservations", contested: "QWE345", fresh: "TYU346", placement: "LIST" },
+    { table: "waitlist_entries", contested: "RTY456", fresh: "ASD457", placement: "QUEUE" },
+  ] as const)(
+    "retries an admin add with a fresh link code when a concurrent transaction takes the code in $table",
+    async ({ table, contested, fresh, placement }) => {
+      const holderEvent = await insertTestEvent(pool, { capacity: 1, maxPartySize: 1 });
+      const event = await insertTestEvent(pool, {
+        capacity: 1,
+        maxPartySize: 1,
+        waitlistCapacity: 2,
       });
-      expect(cancellation).toMatchObject({ refundPending: true });
-    } else {
-      expect(payment).toEqual({ ok: false, code: "INVALID_STAGE" });
-      expect(row).toMatchObject({ stage: "ON_LIST", paid_at: null, refund_status: null });
-      expect(cancellation).toMatchObject({ refundPending: false });
-    }
-    await assertInvariants(event.id);
-  });
+      if (placement === "QUEUE") await insertReservation(event.id, "Ocupa Codigo");
+      const holder = await holdUncommittedLinkCode(table, holderEvent.id, contested);
+      let committed = false;
+
+      try {
+        const codes: string[] = [contested, fresh];
+        const racingRepository = new PostgresGuestAdminRepository(pool, () => codes.shift()!);
+        const pending = addRequest(racingRepository, {
+          eventId: event.id,
+          actorAdminId: adminId,
+          fields: fields("Codigo Concurrente"),
+          idempotencyKey: randomUUID(),
+        });
+        await waitForBlockedInsert(table);
+        await holder.query("COMMIT");
+        committed = true;
+
+        expect(await pending).toMatchObject({ ok: true, placement });
+        expect(codes).toEqual([]);
+      } finally {
+        holder.release(!committed);
+      }
+
+      await expect(
+        pool.query(`SELECT link_code FROM ${table} WHERE event_id = $1`, [event.id]),
+      ).resolves.toMatchObject({ rows: [{ link_code: fresh }] });
+      await expect(
+        pool.query(`SELECT link_code FROM ${table} WHERE event_id = $1`, [holderEvent.id]),
+      ).resolves.toMatchObject({ rows: [{ link_code: contested }] });
+      await assertInvariants(event.id);
+    },
+  );
 });

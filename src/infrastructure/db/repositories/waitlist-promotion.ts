@@ -41,6 +41,9 @@ interface PromotionActor {
   adminId?: string;
 }
 
+export const WAITLIST_PROMOTION_EVENT_PREDICATE =
+  "status IN ('SCHEDULED', 'CLOSED') AND starts_at > clock_timestamp()";
+
 async function readWaitingHead(
   client: PoolClient,
   eventId: string,
@@ -142,8 +145,7 @@ async function takeSeats(
             last_reservation_number = last_reservation_number + 1,
             updated_at = clock_timestamp()
       WHERE id = $1
-        AND status IN ('SCHEDULED', 'CLOSED')
-        AND starts_at > clock_timestamp()
+        AND ${WAITLIST_PROMOTION_EVENT_PREDICATE}
         AND reserved_seats + $2 <= capacity
       RETURNING last_reservation_number, clock_timestamp() AS accepted_at`,
     [eventId, partySize],
@@ -248,7 +250,8 @@ async function recordPromotion(
     subject,
     eventId,
     body,
-    source: "SYSTEM",
+    source: actor.type,
+    createdBy: actor.adminId,
   });
   return message.id;
 }

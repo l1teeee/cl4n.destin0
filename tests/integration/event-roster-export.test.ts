@@ -87,6 +87,14 @@ describe("event roster CSV route", () => {
     expect(response.status).toBe(401);
   });
 
+  it("returns 404 for an invalid event id", async () => {
+    const response = await GET(new Request("http://localhost/admin/events/not-a-uuid/export"), {
+      params: Promise.resolve({ id: "not-a-uuid" }),
+    });
+
+    expect(response.status).toBe(404);
+  });
+
   it("returns a BOM-prefixed CSV with the selected rows", async () => {
     const response = await GET(
       new Request(`http://localhost/admin/events/${eventId}/export?vista=confirmados`),

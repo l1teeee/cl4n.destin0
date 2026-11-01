@@ -27,21 +27,24 @@ import {
 import {
   adminGuestFieldsSchema,
   adminGuestIdSchema,
+  expectedCancellationStageSchema,
   expectedPromotedEntryIdsSchema,
   moveEntryDirectionSchema,
   paymentNoteSchema,
   readAdminGuestFields,
   readSendMessage,
 } from "@/contracts/admin-guest";
-import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
+import { retryableDatabaseErrorCode } from "@/infrastructure/db/retryable-database-error";
 import { postgresGuestAdminRepository } from "@/infrastructure/db/repositories/postgres-guest-admin-repository";
 import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { log } from "@/infrastructure/observability/logger";
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 import {
   acceptedResult,
   addedResult,
   cancelledResult,
+  enteredFromQueueSentence,
   guestsLabel,
   paymentVerifiedResult,
   promotedFromQueueResult,
@@ -56,6 +59,8 @@ const errorMessages: Record<GuestMutationFailure["code"], string> = {
   WAITLIST_CHANGED:
     "La cola cambió mientras confirmabas. Revisa quién entra y vuelve a intentarlo.",
   NO_SEAT: "No hay un lugar libre para eso.",
+  TRY_AGAIN: "La experiencia está muy ocupada. Intenta de nuevo en unos segundos.",
+  PARTY_SIZE_NOT_ALLOWED: "El grupo supera el máximo permitido.",
   NO_SPACE: "No hay lugar ni en la cola. Amplía los cupos o la cola.",
   DUPLICATE_HANDLE: "Ya existe una solicitud activa con ese usuario de Instagram.",
   EVENT_NOT_EDITABLE: "La experiencia ya no admite cambios.",
@@ -75,15 +80,31 @@ function validationError(error: z.ZodError): AdminActionState {
 }
 
 function operationError(result: GuestMutationFailure): AdminActionState {
-  const message = errorMessages[result.code];
+  const message =
+    result.code === "PARTY_SIZE_NOT_ALLOWED"
+      ? `Máximo ${result.maxPartySize} personas por solicitud.`
+      : errorMessages[result.code];
   return {
     ok: false,
     message,
     fieldErrors:
-      result.code === "DUPLICATE_HANDLE"
-        ? { [result.field ?? "guest1Instagram"]: message }
-        : undefined,
+      result.code === "DUPLICATE_HANDLE" && result.field ? { [result.field]: message } : undefined,
   };
+}
+
+function databaseBusy(): AdminActionState {
+  return { ok: false, message: errorMessages.TRY_AGAIN };
+}
+
+async function executeMutation<T extends GuestMutationFailure | GuestMutationSuccess>(
+  operation: () => Promise<T>,
+): Promise<{ result: T } | { error: AdminActionState }> {
+  try {
+    return { result: await operation() };
+  } catch (error) {
+    if (retryableDatabaseErrorCode(error)) return { error: databaseBusy() };
+    throw error;
+  }
 }
 
 async function consumeMutationLimit(adminId: string): Promise<AdminActionState | null> {
@@ -111,9 +132,18 @@ function statusOutcome(status: string | undefined): MessageOutcome {
 
 async function deliver(result: GuestMutationSuccess, requested: boolean): Promise<MessageOutcome> {
   if (result.messageIds.length === 0) return "NOT_SENT";
-  const summary = await drainMessagesNow(result.messageIds, { timeBudgetMs: 6_000 });
-  if (!requested) return "NOT_SENT";
-  return statusOutcome(summary.outcomes[result.messageIds[0]!]);
+  try {
+    const summary = await drainMessagesNow(result.messageIds, { timeBudgetMs: 6_000 });
+    if (!requested) return "NOT_SENT";
+    return statusOutcome(summary.outcomes[result.messageIds[0]!]);
+  } catch {
+    // The change is already committed and the messages stay in the outbox, so the
+    // daily delivery picks them up. The admin only needs to know they are still queued.
+    log("error", "admin_guest_immediate_delivery_failed", {
+      messageCount: result.messageIds.length,
+    });
+    return requested ? "QUEUED" : "NOT_SENT";
+  }
 }
 
 function revalidateGuestPaths(eventId: string): void {
@@ -150,13 +180,17 @@ export async function acceptRequestAction(
   if ("error" in authorization) return authorization.error;
   const reservationId = parseId(id);
   if (typeof reservationId !== "string") return reservationId;
-  const result = await acceptRequest(postgresGuestAdminRepository, {
-    reservationId,
-    actorAdminId: authorization.adminId,
-  });
+  const execution = await executeMutation(() =>
+    acceptRequest(postgresGuestAdminRepository, {
+      reservationId,
+      actorAdminId: authorization.adminId,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  const outcome = await deliver(result, true);
   revalidateGuestPaths(result.eventId);
+  const outcome = await deliver(result, true);
   return { ok: true, message: acceptedResult({ guests: result.guests, outcome }) };
 }
 
@@ -172,14 +206,18 @@ export async function verifyPaymentAction(
   if (typeof reservationId !== "string") return reservationId;
   const note = paymentNoteSchema.safeParse(formData.get("paymentNote"));
   if (!note.success) return validationError(note.error);
-  const result = await verifyPayment(postgresGuestAdminRepository, {
-    reservationId,
-    actorAdminId: authorization.adminId,
-    paymentNote: note.data,
-  });
+  const execution = await executeMutation(() =>
+    verifyPayment(postgresGuestAdminRepository, {
+      reservationId,
+      actorAdminId: authorization.adminId,
+      paymentNote: note.data,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  const outcome = await deliver(result, true);
   revalidateGuestPaths(result.eventId);
+  const outcome = await deliver(result, true);
   return { ok: true, message: paymentVerifiedResult({ guests: result.guests, outcome }) };
 }
 
@@ -198,15 +236,19 @@ export async function rejectRequestAction(
   );
   if (!expected.success) return validationError(expected.error);
   const sendMessage = readSendMessage(formData);
-  const result = await rejectRequest(postgresGuestAdminRepository, {
-    reservationId,
-    actorAdminId: authorization.adminId,
-    sendMessage,
-    expectedPromotedEntryIds: expected.data,
-  });
+  const execution = await executeMutation(() =>
+    rejectRequest(postgresGuestAdminRepository, {
+      reservationId,
+      actorAdminId: authorization.adminId,
+      sendMessage,
+      expectedPromotedEntryIds: expected.data,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  const outcome = await deliver(result, sendMessage);
   revalidateGuestPaths(result.eventId);
+  const outcome = await deliver(result, sendMessage);
   return {
     ok: true,
     message: rejectedResult({
@@ -231,16 +273,23 @@ export async function cancelRequestAction(
     formData.getAll("expectedPromotedEntryIds"),
   );
   if (!expected.success) return validationError(expected.error);
+  const expectedStage = expectedCancellationStageSchema.safeParse(formData.get("expectedStage"));
+  if (!expectedStage.success) return validationError(expectedStage.error);
   const sendMessage = readSendMessage(formData);
-  const result = await cancelRequest(postgresGuestAdminRepository, {
-    reservationId,
-    actorAdminId: authorization.adminId,
-    sendMessage,
-    expectedPromotedEntryIds: expected.data,
-  });
+  const execution = await executeMutation(() =>
+    cancelRequest(postgresGuestAdminRepository, {
+      reservationId,
+      actorAdminId: authorization.adminId,
+      sendMessage,
+      expectedPromotedEntryIds: expected.data,
+      expectedStage: expectedStage.data,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  const outcome = await deliver(result, sendMessage);
   revalidateGuestPaths(result.eventId);
+  const outcome = await deliver(result, sendMessage);
   return {
     ok: true,
     message: cancelledResult({
@@ -263,14 +312,18 @@ export async function markRefundedAction(
   const reservationId = parseId(id);
   if (typeof reservationId !== "string") return reservationId;
   const sendMessage = readSendMessage(formData);
-  const result = await markRefunded(postgresGuestAdminRepository, {
-    reservationId,
-    actorAdminId: authorization.adminId,
-    sendMessage,
-  });
+  const execution = await executeMutation(() =>
+    markRefunded(postgresGuestAdminRepository, {
+      reservationId,
+      actorAdminId: authorization.adminId,
+      sendMessage,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  const outcome = await deliver(result, sendMessage);
   revalidateGuestPaths(result.eventId);
+  const outcome = await deliver(result, sendMessage);
   return { ok: true, message: refundedResult({ guests: result.guests, outcome }) };
 }
 
@@ -286,17 +339,20 @@ export async function updateRequestAction(
   if (typeof reservationId !== "string") return reservationId;
   const fields = adminGuestFieldsSchema.safeParse(readAdminGuestFields(formData));
   if (!fields.success) return validationError(fields.error);
-  const result = await updateRequest(postgresGuestAdminRepository, {
-    reservationId,
-    actorAdminId: authorization.adminId,
-    fields: fields.data,
-  });
+  const execution = await executeMutation(() =>
+    updateRequest(postgresGuestAdminRepository, {
+      reservationId,
+      actorAdminId: authorization.adminId,
+      fields: fields.data,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  await deliver(result, false);
   revalidateGuestPaths(result.eventId);
-  const promoted = promotedLabels(result);
-  const promotion = promoted.length > 0 ? ` Entró ${promoted.join(" y ")} desde la cola.` : "";
-  return { ok: true, message: `Actualizaste a ${guestsLabel(result.guests)}.${promotion}` };
+  await deliver(result, false);
+  const entered = enteredFromQueueSentence(promotedLabels(result));
+  return { ok: true, message: `Actualizaste a ${guestsLabel(result.guests)}.${entered}` };
 }
 
 export async function updateEntryAction(
@@ -311,14 +367,23 @@ export async function updateEntryAction(
   if (typeof entryId !== "string") return entryId;
   const fields = adminGuestFieldsSchema.safeParse(readAdminGuestFields(formData));
   if (!fields.success) return validationError(fields.error);
-  const result = await updateEntry(postgresGuestAdminRepository, {
-    entryId,
-    actorAdminId: authorization.adminId,
-    fields: fields.data,
-  });
+  const execution = await executeMutation(() =>
+    updateEntry(postgresGuestAdminRepository, {
+      entryId,
+      actorAdminId: authorization.adminId,
+      fields: fields.data,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
   revalidateGuestPaths(result.eventId);
-  return { ok: true, message: `Actualizaste a ${guestsLabel(result.guests)} en la cola.` };
+  await deliver(result, false);
+  const entered = enteredFromQueueSentence(promotedLabels(result));
+  return {
+    ok: true,
+    message: `Actualizaste a ${guestsLabel(result.guests)} en la cola.${entered}`,
+  };
 }
 
 export async function moveEntryAction(
@@ -333,14 +398,20 @@ export async function moveEntryAction(
   if (typeof entryId !== "string") return entryId;
   const direction = moveEntryDirectionSchema.safeParse(formData.get("direction"));
   if (!direction.success) return validationError(direction.error);
-  const result = await moveEntry(postgresGuestAdminRepository, {
-    entryId,
-    actorAdminId: authorization.adminId,
-    direction: direction.data,
-  });
+  const execution = await executeMutation(() =>
+    moveEntry(postgresGuestAdminRepository, {
+      entryId,
+      actorAdminId: authorization.adminId,
+      direction: direction.data,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
   revalidateGuestPaths(result.eventId);
-  return { ok: true, message: `Moviste a ${guestsLabel(result.guests)} en la cola.` };
+  await deliver(result, false);
+  const entered = enteredFromQueueSentence(promotedLabels(result));
+  return { ok: true, message: `Moviste a ${guestsLabel(result.guests)} en la cola.${entered}` };
 }
 
 export async function promoteEntryAction(
@@ -354,13 +425,17 @@ export async function promoteEntryAction(
   if ("error" in authorization) return authorization.error;
   const entryId = parseId(id);
   if (typeof entryId !== "string") return entryId;
-  const result = await promoteEntry(postgresGuestAdminRepository, {
-    entryId,
-    actorAdminId: authorization.adminId,
-  });
+  const execution = await executeMutation(() =>
+    promoteEntry(postgresGuestAdminRepository, {
+      entryId,
+      actorAdminId: authorization.adminId,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  const outcome = await deliver(result, true);
   revalidateGuestPaths(result.eventId);
+  const outcome = await deliver(result, true);
   return { ok: true, message: promotedFromQueueResult({ guests: result.guests, outcome }) };
 }
 
@@ -375,15 +450,26 @@ export async function removeEntryAction(
   const entryId = parseId(id);
   if (typeof entryId !== "string") return entryId;
   const sendMessage = readSendMessage(formData);
-  const result = await removeEntry(postgresGuestAdminRepository, {
-    entryId,
-    actorAdminId: authorization.adminId,
-    sendMessage,
-  });
+  const execution = await executeMutation(() =>
+    removeEntry(postgresGuestAdminRepository, {
+      entryId,
+      actorAdminId: authorization.adminId,
+      sendMessage,
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
-  const outcome = await deliver(result, sendMessage);
   revalidateGuestPaths(result.eventId);
-  return { ok: true, message: removedFromQueueResult({ guests: result.guests, outcome }) };
+  const outcome = await deliver(result, sendMessage);
+  return {
+    ok: true,
+    message: removedFromQueueResult({
+      guests: result.guests,
+      promoted: promotedLabels(result),
+      outcome,
+    }),
+  };
 }
 
 export async function addRequestAction(
@@ -398,13 +484,16 @@ export async function addRequestAction(
   if (typeof eventId !== "string") return eventId;
   const fields = adminGuestFieldsSchema.safeParse(readAdminGuestFields(formData));
   if (!fields.success) return validationError(fields.error);
-  const result = await addRequest(postgresGuestAdminRepository, {
-    eventId,
-    actorAdminId: authorization.adminId,
-    fields: fields.data,
-    linkCode: generateLinkCode(),
-    idempotencyKey: randomUUID(),
-  });
+  const execution = await executeMutation(() =>
+    addRequest(postgresGuestAdminRepository, {
+      eventId,
+      actorAdminId: authorization.adminId,
+      fields: fields.data,
+      idempotencyKey: randomUUID(),
+    }),
+  );
+  if ("error" in execution) return execution.error;
+  const { result } = execution;
   if (!result.ok) return operationError(result);
   revalidateGuestPaths(result.eventId);
   return {

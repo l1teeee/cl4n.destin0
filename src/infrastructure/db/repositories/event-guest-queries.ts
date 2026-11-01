@@ -7,6 +7,7 @@ import type { MessageKind, MessageStatus } from "@/domain/messaging/message-type
 
 import { pool as applicationPool } from "../client";
 import { postgresMessageRepository } from "./postgres-message-repository";
+import { WAITLIST_PROMOTION_EVENT_PREDICATE } from "./waitlist-promotion";
 
 export { EVENT_GUEST_VIEWS };
 export type { EventGuestView };
@@ -232,33 +233,36 @@ function toGuestRow(row: GuestRecord): EventGuestRow {
   };
 }
 
+const selectGuestRows = `
+  WITH ${guestRequestsCte}
+  SELECT request.*,
+         contact.username AS contact_username,
+         last_message.kind AS message_kind,
+         last_message.status AS message_status,
+         last_message.last_error AS message_last_error,
+         last_message.sent_at AS message_sent_at
+    FROM guest_requests request
+    LEFT JOIN messaging_contacts contact ON contact.id = request.contact_id
+    LEFT JOIN LATERAL (
+      SELECT kind, status, last_error, sent_at
+        FROM messages message
+       WHERE message.direction = 'OUTBOUND'
+         AND (
+           (request.kind = 'RESERVATION' AND message.reservation_id = request.id)
+           OR
+           (request.kind = 'WAITLIST_ENTRY' AND message.waitlist_entry_id = request.id)
+         )
+       ORDER BY message.created_at DESC, message.id DESC
+       LIMIT 1
+    ) last_message ON true`;
+
 export async function listEventGuests(
   eventId: string,
   view: EventGuestView,
   targetPool: Pool = applicationPool,
 ): Promise<EventGuestRow[]> {
   const result = await targetPool.query<GuestRecord>(
-    `WITH ${guestRequestsCte}
-     SELECT request.*,
-            contact.username AS contact_username,
-            last_message.kind AS message_kind,
-            last_message.status AS message_status,
-            last_message.last_error AS message_last_error,
-            last_message.sent_at AS message_sent_at
-       FROM guest_requests request
-       LEFT JOIN messaging_contacts contact ON contact.id = request.contact_id
-       LEFT JOIN LATERAL (
-         SELECT kind, status, last_error, sent_at
-           FROM messages message
-          WHERE message.direction = 'OUTBOUND'
-            AND (
-              (request.kind = 'RESERVATION' AND message.reservation_id = request.id)
-              OR
-              (request.kind = 'WAITLIST_ENTRY' AND message.waitlist_entry_id = request.id)
-            )
-          ORDER BY message.created_at DESC, message.id DESC
-          LIMIT 1
-       ) last_message ON true
+    `${selectGuestRows}
       WHERE ${filters[view]}
       ORDER BY ${ordering[view]}`,
     [eventId],
@@ -373,58 +377,72 @@ export async function countEventGuests(
   };
 }
 
-function previewFor(
-  rows: readonly {
-    id: string;
-    party_size: number;
-    full_name: string;
-    guest2_full_name: string | null;
-  }[],
-  availableSeats: number,
-): PromotionPreviewEntry[] {
-  const entries: PromotionPreviewEntry[] = [];
-  let remaining = availableSeats;
-  for (const row of rows) {
-    if (row.party_size > remaining) break;
-    remaining -= row.party_size;
-    entries.push({
-      id: row.id,
-      guests: [row.full_name, row.guest2_full_name].filter((name): name is string => name !== null),
-    });
-  }
-  return entries;
-}
-
 export async function previewPromotion(
   eventId: string,
   targetPool: Pool = applicationPool,
 ): Promise<PromotionPreview> {
-  const [eventResult, entriesResult] = await Promise.all([
-    targetPool.query<{ free_seats: number }>(
-      `SELECT capacity - reserved_seats AS free_seats
+  const result = await targetPool.query<{
+    id: string;
+    full_name: string;
+    guest2_full_name: string | null;
+    fits_one: boolean;
+    fits_two: boolean;
+  }>(
+    `WITH promotable_event AS (
+       SELECT id,
+              capacity - reserved_seats + 1 AS one_seat_limit,
+              capacity - reserved_seats + 2 AS two_seat_limit
          FROM events
         WHERE id = $1
-          AND deleted_at IS NULL`,
-      [eventId],
-    ),
-    targetPool.query<{
-      id: string;
-      party_size: number;
-      full_name: string;
-      guest2_full_name: string | null;
-    }>(
-      `SELECT id, party_size, full_name, guest2_full_name
-         FROM waitlist_entries
-        WHERE event_id = $1
-          AND status = 'WAITING'
-        ORDER BY waitlist_number, id`,
-      [eventId],
-    ),
-  ]);
-  const freeSeats = eventResult.rows[0]?.free_seats ?? 0;
+          AND deleted_at IS NULL
+          AND ${WAITLIST_PROMOTION_EVENT_PREDICATE}
+     ),
+     candidates AS (
+       SELECT w.id, w.waitlist_number, w.party_size, w.full_name, w.guest2_full_name,
+              NOT EXISTS (
+                SELECT 1
+                  FROM reservations r
+                 WHERE r.event_id = w.event_id
+                   AND r.status = 'CONFIRMED'
+                   AND (
+                     r.instagram_handle IN (w.instagram_handle, w.guest2_instagram_handle)
+                     OR r.guest2_instagram_handle IN (
+                       w.instagram_handle,
+                       w.guest2_instagram_handle
+                     )
+                   )
+              ) AS can_promote
+         FROM waitlist_entries w
+         JOIN promotable_event event ON event.id = w.event_id
+        WHERE w.status = 'WAITING'
+     ),
+     ordered AS (
+       SELECT candidates.*,
+              SUM(CASE WHEN can_promote THEN party_size ELSE 0 END) OVER (
+                ORDER BY waitlist_number, id
+              ) AS required_seats
+         FROM candidates
+     )
+     SELECT ordered.id, ordered.full_name, ordered.guest2_full_name,
+            ordered.required_seats <= event.one_seat_limit AS fits_one,
+            ordered.required_seats <= event.two_seat_limit AS fits_two
+       FROM ordered
+       CROSS JOIN promotable_event event
+      WHERE ordered.can_promote
+        AND (
+          ordered.required_seats <= event.one_seat_limit
+          OR ordered.required_seats <= event.two_seat_limit
+        )
+      ORDER BY ordered.waitlist_number, ordered.id`,
+    [eventId],
+  );
+  const entry = (row: (typeof result.rows)[number]): PromotionPreviewEntry => ({
+    id: row.id,
+    guests: [row.full_name, row.guest2_full_name].filter((name): name is string => name !== null),
+  });
   return {
-    oneSeat: previewFor(entriesResult.rows, freeSeats + 1),
-    twoSeats: previewFor(entriesResult.rows, freeSeats + 2),
+    oneSeat: result.rows.filter((row) => row.fits_one).map(entry),
+    twoSeats: result.rows.filter((row) => row.fits_two).map(entry),
   };
 }
 
@@ -450,9 +468,15 @@ export async function getGuestRequestDetail(
   );
   const eventId = eventResult.rows[0]?.event_id;
   if (!eventId) return null;
-  const rows = await listEventGuests(eventId, "todas", targetPool);
-  const row = rows.find((candidate) => candidate.kind === kind && candidate.id === id);
-  if (!row) return null;
+  const result = await targetPool.query<GuestRecord>(
+    `${selectGuestRows}
+      WHERE request.kind = $2
+        AND request.id = $3`,
+    [eventId, kind, id],
+  );
+  const stored = result.rows[0];
+  if (!stored) return null;
+  const row = toGuestRow(stored);
   const messages = await getRequestMessages(
     postgresMessageRepository,
     kind === "RESERVATION" ? { reservationId: id } : { waitlistEntryId: id },

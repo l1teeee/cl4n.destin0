@@ -3,6 +3,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
 const revalidatePathMock = vi.hoisted(() => vi.fn());
+const drainMessagesNowMock = vi.hoisted(() =>
+  vi.fn(async (messageIds: string[]) => ({
+    outcomes: Object.fromEntries(messageIds.map((id) => [id, "WAITING_CONTACT"])),
+  })),
+);
 
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
@@ -10,12 +15,22 @@ vi.mock("next/headers", () => ({
   })),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: revalidatePathMock }));
+vi.mock("@/infrastructure/messaging/drain-message-outbox", () => ({
+  drainMessagesNow: drainMessagesNowMock,
+}));
 
 import {
   acceptRequestAction,
   addRequestAction,
+  cancelRequestAction,
+  moveEntryAction,
+  promoteEntryAction,
+  rejectRequestAction,
+  removeEntryAction,
+  updateEntryAction,
 } from "@/app/admin/(protected)/events/guest-actions";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { postgresGuestAdminRepository } from "@/infrastructure/db/repositories/postgres-guest-admin-repository";
 
 import { resetTestDatabase } from "../helpers/test-db";
 
@@ -53,14 +68,76 @@ afterAll(async () => {
   await pool.end();
 });
 
-function guestForm(): FormData {
+function guestForm(name = "Ana Acción", instagram = "@ana.accion"): FormData {
   const formData = new FormData();
   formData.set("partySize", "1");
-  formData.set("guest1Name", "Ana Acción");
-  formData.set("guest1Instagram", "@ana.accion");
+  formData.set("guest1Name", name);
+  formData.set("guest1Instagram", instagram);
   formData.set("hasAllergies", "false");
   formData.set("notes", "");
   return formData;
+}
+
+async function insertEvent(
+  slug: string,
+  capacity: number,
+  waitlistCapacity: number,
+): Promise<string> {
+  const event = await pool.query<{ id: string }>(
+    `INSERT INTO events (
+       internal_name, slug, starts_at, capacity, max_party_size,
+       opens_at, closes_at, waitlist_capacity, status
+     )
+     VALUES ($1, $1, clock_timestamp() + interval '7 days', $2, 2,
+             clock_timestamp() - interval '1 day', clock_timestamp() + interval '6 days', $3,
+             'SCHEDULED')
+     RETURNING id`,
+    [slug, capacity, waitlistCapacity],
+  );
+  return event.rows[0]!.id;
+}
+
+async function reservationIdOf(forEventId: string, handle: string): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    "SELECT id FROM reservations WHERE event_id = $1 AND instagram_handle = $2",
+    [forEventId, handle],
+  );
+  return result.rows[0]!.id;
+}
+
+async function entryIdOf(forEventId: string, handle: string): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    "SELECT id FROM waitlist_entries WHERE event_id = $1 AND instagram_handle = $2",
+    [forEventId, handle],
+  );
+  return result.rows[0]!.id;
+}
+
+// Ada and Dan fill the two seats, the couple Eva heads the queue and Gus waits behind her.
+// Rejecting Ada frees one seat that the couple cannot use, so nobody is promoted yet and Gus
+// only gets in when the couple is removed, edited down to one person, or moved behind him.
+async function seedQueueBlockedByCouple(slug: string) {
+  const blockedEventId = await insertEvent(slug, 2, 3);
+  await addRequestAction(blockedEventId, initialState, guestForm("Ada Cola", "@ada.cola"));
+  await addRequestAction(blockedEventId, initialState, guestForm("Dan Cola", "@dan.cola"));
+  const couple = guestForm("Eva Pareja", "@eva.pareja");
+  couple.set("partySize", "2");
+  couple.set("guest2Name", "Eva Dos");
+  couple.set("guest2Instagram", "@eva.dos");
+  await addRequestAction(blockedEventId, initialState, couple);
+  await addRequestAction(blockedEventId, initialState, guestForm("Gus Cola", "@gus.cola"));
+
+  const rejected = await rejectRequestAction(
+    await reservationIdOf(blockedEventId, "ada.cola"),
+    initialState,
+    new FormData(),
+  );
+  expect(rejected).toMatchObject({ ok: true });
+  return {
+    eventId: blockedEventId,
+    coupleEntryId: await entryIdOf(blockedEventId, "eva.pareja"),
+    gusEntryId: await entryIdOf(blockedEventId, "gus.cola"),
+  };
 }
 
 describe("guest admin Server Actions", () => {
@@ -102,5 +179,171 @@ describe("guest admin Server Actions", () => {
     ).resolves.toMatchObject({
       rows: [{ stage: "ON_LIST", source: "ADMIN", created_by: expect.any(String) }],
     });
+  });
+
+  it("requires the stage seen by the admin before cancelling", async () => {
+    const reservation = await pool.query<{ id: string }>(
+      "SELECT id FROM reservations WHERE event_id = $1 ORDER BY created_at LIMIT 1",
+      [eventId],
+    );
+    const result = await cancelRequestAction(reservation.rows[0]!.id, initialState, new FormData());
+
+    expect(result).toMatchObject({ ok: false, message: "Revisa los campos marcados." });
+    await expect(
+      pool.query("SELECT status, stage FROM reservations WHERE id = $1", [reservation.rows[0]!.id]),
+    ).resolves.toMatchObject({ rows: [{ status: "CONFIRMED", stage: "ON_LIST" }] });
+  });
+
+  it("cancels only the stage the admin saw", async () => {
+    const stageEventId = await insertEvent("guest-actions-stage", 2, 0);
+    await addRequestAction(stageEventId, initialState, guestForm("Hana Etapa", "@hana.etapa"));
+    const reservationId = await reservationIdOf(stageEventId, "hana.etapa");
+    await acceptRequestAction(reservationId, initialState, new FormData());
+
+    const paidStage = new FormData();
+    paidStage.set("expectedStage", "PAID");
+    expect(await cancelRequestAction(reservationId, initialState, paidStage)).toMatchObject({
+      ok: false,
+      message: "La solicitud ya cambió de estado. Recarga la página.",
+    });
+    await expect(
+      pool.query("SELECT status, stage FROM reservations WHERE id = $1", [reservationId]),
+    ).resolves.toMatchObject({ rows: [{ status: "CONFIRMED", stage: "ON_LIST" }] });
+
+    const onListStage = new FormData();
+    onListStage.set("expectedStage", "ON_LIST");
+    expect(await cancelRequestAction(reservationId, initialState, onListStage)).toMatchObject({
+      ok: true,
+    });
+    await expect(
+      pool.query("SELECT status, refund_status FROM reservations WHERE id = $1", [reservationId]),
+    ).resolves.toMatchObject({ rows: [{ status: "CANCELLED", refund_status: null }] });
+  });
+
+  it("tells who entered the list when removing a queue head that did not fit", async () => {
+    const queue = await seedQueueBlockedByCouple("guest-actions-remove");
+
+    const removed = await removeEntryAction(queue.coupleEntryId, initialState, new FormData());
+
+    expect(removed).toEqual({
+      ok: true,
+      message: "Se quitó a Eva Pareja y Eva Dos de la cola. Entró Gus Cola desde la cola.",
+    });
+  });
+
+  it("tells who entered the list and delivers their message when a move changes the head", async () => {
+    const queue = await seedQueueBlockedByCouple("guest-actions-move");
+    drainMessagesNowMock.mockClear();
+    const direction = new FormData();
+    direction.set("direction", "UP");
+
+    const moved = await moveEntryAction(queue.gusEntryId, initialState, direction);
+
+    expect(moved).toEqual({
+      ok: true,
+      message: "Moviste a Gus Cola en la cola. Entró Gus Cola desde la cola.",
+    });
+    const promotedMessage = await pool.query<{ id: string }>(
+      `SELECT m.id
+         FROM messages m
+         JOIN reservations r ON r.id = m.reservation_id
+        WHERE r.event_id = $1 AND m.kind = 'PROMOTED'`,
+      [queue.eventId],
+    );
+    expect(drainMessagesNowMock).toHaveBeenCalledWith([promotedMessage.rows[0]!.id], {
+      timeBudgetMs: 6_000,
+    });
+  });
+
+  it("tells who entered the list when editing the queue head down to a size that fits", async () => {
+    const queue = await seedQueueBlockedByCouple("guest-actions-edit");
+
+    const edited = await updateEntryAction(
+      queue.coupleEntryId,
+      initialState,
+      guestForm("Eva Sola", "@eva.pareja"),
+    );
+
+    expect(edited).toEqual({
+      ok: true,
+      message: "Actualizaste a Eva Sola en la cola. Entró Eva Sola desde la cola.",
+    });
+  });
+
+  it("maps retryable database failures to the busy response", async () => {
+    const failure = Object.assign(new Error("lock timeout"), { code: "55P03" });
+    const spy = vi.spyOn(postgresGuestAdminRepository, "accept").mockRejectedValueOnce(failure);
+
+    const result = await acceptRequestAction(
+      "00000000-0000-4000-8000-000000000001",
+      initialState,
+      new FormData(),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      message: "La experiencia está muy ocupada. Intenta de nuevo en unos segundos.",
+    });
+    spy.mockRestore();
+  });
+
+  it("revalidates a committed change when immediate delivery fails", async () => {
+    const added = await addRequestAction(
+      eventId,
+      initialState,
+      guestForm("Bea Acción", "@bea.accion"),
+    );
+    expect(added.ok).toBe(true);
+    const reservation = await pool.query<{ id: string }>(
+      "SELECT id FROM reservations WHERE event_id = $1 AND instagram_handle = 'bea.accion'",
+      [eventId],
+    );
+    drainMessagesNowMock.mockRejectedValueOnce(new Error("Instagram unavailable"));
+    revalidatePathMock.mockClear();
+
+    const accepted = await acceptRequestAction(
+      reservation.rows[0]!.id,
+      initialState,
+      new FormData(),
+    );
+
+    expect(accepted).toMatchObject({ ok: true });
+    expect(accepted.message).toContain("El mensaje se está enviando.");
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/events/${eventId}`);
+    await expect(
+      pool.query("SELECT stage FROM reservations WHERE id = $1", [reservation.rows[0]!.id]),
+    ).resolves.toMatchObject({ rows: [{ stage: "ON_LIST" }] });
+  });
+
+  it("reports an override duplicate as a general error", async () => {
+    const spy = vi.spyOn(postgresGuestAdminRepository, "promoteEntry").mockResolvedValueOnce({
+      ok: false,
+      code: "DUPLICATE_HANDLE",
+    });
+
+    const result = await promoteEntryAction(
+      "00000000-0000-4000-8000-000000000002",
+      initialState,
+      new FormData(),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: "Ya existe una solicitud activa con ese usuario de Instagram.",
+    });
+    expect(result.fieldErrors).toBeUndefined();
+    spy.mockRestore();
+  });
+
+  it("shows the event maximum when an admin party is too large", async () => {
+    await pool.query("UPDATE events SET max_party_size = 1 WHERE id = $1", [eventId]);
+    const formData = guestForm("Pareja Acción", "@pareja.accion");
+    formData.set("partySize", "2");
+    formData.set("guest2Name", "Pareja Dos");
+    formData.set("guest2Instagram", "@pareja.dos");
+
+    const result = await addRequestAction(eventId, initialState, formData);
+
+    expect(result).toEqual({ ok: false, message: "Máximo 1 personas por solicitud." });
   });
 });
