@@ -5,6 +5,7 @@ import { eventClueSchema } from "@/contracts/event-clue";
 import type { StoredEventClueImage } from "@/application/events/event-clue-repository";
 import { publishEventClue } from "@/application/events/event-clues";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { isLockOrStatementTimeout } from "@/infrastructure/db/retryable-database-error";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { isSameOriginRequest } from "@/infrastructure/http/same-origin-request";
@@ -109,12 +110,21 @@ export async function POST(
     return error("El peso total de las imágenes es demasiado grande.", 413);
   }
 
-  const result = await publishEventClue(postgresEventRepository, postgresEventClueRepository, {
-    eventId: parsedParams.data.id,
-    body: parsedBody.data.body,
-    images,
-    actorId: authorization.session.admin.id,
-  });
+  let result: Awaited<ReturnType<typeof publishEventClue>>;
+  try {
+    result = await publishEventClue(postgresEventRepository, postgresEventClueRepository, {
+      eventId: parsedParams.data.id,
+      body: parsedBody.data.body,
+      images,
+      actorId: authorization.session.admin.id,
+    });
+  } catch (publishError) {
+    // A guest's reservation row held by another admin action outlasted the lock timeout.
+    if (isLockOrStatementTimeout(publishError)) {
+      return error("La experiencia está ocupada; intenta de nuevo.", 503);
+    }
+    throw publishError;
+  }
   if (!result.ok) {
     return error(
       result.error === "EVENT_NOT_FOUND"

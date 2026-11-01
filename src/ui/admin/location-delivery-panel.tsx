@@ -14,6 +14,8 @@ type SendLocationAction = (
 interface LocationDeliveryPanelProps {
   summary: LocationDeliverySummary;
   locationConfirmed: boolean;
+  // False once the experience is cancelled or completed: the server refuses those sends.
+  acceptsSends: boolean;
   sendAction: SendLocationAction;
 }
 
@@ -43,9 +45,10 @@ function sendOffer(summary: LocationDeliverySummary): SendOffer | null {
 export function LocationDeliveryPanel({
   summary,
   locationConfirmed,
+  acceptsSends,
   sendAction,
 }: LocationDeliveryPanelProps) {
-  const offer = locationConfirmed ? sendOffer(summary) : null;
+  const offer = locationConfirmed && acceptsSends ? sendOffer(summary) : null;
   const needsAttention = summary.pending + summary.failed > 0;
 
   return (

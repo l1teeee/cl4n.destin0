@@ -20,10 +20,11 @@ import { env } from "@/infrastructure/config/env";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
 import { pool as applicationPool } from "../client";
-import { retryableDatabaseErrorCode } from "../retryable-database-error";
+import { isLockOrStatementTimeout } from "../retryable-database-error";
 import { inTransaction } from "../transaction";
 
 interface LocationEventRow extends QueryResultRow {
+  status: "DRAFT" | "SCHEDULED" | "CLOSED" | "COMPLETED" | "CANCELLED";
   starts_at: Date;
   location_status: EventLocationStatus;
   location_revision: number;
@@ -75,13 +76,7 @@ const transactionSettings = [
   "SET LOCAL idle_in_transaction_session_timeout = '5s'",
 ] as const;
 
-// Only the two timeouts mean "the event row was busy, try again"; any other failure must surface.
-function isLockOrStatementTimeout(error: unknown): boolean {
-  const code = retryableDatabaseErrorCode(error);
-  return code === "55P03" || code === "57014";
-}
-
-const eventLocationColumns = `starts_at, location_status, location_revision, location_name,
+const eventLocationColumns = `status, starts_at, location_status, location_revision, location_name,
   location_address, location_notes, location_maps_url`;
 
 // The caller of queueLocationMessage already holds the event row lock.
@@ -212,7 +207,7 @@ function draftLocationMessages(
   const drafts: LocationDraft[] = [];
   for (const guest of guests) {
     const body = renderLocationBody(context, guest);
-    if (!fitsInMessageBody(body)) {
+    if (!fitsInMessageBody(body, context.photoUrls.length)) {
       return "TOO_LONG";
     }
     drafts.push({ reservationId: guest.id, body });
@@ -232,16 +227,27 @@ async function insertLocationMessages(
 
   // created_at is the real insert time, not the transaction start, which can predate a wait for the
   // event lock: chat order and per-contact delivery order then follow the moment it was queued.
+  // FOR SHARE makes the insert wait for a concurrent link or unlink of the conversation and then
+  // read the new contact, so a QUEUED row can never be left on a contact that was just unlinked.
   const result = await client.query<{ id: string }>(
-    `INSERT INTO messages (
+    `WITH paid_guests AS (
+       SELECT r.id, r.contact_id, r.event_id
+         FROM reservations r
+        WHERE r.id = ANY($1::uuid[])
+          AND r.event_id = $7::uuid
+          AND r.status = 'CONFIRMED'
+          AND r.stage = 'PAID'
+          FOR SHARE OF r
+     )
+     INSERT INTO messages (
        contact_id, reservation_id, event_id, direction, kind, source, status,
        body, attachment_urls, location_revision, created_by, created_at
      )
-     SELECT r.contact_id, r.id, r.event_id, 'OUTBOUND', 'LOCATION', $4::text,
-            CASE WHEN r.contact_id IS NULL THEN 'WAITING_CONTACT' ELSE 'QUEUED' END,
+     SELECT guest.contact_id, guest.id, guest.event_id, 'OUTBOUND', 'LOCATION', $4::text,
+            CASE WHEN guest.contact_id IS NULL THEN 'WAITING_CONTACT' ELSE 'QUEUED' END,
             draft.body, $5::text[], $3::integer, $6::uuid, clock_timestamp()
        FROM unnest($1::uuid[], $2::text[]) AS draft(reservation_id, body)
-       JOIN reservations r ON r.id = draft.reservation_id
+       JOIN paid_guests guest ON guest.id = draft.reservation_id
      ON CONFLICT (reservation_id, location_revision) WHERE kind = 'LOCATION'
      DO NOTHING
      RETURNING id`,
@@ -252,22 +258,28 @@ async function insertLocationMessages(
       origin.source,
       context.photoUrls.length > 0 ? context.photoUrls : null,
       origin.createdBy,
+      context.eventId,
     ],
   );
   return result.rows.map((row) => row.id);
 }
 
-// FAILED and DISCARDED rows of the current revision are retried instead of skipped.
+// FAILED and DISCARDED rows of the current revision are retried instead of skipped. This is an
+// explicit admin resend, so progress is reset and the text may be sent again: the photos can have
+// changed since the row was queued, and a different or missing conversation cannot reuse old parts.
 async function reviveUndeliveredMessages(
   client: PoolClient,
-  eventId: string,
-  locationRevision: number,
+  context: LocationMessageContext,
 ): Promise<string[]> {
   const result = await client.query<{ id: string }>(
     `UPDATE messages m
         SET contact_id = r.contact_id,
             status = CASE WHEN r.contact_id IS NULL THEN 'WAITING_CONTACT' ELSE 'QUEUED' END,
+            attachment_urls = $3::text[],
+            parts_sent = 0,
+            external_part_ids = NULL,
             attempts = 0,
+            claims_without_progress = 0,
             next_attempt_at = clock_timestamp(),
             locked_until = NULL,
             last_error = NULL
@@ -280,9 +292,36 @@ async function reviveUndeliveredMessages(
         AND m.location_revision = $2
         AND m.status IN ('FAILED', 'DISCARDED')
     RETURNING m.id`,
-    [eventId, locationRevision],
+    [context.eventId, context.revision, context.photoUrls.length > 0 ? context.photoUrls : null],
   );
   return result.rows.map((row) => row.id);
+}
+
+/**
+ * Photo changes must not leave a pending LOCATION message pointing at a deleted photo. Only rows
+ * that have not started delivering (no parts sent, no live lease) are rewritten, so a message that
+ * is already going out is never changed underneath the delivery loop. It reads the events row
+ * without locking it, which keeps ADR-005 decision 5 for image operations.
+ */
+export async function refreshPendingLocationPhotos(
+  client: PoolClient,
+  eventId: string,
+): Promise<void> {
+  const photoUrls = await readPhotoUrls(client, eventId);
+  await client.query(
+    `UPDATE messages m
+        SET attachment_urls = $2::text[]
+       FROM events e
+      WHERE e.id = $1
+        AND m.event_id = e.id
+        AND m.kind = 'LOCATION'
+        AND m.location_revision = e.location_revision
+        AND m.status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED')
+        AND m.parts_sent = 0
+        AND (m.locked_until IS NULL OR m.locked_until <= clock_timestamp())
+        AND m.attachment_urls IS DISTINCT FROM $2::text[]`,
+    [eventId, photoUrls.length > 0 ? photoUrls : null],
+  );
 }
 
 async function markRevisionReleased(client: PoolClient, eventId: string): Promise<void> {
@@ -351,6 +390,9 @@ async function sendLocationInTransaction(
   if (!event) {
     return { ok: false, error: "EVENT_NOT_FOUND" };
   }
+  if (event.status === "CANCELLED" || event.status === "COMPLETED") {
+    return { ok: false, error: "EVENT_NOT_EDITABLE" };
+  }
   if (
     event.location_revision !== expectedLocation.revision ||
     event.location_status !== expectedLocation.status
@@ -372,7 +414,7 @@ async function sendLocationInTransaction(
     source: "ADMIN",
     createdBy: adminId,
   });
-  const revivedIds = await reviveUndeliveredMessages(client, eventId, context.revision);
+  const revivedIds = await reviveUndeliveredMessages(client, context);
   await markRevisionReleased(client, eventId);
 
   const messageIds = [...insertedIds, ...revivedIds];

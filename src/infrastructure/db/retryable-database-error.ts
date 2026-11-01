@@ -16,6 +16,12 @@ const retryableDatabaseCodes = new Set([
   "ETIMEDOUT",
 ]);
 
+// Only the two timeouts mean "a row lock was held too long, try again"; any other failure must surface.
+export function isLockOrStatementTimeout(error: unknown): boolean {
+  const code = retryableDatabaseErrorCode(error);
+  return code === "55P03" || code === "57014";
+}
+
 export function retryableDatabaseErrorCode(error: unknown): string | null {
   const details = typeof error === "object" && error !== null ? (error as DatabaseError) : {};
   if (details.code && retryableDatabaseCodes.has(details.code)) {

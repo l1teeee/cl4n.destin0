@@ -16,6 +16,11 @@ vi.mock("@/infrastructure/email/outbox/schedule-email-delivery", () => ({
 vi.mock("@/infrastructure/messaging/schedule-message-delivery", () => ({
   scheduleMessageDelivery: vi.fn(),
 }));
+vi.mock("@/infrastructure/messaging/drain-message-outbox", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/infrastructure/messaging/drain-message-outbox")>();
+  return { ...actual, drainMessagesNow: vi.fn(actual.drainMessagesNow) };
+});
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((destination: string) => {
     throw new Error(`REDIRECT:${destination}`);
@@ -24,6 +29,7 @@ vi.mock("next/navigation", () => ({
 
 import { sendEventLocationAction } from "@/app/admin/(protected)/events/actions";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
 import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 
 import {
@@ -114,6 +120,90 @@ describe("sendEventLocationAction", () => {
       message: "Todas las personas confirmadas ya tienen la ubicación actual.",
     });
     expect(await listLocationMessages(pool, eventId)).toHaveLength(1);
+  });
+
+  it("does not say everybody has it when earlier messages are still pending", async () => {
+    const eventId = await insertLocationEvent(pool);
+    await insertGuestReservation(pool, eventId, {
+      contactId: await insertMessagingContact(pool, new Date(Date.now() - 30 * 60 * 60 * 1000)),
+    });
+    authState.token = sessionToken;
+
+    await sendLocation(eventId);
+    const second = await sendLocation(eventId);
+
+    expect(second).toEqual({
+      ok: true,
+      message:
+        "Nadie más necesita el envío. 1 persona sigue pendiente de recibir la ubicación; revísalo en Mensajes.",
+    });
+  });
+
+  it("keeps the committed send and reports it as queued when the immediate delivery throws", async () => {
+    const eventId = await insertLocationEvent(pool);
+    for (let index = 0; index < 3; index += 1) {
+      await insertGuestReservation(pool, eventId, {
+        contactId: await insertMessagingContact(pool),
+      });
+    }
+    authState.token = sessionToken;
+    vi.mocked(drainMessagesNow).mockRejectedValueOnce(new Error("instagram unreachable"));
+    const logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      expect(await sendLocation(eventId)).toEqual({
+        ok: true,
+        message: "Ubicación en cola para 3 personas; se enviará en unos minutos.",
+      });
+
+      const entries = logged.mock.calls.map((call) => JSON.parse(String(call[0])));
+      expect(entries).toEqual([
+        expect.objectContaining({
+          level: "error",
+          msg: "location_immediate_delivery_failed",
+          messageCount: 3,
+        }),
+      ]);
+      expect(JSON.stringify(entries)).not.toContain("instagram unreachable");
+    } finally {
+      logged.mockRestore();
+    }
+    expect(await listLocationMessages(pool, eventId)).toHaveLength(3);
+    expect(scheduleMessageDelivery).toHaveBeenCalledOnce();
+    expect(revalidatePath).toHaveBeenCalledWith(`/admin/events/${eventId}`);
+  });
+
+  it("refuses to send for a cancelled experience", async () => {
+    const eventId = await insertLocationEvent(pool);
+    await insertGuestReservation(pool, eventId);
+    await pool.query("UPDATE events SET status = 'CANCELLED' WHERE id = $1", [eventId]);
+    authState.token = sessionToken;
+
+    expect(await sendLocation(eventId)).toEqual({
+      ok: false,
+      message: "La experiencia ya no admite envíos.",
+    });
+    expect(await listLocationMessages(pool, eventId)).toEqual([]);
+  });
+
+  it("rejects a malformed location version before touching the database", async () => {
+    const eventId = await insertLocationEvent(pool);
+    await insertGuestReservation(pool, eventId);
+    authState.token = sessionToken;
+
+    expect(await sendLocation(eventId, { revision: -1, status: "CONFIRMED" })).toEqual({
+      ok: false,
+      message: "La versión de la ubicación no es válida.",
+    });
+    expect(
+      await sendEventLocationAction(
+        eventId,
+        { revision: 0, status: "BOGUS" } as unknown as typeof loaded,
+        initialState,
+        new FormData(),
+      ),
+    ).toEqual({ ok: false, message: "La versión de la ubicación no es válida." });
+    expect(await listLocationMessages(pool, eventId)).toEqual([]);
   });
 
   it("asks to reload when the location changed after the page was loaded", async () => {

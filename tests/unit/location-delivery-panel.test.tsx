@@ -34,6 +34,7 @@ function panel(
     <LocationDeliveryPanel
       summary={{ ...everyoneHasIt, ...summary }}
       locationConfirmed
+      acceptsSends
       sendAction={vi.fn(async () => ({ ok: true, message: "Enviada." }))}
       {...props}
     />
@@ -174,6 +175,13 @@ describe("LocationDeliveryPanel with an unconfirmed location", () => {
     render(panel({ paid: 8, received: 0, neverQueued: 8 }, { locationConfirmed: false }));
 
     expect(screen.getByText("Confirma la ubicación para poder enviarla.")).toBeDefined();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText(explanation)).toBeDefined();
+  });
+
+  it("offers no send for a cancelled or completed experience", () => {
+    render(panel({ paid: 8, received: 0, neverQueued: 8 }, { acceptsSends: false }));
+
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByText(explanation)).toBeDefined();
   });

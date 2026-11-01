@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   composeLocationText,
   fitsInMessageBody,
+  MAX_LOCATION_PHOTOS,
   MAX_MESSAGE_BODY_LENGTH,
+  MAX_MESSAGE_PARTS,
 } from "@/domain/messaging/location-message";
 import { clueImageUrl, locationPhotoUrl } from "@/domain/messaging/message-attachment-urls";
+import { splitIntoChunks } from "@/domain/messaging/text-chunks";
 
 describe("composeLocationText", () => {
   it("puts name, address, notes and the Maps link on one line each", () => {
@@ -51,6 +54,16 @@ describe("fitsInMessageBody", () => {
     expect(astral.length).toBe(2);
     expect(fitsInMessageBody(astral.repeat(2000))).toBe(true);
     expect(fitsInMessageBody(astral.repeat(2001))).toBe(false);
+  });
+
+  it("counts the photos as parts next to the text chunks and rejects more than 20 parts", () => {
+    const twoChunks = "a".repeat(1500);
+
+    expect(splitIntoChunks(twoChunks)).toHaveLength(2);
+    expect(MAX_MESSAGE_PARTS).toBe(20);
+    expect(fitsInMessageBody(twoChunks, 18)).toBe(true);
+    expect(fitsInMessageBody(twoChunks, 19)).toBe(false);
+    expect(fitsInMessageBody("a".repeat(1000), MAX_LOCATION_PHOTOS)).toBe(true);
   });
 });
 

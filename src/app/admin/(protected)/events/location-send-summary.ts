@@ -52,12 +52,21 @@ function people(count: number): string {
   return count === 1 ? "1 persona" : `${count} personas`;
 }
 
+/**
+ * stillPending counts the guests whose message for the current revision was queued earlier and has
+ * not been delivered yet; it only matters when this send had nobody new to reach.
+ */
 export function describeLocationSend(
   messageIds: readonly string[],
   outcomes: Readonly<Record<string, MessageStatus>>,
+  stillPending = 0,
 ): string {
   if (messageIds.length === 0) {
-    return "Todas las personas confirmadas ya tienen la ubicación actual.";
+    return stillPending === 0
+      ? "Todas las personas confirmadas ya tienen la ubicación actual."
+      : `Nadie más necesita el envío. ${people(stillPending)} ${
+          stillPending === 1 ? "sigue pendiente" : "siguen pendientes"
+        } de recibir la ubicación; revísalo en Mensajes.`;
   }
 
   const counts = countOutcomes(messageIds, outcomes);

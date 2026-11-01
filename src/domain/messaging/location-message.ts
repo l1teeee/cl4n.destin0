@@ -1,5 +1,10 @@
+import { splitIntoChunks } from "./text-chunks";
+
 // messages.body is capped by the messages_body_length_chk database constraint.
 export const MAX_MESSAGE_BODY_LENGTH = 2000;
+
+// Text chunks plus photos are sent as separate parts of one message; delivery stops being reliable beyond this.
+export const MAX_MESSAGE_PARTS = 20;
 
 export const MAX_LOCATION_PHOTOS = 6;
 
@@ -18,6 +23,9 @@ export function composeLocationText(location: LocationMessageContent): string {
 }
 
 // Array.from counts code points like PostgreSQL char_length, so an emoji is not counted twice.
-export function fitsInMessageBody(body: string): boolean {
-  return Array.from(body).length <= MAX_MESSAGE_BODY_LENGTH;
+export function fitsInMessageBody(body: string, photoCount = 0): boolean {
+  if (Array.from(body).length > MAX_MESSAGE_BODY_LENGTH) {
+    return false;
+  }
+  return splitIntoChunks(body).length + photoCount <= MAX_MESSAGE_PARTS;
 }

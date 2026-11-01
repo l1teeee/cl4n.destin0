@@ -23,6 +23,7 @@ import { generateLinkCode as defaultGenerateLinkCode } from "@/infrastructure/cr
 
 import { pool as applicationPool } from "../client";
 import { enqueueGuestMessage, loadGuestMessageValues, renderGuestMessage } from "./guest-messages";
+import { queueLocationMessage } from "./postgres-location-message-repository";
 import {
   promoteSpecificWaitlistEntry,
   promoteWaitlistDetailed,
@@ -455,17 +456,25 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         entityId: reservation.id,
         metadata: { eventId: event.id, stage: "PAID", partySize: reservation.party_size },
       });
-      const messageId = await enqueueStatusMessage(client, {
-        kind: "PAID",
-        eventId: event.id,
-        subject: { reservationId: reservation.id },
-        actorAdminId: command.actorAdminId,
-      });
+      const messageIds = [
+        await enqueueStatusMessage(client, {
+          kind: "PAID",
+          eventId: event.id,
+          subject: { reservationId: reservation.id },
+          actorAdminId: command.actorAdminId,
+        }),
+      ];
+      // The event row lock is held, so the location revision cannot change under this insert. A
+      // location that is pending, missing or too long never blocks the payment.
+      const location = await queueLocationMessage(client, event.id, reservation.id);
+      if (location.outcome === "QUEUED") {
+        messageIds.push(location.messageId);
+      }
       return {
         ok: true,
         eventId: event.id,
         guests: guestsOf(reservation),
-        messageIds: [messageId],
+        messageIds,
         promoted: [],
       };
     }) as Promise<GuestMutationResult>;

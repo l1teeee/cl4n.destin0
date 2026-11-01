@@ -16,6 +16,15 @@ describe("describeLocationSend", () => {
     );
   });
 
+  it("does not claim everybody has it when guests are still pending from an earlier send", () => {
+    expect(describeLocationSend([], {}, 1)).toBe(
+      "Nadie más necesita el envío. 1 persona sigue pendiente de recibir la ubicación; revísalo en Mensajes.",
+    );
+    expect(describeLocationSend([], {}, 3)).toBe(
+      "Nadie más necesita el envío. 3 personas siguen pendientes de recibir la ubicación; revísalo en Mensajes.",
+    );
+  });
+
   it("reports the people reached and the ones waiting for the 24 hour window", () => {
     expect(
       describeOutcomes([

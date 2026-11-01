@@ -17,6 +17,7 @@ export interface LocationDeliverySummary {
 
 export type SendLocationError =
   | "EVENT_NOT_FOUND"
+  | "EVENT_NOT_EDITABLE"
   | "LOCATION_NOT_CONFIRMED"
   | "LOCATION_CHANGED"
   | "LOCATION_TOO_LONG"

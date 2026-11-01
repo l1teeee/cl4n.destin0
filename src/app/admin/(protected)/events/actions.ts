@@ -25,6 +25,7 @@ import type {
   EventRecord,
   LoadedLocationVersion,
 } from "@/application/events/types";
+import type { MessageDeliverySummary } from "@/application/messaging/deliver-messages";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
 import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import {
@@ -41,10 +42,10 @@ import { postgresEventImageRepository } from "@/infrastructure/db/repositories/p
 import { googleMapsLinkResolver } from "@/infrastructure/maps/google-maps-link-resolver";
 import { postgresLocationMessageRepository } from "@/infrastructure/db/repositories/postgres-location-message-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
-import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
 import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
+import { log } from "@/infrastructure/observability/logger";
 import {
   localDateTimeToUtc,
   localEventDateTimeToUtc,
@@ -88,6 +89,17 @@ const locationStatusSchema = z
     loadedStatus: z.enum(["PENDING", "CONFIRMED"]),
   })
   .strict();
+const INVALID_LOCATION_VERSION = "La versión de la ubicación no es válida.";
+const locationSendSchema = z
+  .object({
+    id: z.string().uuid("El identificador no es válido."),
+    loadedRevision: z
+      .number({ error: INVALID_LOCATION_VERSION })
+      .int(INVALID_LOCATION_VERSION)
+      .min(0, INVALID_LOCATION_VERSION),
+    loadedStatus: z.enum(["PENDING", "CONFIRMED"], { error: INVALID_LOCATION_VERSION }),
+  })
+  .strict();
 const imageActionSchema = z
   .object({ eventId: z.string().uuid(), imageId: z.string().uuid() })
   .strict();
@@ -118,6 +130,7 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
 
 const locationSendMessages: Record<SendLocationError, string> = {
   EVENT_NOT_FOUND: operationMessages.EVENT_NOT_FOUND,
+  EVENT_NOT_EDITABLE: "La experiencia ya no admite envíos.",
   LOCATION_NOT_CONFIRMED: "Confirma la ubicación antes de enviarla.",
   LOCATION_CHANGED: operationMessages.LOCATION_CHANGED,
   LOCATION_TOO_LONG:
@@ -376,23 +389,61 @@ export async function sendEventLocationAction(
   void _previousState;
   void _formData;
   if (!authorization.authorized) return unauthorized();
-  const parsed = idSchema.safeParse({ id });
+  const parsed = locationSendSchema.safeParse({
+    id,
+    loadedRevision: loadedLocation.revision,
+    loadedStatus: loadedLocation.status,
+  });
   if (!parsed.success) return firstValidationError(parsed.error);
 
   const result = await postgresLocationMessageRepository.sendLocationToPaidGuests(
     parsed.data.id,
-    loadedLocation,
+    { revision: parsed.data.loadedRevision, status: parsed.data.loadedStatus },
     authorization.session.admin.id,
   );
   if (!result.ok) return invalid(locationSendMessages[result.error]);
 
-  const delivery = await drainMessagesNow(result.messageIds, {
-    timeBudgetMs: LOCATION_DELIVERY_TIME_BUDGET_MS,
-  });
+  const delivery = await deliverLocationMessages(result.messageIds);
   scheduleMessageDelivery();
   revalidatePath(`/admin/events/${parsed.data.id}`);
   revalidatePath("/admin/mensajes");
-  return { ok: true, message: describeLocationSend(result.messageIds, delivery.outcomes) };
+  if (!delivery) {
+    const count = result.messageIds.length;
+    const people = count === 1 ? "1 persona" : `${count} personas`;
+    return { ok: true, message: `Ubicación en cola para ${people}; se enviará en unos minutos.` };
+  }
+  return {
+    ok: true,
+    message: describeLocationSend(
+      result.messageIds,
+      delivery.outcomes,
+      await pendingAfterEmptySend(parsed.data.id, result.messageIds),
+    ),
+  };
+}
+
+// An empty send must not claim that everybody has the location while earlier messages are pending.
+async function pendingAfterEmptySend(
+  eventId: string,
+  messageIds: readonly string[],
+): Promise<number> {
+  if (messageIds.length > 0) return 0;
+  const summary = await postgresLocationMessageRepository.getLocationDeliverySummary(eventId);
+  return summary.pending;
+}
+
+// The send is already committed, so a delivery problem must not turn it into an error: the queued
+// messages are retried by the scheduled drain and by the daily cron.
+async function deliverLocationMessages(
+  messageIds: readonly string[],
+): Promise<Pick<MessageDeliverySummary, "outcomes"> | null> {
+  if (messageIds.length === 0) return { outcomes: {} };
+  try {
+    return await drainMessagesNow(messageIds, { timeBudgetMs: LOCATION_DELIVERY_TIME_BUDGET_MS });
+  } catch {
+    log("error", "location_immediate_delivery_failed", { messageCount: messageIds.length });
+    return null;
+  }
 }
 
 export async function deleteEventImageAction(

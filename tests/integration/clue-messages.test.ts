@@ -14,6 +14,7 @@ import {
   insertGuestReservation,
   insertLocationEvent,
   insertMessagingContact,
+  waitUntilSomeoneIsBlocked,
 } from "../helpers/guest-flow-test-data";
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 
@@ -236,6 +237,29 @@ describe("publishing a clue queues it for the paid guests", () => {
       holder.release();
     }
     expect(await clueMessages(event.id)).toHaveLength(1);
+  });
+
+  it("leaves no QUEUED row on a conversation that is unlinked while the clue is published", async () => {
+    const event = await insertClosedEvent();
+    const contactId = await insertMessagingContact(pool);
+    const reservationId = await insertGuestReservation(pool, event.id, { contactId });
+    const unlink = await pool.connect();
+    await unlink.query("BEGIN");
+    await unlink.query(
+      "UPDATE reservations SET contact_id = NULL, contact_linked_by = NULL WHERE id = $1",
+      [reservationId],
+    );
+
+    const publishing = addClue(event.id);
+    await waitUntilSomeoneIsBlocked(pool);
+    await unlink.query("COMMIT");
+    unlink.release();
+    const clue = await publishing;
+
+    expect(clue.messageIds).toHaveLength(1);
+    expect(await clueMessages(event.id)).toMatchObject([
+      { reservation_id: reservationId, status: "WAITING_CONTACT", contact_id: null },
+    ]);
   });
 
   it("does not queue anything when the event does not exist", async () => {

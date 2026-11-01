@@ -290,6 +290,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         <LocationDeliveryPanel
           summary={locationDelivery}
           locationConfirmed={event.location.status === "CONFIRMED"}
+          acceptsSends={event.status !== "COMPLETED" && event.status !== "CANCELLED"}
           sendAction={sendEventLocationAction.bind(null, id, loadedLocation)}
         />
       </section>

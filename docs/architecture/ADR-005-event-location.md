@@ -14,7 +14,7 @@ An experience needs an admin-managed venue, address, Google Maps link, direction
 2. Location status is explicit: `PENDING` or `CONFIRMED`. Confirmation requires an address or Maps link. PostgreSQL checks backstop the domain rule, and `location_confirmed_at` records the first transition into the current confirmed state.
 3. Empty text is normalized to `NULL`. Length checks and an HTTPS database check prevent invalid stored values, while the admin contract restricts links to Google Maps hosts.
 4. Browsers decode, resize and re-encode images before upload. This bounds storage and removes EXIF and GPS metadata. The authenticated upload route validates size, same origin and magic bytes.
-5. Image count is enforced in a short transaction under a per-event advisory lock. Image operations never take `FOR UPDATE` on the event row. The `event_images` foreign-key insert does take `FOR KEY SHARE` on it, which does not conflict with the allocation `UPDATE` (`FOR NO KEY UPDATE`) but can briefly wait behind or block `lockEvent` (`FOR UPDATE`, used by admin edits, cancellations and capacity changes). Reservation allocation therefore never queues behind image work.
+5. Image count is enforced in a short transaction under a per-event advisory lock. Image operations never take `FOR UPDATE` on the event row. The `event_images` foreign-key insert does take `FOR KEY SHARE` on it, which does not conflict with the allocation `UPDATE` (`FOR NO KEY UPDATE`) but can briefly wait behind or block `lockEvent` (`FOR UPDATE`, used by admin edits, cancellations and capacity changes). Reservation allocation therefore never queues behind image work. Image removal takes the same `FOR KEY SHARE` explicitly, so a photo change never commits between a location send's photo read and its insert.
 6. Admin responses serve image bytes privately. `public_token` is stored for part 2 but is not selected into any part 1 DTO, response or page.
 7. Location and image changes use the existing `EVENT_UPDATED` audit action. Text changes increment `location_revision`; status and image changes do not.
 
@@ -31,6 +31,8 @@ Each event can consume at most 12 MiB of image data plus PostgreSQL overhead. Th
 
 ## Part 2: bulk location email
 
+> Superseded in part by ADR-009 section 9: the location is now delivered by Instagram DM as a `LOCATION` message to guests who are `PAID`, not as an `EVENT_LOCATION` email. The rules about the event row lock, one row per reservation and location revision, `LOCATION_CHANGED`, reviving failed rows and the photo capability URLs still hold.
+
 The owner manually sends the confirmed location in bulk to reservations whose current status is `CONFIRMED`. Saving or confirming a location never sends email. Automatic reservation-time sends follow Part 3; manual sending remains how guests who were already confirmed receive the location.
 
 Each send enqueues one `EVENT_LOCATION` outbox row per confirmed reservation and current `location_revision`. A unique `(reservation_id, location_revision)` index makes repeated or concurrent sends idempotent while allowing a changed location to be sent again. Guests promoted after an earlier send can be queued separately without resending to everyone else.
@@ -44,6 +46,8 @@ The immediate drain is bounded, and admins can schedule another drain for rows l
 A send revives `FAILED` rows of the current revision instead of skipping them, so an admin can retry after a quota or transient failure. Each send is tied to the location version the admin saw; if the revision or status changed, it fails with `LOCATION_CHANGED`. The retention job deletes `SENT` outbox rows older than 90 days, so a send after that re-queues everyone for the current revision (accepted).
 
 ## Part 3: automatic send to new confirmations
+
+> Superseded in part by ADR-009 section 9: the automatic send now happens when payment is verified (`PAID`), inside the same event-locked transaction, and goes out as an Instagram DM. The lock ordering between bulk send and the confirming transaction described here is unchanged.
 
 After the owner reported that confirmed locations were not emailed at registration, the owner decided on 2026-10-09 that the gate is the event's location status at the moment a reservation becomes `CONFIRMED`. When `location_status = 'CONFIRMED'`, the same confirmation transaction automatically enqueues one `EVENT_LOCATION` email for the current `location_revision` with `isUpdate: false`. This applies to a direct reservation and to a FIFO waitlist promotion caused by a capacity increase, reservation cancellation or waitlist-entry cancellation. It does not depend on a prior bulk send. A guest who remains waitlisted does not receive the location.
 

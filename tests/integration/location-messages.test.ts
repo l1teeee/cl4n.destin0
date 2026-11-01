@@ -9,6 +9,7 @@ import {
   PostgresLocationMessageRepository,
   queueLocationMessage,
 } from "@/infrastructure/db/repositories/postgres-location-message-repository";
+import { PostgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { PostgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
@@ -22,6 +23,7 @@ import {
   insertMessagingContact,
   listLocationMessages,
   LOCATION_TEST_STARTS_AT as STARTS_AT,
+  waitUntilSomeoneIsBlocked,
   type GuestReservationOptions,
   type LocationEventOptions,
 } from "../helpers/guest-flow-test-data";
@@ -502,6 +504,299 @@ describe("sendLocationToPaidGuests", () => {
     );
     expect(event.rows[0]!.released).toBeNull();
   });
+});
+
+describe("sendLocationToPaidGuests revival after a conversation change", () => {
+  const progress = async (messageId: string) => {
+    const result = await pool.query(
+      `SELECT status, contact_id, parts_sent, external_part_ids, claims_without_progress, attempts
+         FROM messages WHERE id = $1`,
+      [messageId],
+    );
+    return result.rows[0];
+  };
+  const startDelivery = (messageId: string) =>
+    pool.query(
+      `UPDATE messages
+          SET parts_sent = 1, external_part_ids = ARRAY['meta-part-1'],
+              claims_without_progress = 2
+        WHERE id = $1`,
+      [messageId],
+    );
+
+  it("restarts from part 0 when the reservation is now linked to another conversation", async () => {
+    const eventId = await insertEvent();
+    const previousContact = await insertContact();
+    const currentContact = await insertContact();
+    const reservationId = await insertReservation(eventId, { contactId: currentContact });
+    const failed = await insertLocationMessage(eventId, reservationId, {
+      status: "FAILED",
+      contactId: previousContact,
+    });
+    await startDelivery(failed);
+
+    await send(eventId);
+
+    expect(await progress(failed)).toEqual({
+      status: "QUEUED",
+      contact_id: currentContact,
+      parts_sent: 0,
+      external_part_ids: null,
+      claims_without_progress: 0,
+      attempts: 0,
+    });
+  });
+
+  it("restarts from part 0 and waits for a conversation when the reservation was unlinked", async () => {
+    const eventId = await insertEvent();
+    const previousContact = await insertContact();
+    const reservationId = await insertReservation(eventId);
+    const failed = await insertLocationMessage(eventId, reservationId, {
+      status: "FAILED",
+      contactId: previousContact,
+    });
+    await startDelivery(failed);
+
+    await send(eventId);
+
+    expect(await progress(failed)).toEqual({
+      status: "WAITING_CONTACT",
+      contact_id: null,
+      parts_sent: 0,
+      external_part_ids: null,
+      claims_without_progress: 0,
+      attempts: 0,
+    });
+  });
+});
+
+describe("venue photo changes while the location message is pending", () => {
+  const photoUrl = (token: string) => `${APP_BASE_URL}/ubicacion/foto/${token}`;
+  const imageRepository = () => new PostgresEventImageRepository(pool);
+  const imageIdOf = async (token: string) => {
+    const result = await pool.query<{ id: string }>(
+      "SELECT id FROM event_images WHERE public_token = $1",
+      [token],
+    );
+    return result.rows[0]!.id;
+  };
+  const urlsOf = async (eventId: string) =>
+    new Map((await locationMessages(eventId)).map((row) => [row.id, row.attachment_urls]));
+
+  it("keeps only the current photos on pending rows when a photo is deleted before delivery", async () => {
+    const eventId = await insertEvent();
+    await insertReservation(eventId, { contactId: await insertContact() });
+    await insertReservation(eventId);
+    const first = await insertPhoto(eventId, new Date("2030-01-01T00:00:00Z"));
+    const second = await insertPhoto(eventId, new Date("2030-01-01T00:01:00Z"));
+    await send(eventId);
+
+    await expect(imageRepository().remove(eventId, await imageIdOf(first), adminId)).resolves.toBe(
+      true,
+    );
+
+    expect([...(await urlsOf(eventId)).values()]).toEqual([[photoUrl(second)], [photoUrl(second)]]);
+
+    await imageRepository().remove(eventId, await imageIdOf(second), adminId);
+
+    expect([...(await urlsOf(eventId)).values()]).toEqual([null, null]);
+  });
+
+  it("adds a new photo to pending rows in upload order", async () => {
+    const eventId = await insertEvent();
+    await insertReservation(eventId, { contactId: await insertContact() });
+    // Uploaded in the past so the photo added now sorts after it.
+    const existing = await insertPhoto(eventId, new Date("2020-01-01T00:00:00Z"));
+    await send(eventId);
+
+    const added = await imageRepository().add({
+      eventId,
+      contentType: "image/png",
+      data: new Uint8Array([1]),
+      actorId: adminId,
+    });
+
+    expect(added.ok).toBe(true);
+    const token = (
+      await pool.query<{ public_token: string }>(
+        "SELECT public_token FROM event_images WHERE event_id = $1 ORDER BY created_at, id",
+        [eventId],
+      )
+    ).rows.map((row) => row.public_token);
+    expect(token[0]).toBe(existing);
+    expect([...(await urlsOf(eventId)).values()]).toEqual([token.map(photoUrl)]);
+  });
+
+  it("does not rewrite a row that started delivering, was delivered or holds a live lease", async () => {
+    const eventId = await insertEvent();
+    const photo = await insertPhoto(eventId, new Date("2030-01-01T00:00:00Z"));
+    const reservations = [];
+    for (let index = 0; index < 4; index += 1) {
+      reservations.push(await insertReservation(eventId, { contactId: await insertContact() }));
+    }
+    await send(eventId);
+    const byReservation = new Map(
+      (await locationMessages(eventId)).map((row) => [row.reservation_id, row.id]),
+    );
+    const [started, delivered, leased, pending] = reservations.map((reservationId) =>
+      byReservation.get(reservationId)!,
+    ) as [string, string, string, string];
+    await pool.query("UPDATE messages SET parts_sent = 1 WHERE id = $1", [started]);
+    await pool.query("UPDATE messages SET status = 'SENT', sent_at = now() WHERE id = $1", [
+      delivered,
+    ]);
+    await pool.query(
+      "UPDATE messages SET locked_until = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [leased],
+    );
+
+    await imageRepository().remove(eventId, await imageIdOf(photo), adminId);
+
+    const urls = await urlsOf(eventId);
+    expect(urls.get(started)).toEqual([photoUrl(photo)]);
+    expect(urls.get(delivered)).toEqual([photoUrl(photo)]);
+    expect(urls.get(leased)).toEqual([photoUrl(photo)]);
+    expect(urls.get(pending)).toBeNull();
+  });
+
+  it("leaves the rows of an older location revision and of other events alone", async () => {
+    const eventId = await insertEvent();
+    const otherEventId = await insertEvent();
+    const photo = await insertPhoto(eventId, new Date("2030-01-01T00:00:00Z"));
+    const otherPhoto = await insertPhoto(otherEventId, new Date("2030-01-01T00:00:00Z"));
+    await insertReservation(eventId, { contactId: await insertContact() });
+    await insertReservation(otherEventId, { contactId: await insertContact() });
+    await send(eventId);
+    await send(otherEventId);
+    await pool.query("UPDATE events SET location_revision = 1 WHERE id = $1", [eventId]);
+
+    await imageRepository().remove(eventId, await imageIdOf(photo), adminId);
+
+    expect([...(await urlsOf(eventId)).values()]).toEqual([[photoUrl(photo)]]);
+    expect([...(await urlsOf(otherEventId)).values()]).toEqual([[photoUrl(otherPhoto)]]);
+  });
+
+  it("makes a photo delete wait for an in-flight queueing and then rewrite its row", async () => {
+    const eventId = await insertEvent();
+    const reservationId = await insertReservation(eventId, { contactId: await insertContact() });
+    const first = await insertPhoto(eventId, new Date("2030-01-01T00:00:00Z"));
+    const second = await insertPhoto(eventId, new Date("2030-01-01T00:01:00Z"));
+    const firstId = await imageIdOf(first);
+    const queueing = await pool.connect();
+    try {
+      await queueing.query("BEGIN");
+      await queueing.query("SELECT 1 FROM events WHERE id = $1 FOR UPDATE", [eventId]);
+      await expect(queueLocationMessage(queueing, eventId, reservationId)).resolves.toMatchObject({
+        outcome: "QUEUED",
+      });
+
+      const removal = imageRepository().remove(eventId, firstId, adminId);
+      const state = await Promise.race([
+        removal.then(() => "DONE"),
+        new Promise<string>((resolve) => setTimeout(() => resolve("PENDING"), 200)),
+      ]);
+      expect(state).toBe("PENDING");
+
+      await queueing.query("COMMIT");
+      await expect(removal).resolves.toBe(true);
+    } finally {
+      await queueing.query("ROLLBACK").catch(() => undefined);
+      queueing.release();
+    }
+
+    expect([...(await urlsOf(eventId)).values()]).toEqual([[photoUrl(second)]]);
+  });
+
+  it("sends a revived row with the current photos from part 0", async () => {
+    const eventId = await insertEvent();
+    const contactId = await insertContact();
+    const reservationId = await insertReservation(eventId, { contactId });
+    const failed = await insertLocationMessage(eventId, reservationId, {
+      status: "FAILED",
+      contactId,
+    });
+    await pool.query(
+      `UPDATE messages
+          SET attachment_urls = ARRAY[$2]::text[], parts_sent = 2,
+              external_part_ids = ARRAY['meta-text', 'meta-image']
+        WHERE id = $1`,
+      [failed, photoUrl("deleted-photo")],
+    );
+    const current = await insertPhoto(eventId, new Date("2030-01-01T00:00:00Z"));
+
+    await send(eventId);
+
+    const revived = await pool.query(
+      "SELECT status, attachment_urls, parts_sent, external_part_ids FROM messages WHERE id = $1",
+      [failed],
+    );
+    expect(revived.rows[0]).toEqual({
+      status: "QUEUED",
+      attachment_urls: [photoUrl(current)],
+      parts_sent: 0,
+      external_part_ids: null,
+    });
+  });
+});
+
+describe("sendLocationToPaidGuests against concurrent reservation changes", () => {
+  async function holdReservationChange(sql: string, params: unknown[]): Promise<PoolClient> {
+    const holder = await pool.connect();
+    await holder.query("BEGIN");
+    await holder.query(sql, params);
+    return holder;
+  }
+
+  it("leaves no QUEUED row on a conversation that is unlinked while the send runs", async () => {
+    const eventId = await insertEvent();
+    const contactId = await insertContact();
+    const reservationId = await insertReservation(eventId, { contactId });
+
+    const unlink = await holdReservationChange(
+      "UPDATE reservations SET contact_id = NULL, contact_linked_by = NULL WHERE id = $1",
+      [reservationId],
+    );
+    const sending = send(eventId);
+    await waitUntilSomeoneIsBlocked(pool);
+    await unlink.query("COMMIT");
+    unlink.release();
+
+    await expect(sending).resolves.toMatchObject({ ok: true });
+    expect(await locationMessages(eventId)).toMatchObject([
+      { reservation_id: reservationId, status: "WAITING_CONTACT", contact_id: null },
+    ]);
+  });
+
+  it("queues nothing for a reservation that is cancelled while the send runs", async () => {
+    const eventId = await insertEvent();
+    const cancelled = await insertReservation(eventId);
+    const kept = await insertReservation(eventId);
+
+    const cancellation = await holdReservationChange(
+      "UPDATE reservations SET status = 'CANCELLED', cancelled_at = now() WHERE id = $1",
+      [cancelled],
+    );
+    const sending = send(eventId);
+    await waitUntilSomeoneIsBlocked(pool);
+    await cancellation.query("COMMIT");
+    cancellation.release();
+
+    const result = await sending;
+    expect(result.ok && result.messageIds).toHaveLength(1);
+    expect((await locationMessages(eventId)).map((row) => row.reservation_id)).toEqual([kept]);
+  });
+
+  it.each(["CANCELLED", "COMPLETED"])(
+    "refuses to send for a %s experience and queues nothing",
+    async (status) => {
+      const eventId = await insertEvent();
+      await insertReservation(eventId);
+      await pool.query("UPDATE events SET status = $2 WHERE id = $1", [eventId, status]);
+
+      await expect(send(eventId)).resolves.toEqual({ ok: false, error: "EVENT_NOT_EDITABLE" });
+      expect(await locationMessages(eventId)).toEqual([]);
+    },
+  );
 });
 
 describe("getLocationDeliverySummary", () => {

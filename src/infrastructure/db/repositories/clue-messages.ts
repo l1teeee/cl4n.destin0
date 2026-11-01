@@ -32,17 +32,24 @@ export async function enqueueClueMessages(
   );
 
   const result = await client.query<{ id: string }>(
-    `INSERT INTO messages (
+    // FOR SHARE on the reservations makes the insert wait for a concurrent unlink and then read the
+    // new contact, so no QUEUED row is left on a contact that was just unlinked.
+    `WITH paid_guests AS (
+       SELECT r.id, r.contact_id, r.event_id
+         FROM reservations r
+        WHERE r.event_id = $1
+          AND r.status = 'CONFIRMED'
+          AND r.stage = 'PAID'
+          FOR SHARE OF r
+     )
+     INSERT INTO messages (
        contact_id, reservation_id, event_id, direction, kind, source, status,
        body, attachment_urls, clue_id, created_by
      )
-     SELECT r.contact_id, r.id, r.event_id, 'OUTBOUND', 'CLUE', 'ADMIN',
-            CASE WHEN r.contact_id IS NULL THEN 'WAITING_CONTACT' ELSE 'QUEUED' END,
+     SELECT guest.contact_id, guest.id, guest.event_id, 'OUTBOUND', 'CLUE', 'ADMIN',
+            CASE WHEN guest.contact_id IS NULL THEN 'WAITING_CONTACT' ELSE 'QUEUED' END,
             $3::text, $4::text[], $2::uuid, $5::uuid
-       FROM reservations r
-      WHERE r.event_id = $1
-        AND r.status = 'CONFIRMED'
-        AND r.stage = 'PAID'
+       FROM paid_guests guest
      ON CONFLICT (reservation_id, clue_id) WHERE kind = 'CLUE'
      DO NOTHING
      RETURNING id`,

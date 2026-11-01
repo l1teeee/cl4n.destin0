@@ -98,6 +98,29 @@ describe("event clue image routes", () => {
     expect(scheduleDelivery).not.toHaveBeenCalled();
   });
 
+  it.each(["55P03", "57014"])(
+    "answers 503 when publishing hits the database timeout %s and delivers nothing",
+    async (code) => {
+      publish.mockRejectedValueOnce(Object.assign(new Error("timeout"), { code }));
+
+      const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: "La experiencia está ocupada; intenta de nuevo.",
+      });
+      expect(drain).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not hide other database errors behind the busy answer", async () => {
+    publish.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "23505" }));
+
+    await expect(POST(postRequest(), { params: Promise.resolve({ id: eventId }) })).rejects.toThrow(
+      "unique",
+    );
+  });
+
   it("keeps the published clue when the inline delivery fails and still schedules a retry", async () => {
     drain.mockRejectedValue(new Error("database unavailable"));
 
