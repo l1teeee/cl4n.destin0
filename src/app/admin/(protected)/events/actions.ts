@@ -41,6 +41,7 @@ import { postgresEventImageRepository } from "@/infrastructure/db/repositories/p
 import { googleMapsLinkResolver } from "@/infrastructure/maps/google-maps-link-resolver";
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
+import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import {
   localDateTimeToUtc,
@@ -624,6 +625,7 @@ export async function changeCapacityAction(
   );
   if (!result.ok) return operationError(result.error);
   scheduleEmailDelivery();
+  scheduleMessageDelivery();
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Capacidad actualizada." };
 }
@@ -671,6 +673,7 @@ export async function cancelReservationAction(
   if (result === "NOT_FOUND") return invalid("No se encontró la reservación.");
   if (result === "NOT_CANCELLABLE") return invalid("La reservación ya no se puede cancelar.");
   scheduleEmailDelivery();
+  scheduleMessageDelivery();
   revalidatePath("/admin");
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");
@@ -701,6 +704,7 @@ export async function cancelWaitlistEntryAction(
   if (result === "NOT_CANCELLABLE") return invalid("La entrada ya no se puede retirar.");
 
   scheduleEmailDelivery();
+  scheduleMessageDelivery();
   revalidatePath("/admin");
   revalidatePath(`/admin/events/${parsed.data.eventId}`);
   revalidatePath("/admin/audit");

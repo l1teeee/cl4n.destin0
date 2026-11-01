@@ -7,6 +7,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 const authState = vi.hoisted(() => ({ token: undefined as string | undefined }));
 
 const scheduleEmailDeliveryMock = vi.hoisted(() => vi.fn());
+const scheduleMessageDeliveryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
@@ -16,6 +17,9 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/infrastructure/email/outbox/schedule-email-delivery", () => ({
   scheduleEmailDelivery: scheduleEmailDeliveryMock,
+}));
+vi.mock("@/infrastructure/messaging/schedule-message-delivery", () => ({
+  scheduleMessageDelivery: scheduleMessageDeliveryMock,
 }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((destination: string) => {
@@ -51,6 +55,7 @@ let sessionToken: string;
 
 beforeEach(async () => {
   scheduleEmailDeliveryMock.mockClear();
+  scheduleMessageDeliveryMock.mockClear();
   authState.token = undefined;
   if (pool) await pool.end();
   await resetTestDatabase();
@@ -298,6 +303,7 @@ describe("admin event Server Actions", () => {
     form.set("newCapacity", "25");
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: false });
     expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
+    expect(scheduleMessageDeliveryMock).not.toHaveBeenCalled();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
@@ -305,6 +311,7 @@ describe("admin event Server Actions", () => {
     await authorize();
     expect(await changeCapacityAction(id, initialState, form)).toMatchObject({ ok: true });
     expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
+    expect(scheduleMessageDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (await pool.query<{ capacity: number }>("SELECT capacity FROM events WHERE id = $1", [id]))
         .rows[0]!.capacity,
@@ -373,11 +380,13 @@ describe("admin event Server Actions", () => {
       ).rows[0]!.status,
     ).toBe("CONFIRMED");
     expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
+    expect(scheduleMessageDeliveryMock).not.toHaveBeenCalled();
     await authorize();
     expect(
       await cancelReservationAction(eventId, reservationId, initialState, new FormData()),
     ).toMatchObject({ ok: true });
     expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
+    expect(scheduleMessageDeliveryMock).toHaveBeenCalledOnce();
     expect(
       (
         await pool.query<{ status: string }>("SELECT status FROM reservations WHERE id = $1", [
@@ -416,12 +425,14 @@ describe("admin event Server Actions", () => {
       cancelWaitlistEntryAction(eventId, entryId, initialState, new FormData()),
     ).resolves.toMatchObject({ ok: false });
     expect(scheduleEmailDeliveryMock).not.toHaveBeenCalled();
+    expect(scheduleMessageDeliveryMock).not.toHaveBeenCalled();
 
     await authorize();
     await expect(
       cancelWaitlistEntryAction(eventId, entryId, initialState, new FormData()),
     ).resolves.toMatchObject({ ok: true });
     expect(scheduleEmailDeliveryMock).toHaveBeenCalledOnce();
+    expect(scheduleMessageDeliveryMock).toHaveBeenCalledOnce();
     await expect(
       pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [entryId]),
     ).resolves.toMatchObject({ rows: [{ status: "CANCELLED" }] });

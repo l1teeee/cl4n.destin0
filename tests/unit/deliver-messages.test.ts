@@ -53,6 +53,7 @@ function setup(message: DeliverableMessage, sendError?: unknown) {
       return [message];
     }),
     extendLease: vi.fn(async (_id, lease) => new Date(lease.getTime() + 1000)),
+    releaseClaim: vi.fn(async () => true),
     markDiscarded: vi.fn(async (id) => {
       states.set(id, "DISCARDED");
       return true;
@@ -259,6 +260,28 @@ describe("message delivery", () => {
 
     expect(repository.extendLease).toHaveBeenCalledTimes(2);
     expect(repository.recordPart).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops between parts at the deadline and releases the claim without progress", async () => {
+    const message = row({ body: `${"a".repeat(1000)} ${"b".repeat(10)}` });
+    const { dependencies, repository, messenger } = setup(message);
+    let currentTime = 0;
+    dependencies.now = vi.fn(() => currentTime);
+    vi.mocked(repository.recordPart).mockImplementation(async () => {
+      currentTime = 1_000;
+      return true;
+    });
+
+    const summary = await deliverPendingMessages(dependencies, {
+      limit: 1,
+      timeBudgetMs: 1_000,
+    });
+
+    expect(summary.sent).toBe(0);
+    expect(messenger.sendText).toHaveBeenCalledOnce();
+    expect(repository.releaseClaim).toHaveBeenCalledWith(message.id, expect.any(Date));
+    expect(repository.scheduleRetry).not.toHaveBeenCalled();
+    expect(repository.markFailed).not.toHaveBeenCalled();
   });
 
   it("propagates a recorder failure without scheduling a resend", async () => {
