@@ -32,6 +32,7 @@ let pool: Pool;
 let repository: PostgresGuestAdminRepository;
 let adminId: string;
 let sequence = 0;
+let contactSequence = 9_000_000_000;
 
 beforeAll(async () => {
   await resetTestDatabase();
@@ -184,6 +185,49 @@ async function insertWaitlistEntry(
     ],
   );
   return { id: result.rows[0]!.id, fields };
+}
+
+async function linkWaitlistEntryByCode(entryId: string): Promise<string> {
+  contactSequence += 1;
+  const contact = await pool.query<{ id: string }>(
+    `INSERT INTO messaging_contacts (instagram_scoped_id, last_inbound_at)
+     VALUES ($1, clock_timestamp())
+     RETURNING id`,
+    [String(contactSequence)],
+  );
+  const contactId = contact.rows[0]!.id;
+  await pool.query(
+    `UPDATE waitlist_entries
+        SET contact_id = $2, contact_linked_by = 'CODE'
+      WHERE id = $1`,
+    [entryId, contactId],
+  );
+  return contactId;
+}
+
+async function expectCodeLinkedPromotion(entryId: string, contactId: string): Promise<void> {
+  const result = await pool.query<{
+    contact_id: string;
+    contact_linked_by: string;
+    message_contact_id: string;
+    message_status: string;
+  }>(
+    `SELECT r.contact_id, r.contact_linked_by,
+            m.contact_id AS message_contact_id, m.status AS message_status
+       FROM waitlist_entries w
+       JOIN reservations r ON r.id = w.promoted_reservation_id
+       JOIN messages m ON m.reservation_id = r.id AND m.kind = 'PROMOTED'
+      WHERE w.id = $1`,
+    [entryId],
+  );
+  expect(result.rows).toEqual([
+    {
+      contact_id: contactId,
+      contact_linked_by: "CODE",
+      message_contact_id: contactId,
+      message_status: "QUEUED",
+    },
+  ]);
 }
 
 async function invariant(eventId: string) {
@@ -507,6 +551,7 @@ describe("guest admin use cases", () => {
       partySize: 2,
     });
     const next = await insertWaitlistEntry(removeEventId, { name: "Cabeza Siguiente" });
+    const removeContactId = await linkWaitlistEntryByCode(next.id);
     expect(
       await removeEntry(repository, {
         entryId: oversizedHead.id,
@@ -514,6 +559,7 @@ describe("guest admin use cases", () => {
         sendMessage: false,
       }),
     ).toMatchObject({ ok: true, promoted: [{ entryId: next.id }] });
+    await expectCodeLinkedPromotion(next.id, removeContactId);
 
     const updateEventId = await insertEvent({ capacity: 2 });
     await insertReservation(updateEventId, { name: "Ocupa Editar" });
@@ -521,6 +567,7 @@ describe("guest admin use cases", () => {
       name: "Cabeza Editable",
       partySize: 2,
     });
+    const updateContactId = await linkWaitlistEntryByCode(editedHead.id);
     expect(
       await updateEntry(repository, {
         entryId: editedHead.id,
@@ -533,11 +580,13 @@ describe("guest admin use cases", () => {
         },
       }),
     ).toMatchObject({ ok: true, promoted: [{ entryId: editedHead.id }] });
+    await expectCodeLinkedPromotion(editedHead.id, updateContactId);
 
     const moveEventId = await insertEvent({ capacity: 2 });
     await insertReservation(moveEventId, { name: "Ocupa Mover" });
     await insertWaitlistEntry(moveEventId, { name: "Cabeza Bloquea", partySize: 2 });
     const moved = await insertWaitlistEntry(moveEventId, { name: "Segunda Cabeza" });
+    const moveContactId = await linkWaitlistEntryByCode(moved.id);
     expect(
       await moveEntry(repository, {
         entryId: moved.id,
@@ -545,6 +594,7 @@ describe("guest admin use cases", () => {
         direction: "UP",
       }),
     ).toMatchObject({ ok: true, promoted: [{ entryId: moved.id }] });
+    await expectCodeLinkedPromotion(moved.id, moveContactId);
 
     await invariant(removeEventId);
     await invariant(updateEventId);
@@ -731,6 +781,39 @@ describe("guest admin use cases", () => {
     await invariant(eventId);
   });
 
+  it("allows unchanged couples to be edited after the event maximum is lowered", async () => {
+    const reservationEventId = await insertEvent({ capacity: 2, maxPartySize: 2 });
+    const reservation = await insertReservation(reservationEventId, {
+      name: "Pareja Existente",
+      partySize: 2,
+    });
+    await pool.query("UPDATE events SET max_party_size = 1 WHERE id = $1", [reservationEventId]);
+    expect(
+      await updateRequest(repository, {
+        reservationId: reservation.id,
+        actorAdminId: adminId,
+        fields: { ...reservation.fields, guest1Name: "Pareja Corregida" },
+      }),
+    ).toMatchObject({ ok: true, guests: ["Pareja Corregida", "Pareja Existente Dos"] });
+
+    const waitlistEventId = await insertEvent({ capacity: 2, maxPartySize: 2 });
+    await insertReservation(waitlistEventId, { name: "Ocupa Pareja" });
+    const entry = await insertWaitlistEntry(waitlistEventId, {
+      name: "Pareja en Cola",
+      partySize: 2,
+    });
+    await pool.query("UPDATE events SET max_party_size = 1 WHERE id = $1", [waitlistEventId]);
+    expect(
+      await updateEntry(repository, {
+        entryId: entry.id,
+        actorAdminId: adminId,
+        fields: { ...entry.fields, guest1Name: "Pareja en Cola Corregida" },
+      }),
+    ).toMatchObject({ ok: true, guests: ["Pareja en Cola Corregida", "Pareja en Cola Dos"] });
+    await invariant(reservationEventId);
+    await invariant(waitlistEventId);
+  });
+
   it("refuses accept and payment verification on terminal or deleted events", async () => {
     for (const status of ["CANCELLED", "COMPLETED"] as const) {
       const eventId = await insertEvent({ capacity: 2, status });
@@ -767,6 +850,7 @@ describe("guest admin use cases", () => {
   it("attributes an admin override promotion to the admin without changing the request origin", async () => {
     const eventId = await insertEvent({ capacity: 1 });
     const entry = await insertWaitlistEntry(eventId, { name: "Promoción Manual" });
+    const contactId = await linkWaitlistEntryByCode(entry.id);
 
     const promoted = await promoteEntry(repository, { entryId: entry.id, actorAdminId: adminId });
     expect(promoted).toMatchObject({ ok: true });
@@ -794,6 +878,23 @@ describe("guest admin use cases", () => {
         [reservationId],
       ),
     ).resolves.toMatchObject({ rows: [{ actor_type: "ADMIN", actor_admin_id: adminId }] });
+    await expectCodeLinkedPromotion(entry.id, contactId);
+    await invariant(eventId);
+  });
+
+  it("propagates non-link-code unique violations from admin adds", async () => {
+    const eventId = await insertEvent({ capacity: 2, maxPartySize: 1 });
+    await insertReservation(eventId, { name: "Número Existente" });
+    await pool.query("UPDATE events SET last_reservation_number = 0 WHERE id = $1", [eventId]);
+
+    await expect(
+      addRequest(repository, {
+        eventId,
+        actorAdminId: adminId,
+        fields: guestFields("Contra Deriva"),
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: "23505", constraint: "reservations_event_number_uq" });
     await invariant(eventId);
   });
 

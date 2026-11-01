@@ -381,6 +381,8 @@ export async function previewPromotion(
   eventId: string,
   targetPool: Pool = applicationPool,
 ): Promise<PromotionPreview> {
+  // The released reservation is still CONFIRMED here; only forbidden duplicate-handle states
+  // can make this preview differ from the promotion engine after release.
   const result = await targetPool.query<{
     id: string;
     full_name: string;

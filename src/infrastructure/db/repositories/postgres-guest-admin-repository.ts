@@ -83,10 +83,6 @@ function isLinkCodeUniqueViolation(error: unknown): boolean {
   return details.code === "23505" && linkCodeConstraints.has(details.constraint ?? "");
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  return (error as { code?: string }).code === "23505";
-}
-
 function isLiveEvent(event: EventRow): boolean {
   return event.deleted_at === null && !["CANCELLED", "COMPLETED"].includes(event.status);
 }
@@ -386,7 +382,6 @@ async function insertWithFreshLinkCode<T>(
       await client.query("ROLLBACK TO SAVEPOINT admin_link_code_attempt");
       await client.query("RELEASE SAVEPOINT admin_link_code_attempt");
       if (isLinkCodeUniqueViolation(error)) continue;
-      if (isUniqueViolation(error)) return null;
       throw error;
     }
   }
@@ -664,7 +659,10 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       if (!reservation || !["CONFIRMED", "CANCELLED"].includes(reservation.status)) {
         return failed("INVALID_STAGE");
       }
-      if (command.fields.partySize > event.max_party_size) {
+      if (
+        command.fields.partySize > reservation.party_size &&
+        command.fields.partySize > event.max_party_size
+      ) {
         return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
       }
       if (reservation.status === "CONFIRMED") {
@@ -723,7 +721,10 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       if (!event) return failed("INVALID_STAGE");
       const entry = await lockWaitlistEntry(client, command.entryId);
       if (!entry || entry.status !== "WAITING") return failed("INVALID_STAGE");
-      if (command.fields.partySize > event.max_party_size) {
+      if (
+        command.fields.partySize > entry.party_size &&
+        command.fields.partySize > event.max_party_size
+      ) {
         return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
       }
       const duplicate = await duplicateHandle(client, event.id, command.fields, {

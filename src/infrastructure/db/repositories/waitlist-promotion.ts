@@ -45,16 +45,18 @@ interface PromotionActor {
 export const WAITLIST_PROMOTION_EVENT_PREDICATE =
   "status IN ('SCHEDULED', 'CLOSED') AND starts_at > clock_timestamp()";
 
+const WAITING_ENTRY_COLUMNS = `id, waitlist_number, full_name, instagram_handle,
+       guest2_full_name, guest2_instagram_handle,
+       phone_e164, email, email_normalized, party_size, notes, allergies,
+       terms_accepted_at, link_code, contact_id, contact_linked_by, source, created_by,
+       idempotency_key, submitted_at`;
+
 async function readWaitingHead(
   client: PoolClient,
   eventId: string,
 ): Promise<WaitingEntryRow | null> {
   const result = await client.query<WaitingEntryRow>(
-    `SELECT id, waitlist_number, full_name, instagram_handle,
-            guest2_full_name, guest2_instagram_handle,
-            phone_e164, email, email_normalized, party_size, notes, allergies,
-            terms_accepted_at, link_code, contact_id, contact_linked_by, source, created_by,
-            idempotency_key, submitted_at
+    `SELECT ${WAITING_ENTRY_COLUMNS}
        FROM waitlist_entries
       WHERE event_id = $1
         AND status = 'WAITING'
@@ -72,11 +74,7 @@ async function readWaitingEntry(
   entryId: string,
 ): Promise<WaitingEntryRow | null> {
   const result = await client.query<WaitingEntryRow>(
-    `SELECT id, waitlist_number, full_name, instagram_handle,
-            guest2_full_name, guest2_instagram_handle,
-            phone_e164, email, email_normalized, party_size, notes, allergies,
-            terms_accepted_at, link_code, contact_id, source, created_by,
-            idempotency_key, submitted_at
+    `SELECT ${WAITING_ENTRY_COLUMNS}
        FROM waitlist_entries
       WHERE id = $1
         AND event_id = $2
