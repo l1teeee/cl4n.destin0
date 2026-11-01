@@ -2,5 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["iad1"],
-  "crons": [{ "path": "/api/cron/email-outbox", "schedule": "0 13 * * *" }]
+  "crons": [
+    { "path": "/api/cron/email-outbox", "schedule": "0 13 * * *" },
+    { "path": "/api/cron/messages", "schedule": "0 13 * * *" }
+  ]
 }
