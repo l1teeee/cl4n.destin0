@@ -129,13 +129,14 @@ export async function insertGuestReservation(
        event_id, reservation_number, status, full_name, instagram_handle,
        guest2_full_name, guest2_instagram_handle, party_size, terms_accepted_at,
        idempotency_key, submitted_at, accepted_at, cancelled_at, stage, on_list_at,
-       paid_at, contact_id
+       paid_at, contact_id, contact_linked_by
      ) VALUES (
        $1, $2, $3::reservation_status, $4, $5, $6, $7, $8, now(),
        $9, now(), now(),
        CASE WHEN $3::reservation_status = 'CANCELLED' THEN now() ELSE NULL END,
        $10, CASE WHEN $10 = 'IN_REVIEW' THEN NULL ELSE now() END,
-       CASE WHEN $10 = 'PAID' THEN now() ELSE NULL END, $11
+       CASE WHEN $10 = 'PAID' THEN now() ELSE NULL END, $11,
+       CASE WHEN $11::uuid IS NULL THEN NULL ELSE 'CODE' END
      ) RETURNING id`,
     [
       eventId,
