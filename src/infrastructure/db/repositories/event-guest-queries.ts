@@ -66,6 +66,7 @@ export interface PromotionPreviewEntry {
 }
 
 export interface PromotionPreview {
+  waitingCount: number;
   oneSeat: PromotionPreviewEntry[];
   twoSeats: PromotionPreviewEntry[];
 }
@@ -384,6 +385,10 @@ export async function previewPromotion(
   eventId: string,
   targetPool: Pool = applicationPool,
 ): Promise<PromotionPreview> {
+  const event = await targetPool.query<{ waitlisted_count: number }>(
+    "SELECT waitlisted_count FROM events WHERE id = $1 AND deleted_at IS NULL",
+    [eventId],
+  );
   // The released reservation is still CONFIRMED here; only forbidden duplicate-handle states
   // can make this preview differ from the promotion engine after release.
   const result = await targetPool.query<{
@@ -446,6 +451,7 @@ export async function previewPromotion(
     guests: [row.full_name, row.guest2_full_name].filter((name): name is string => name !== null),
   });
   return {
+    waitingCount: event.rows[0]?.waitlisted_count ?? 0,
     oneSeat: result.rows.filter((row) => row.fits_one).map(entry),
     twoSeats: result.rows.filter((row) => row.fits_two).map(entry),
   };

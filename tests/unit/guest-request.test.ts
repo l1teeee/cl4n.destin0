@@ -21,6 +21,25 @@ function expectIssue(input: Record<string, unknown>, path: string, message: stri
 }
 
 describe("guestRequestSchema", () => {
+  it.each(["con espacio", "@@@", "a".repeat(31)])("rejects invalid Instagram %s", (value) => {
+    expectIssue(
+      { ...validRequest, guest1Instagram: value },
+      "guest1Instagram",
+      "Ingresa un usuario de Instagram válido.",
+    );
+    expectIssue(
+      { ...validRequest, partySize: 2, guest2Name: "Luis Pérez", guest2Instagram: value },
+      "guest2Instagram",
+      "Ingresa un usuario de Instagram válido.",
+    );
+  });
+
+  it.each(["@ana.lopez", "https://instagram.com/ana.lopez"])("accepts Instagram %s", (value) => {
+    expect(guestRequestSchema.safeParse({ ...validRequest, guest1Instagram: value }).success).toBe(
+      true,
+    );
+  });
+
   it("accepts and trims a single guest request", () => {
     const result = guestRequestSchema.parse({
       ...validRequest,

@@ -43,6 +43,20 @@ function hiddenInput(container: HTMLElement, name: string) {
 }
 
 describe("admin date and time controls", () => {
+  it("keeps the selected date when clicked again", () => {
+    const { container } = render(<DatePicker name="eventDate" defaultValue="2026-10-09" />);
+    fireEvent.click(screen.getByRole("button", { name: "9 oct 2026" }));
+    fireEvent.click(screen.getByRole("button", { name: /viernes, 9 de octubre de 2026/i }));
+    expect(hiddenInput(container, "eventDate")?.value).toBe("2026-10-09");
+    expect(screen.getByRole("button", { name: /viernes, 9 de octubre de 2026/i })).toBeDefined();
+  });
+
+  it("keeps the selected date and time when the day is clicked again", () => {
+    const { container } = render(<DateTimePicker name="opensAt" defaultValue="2026-10-09T20:00" />);
+    fireEvent.click(screen.getByRole("button", { name: "9 oct 2026 · 20:00" }));
+    fireEvent.click(screen.getByRole("button", { name: /viernes, 9 de octubre de 2026/i }));
+    expect(hiddenInput(container, "opensAt")?.value).toBe("2026-10-09T20:00");
+  });
   it("renders and updates DatePicker values", () => {
     const { container } = render(<DatePicker name="eventDate" defaultValue="2026-10-09" />);
 

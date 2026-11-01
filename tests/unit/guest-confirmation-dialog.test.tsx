@@ -26,6 +26,7 @@ function renderRejectDialog(action: Action) {
       confirmation={rejectConfirmation({
         guests: ["Ana López"],
         replacements: ["Carla", "Pedro"],
+        waitingCount: 2,
       })}
     >
       <ExpectedReplacementInputs entryIds={[firstId, secondId]} />
@@ -55,7 +56,7 @@ describe("guest controls inside a MutationForm confirmation", () => {
 
     expect(
       within(dialog).getByText(
-        "Al rechazar a Ana López va a quedar un espacio vacío. Se van a agregar a Carla y a Pedro, que son los primeros en la cola. ¿Estás seguro?",
+        "Al rechazar a Ana López va a quedar un espacio vacío. Se van a agregar desde la cola las solicitudes de Carla y de Pedro. ¿Estás seguro?",
       ),
     ).toBeDefined();
     const checkbox = within(dialog).getByRole("checkbox", {

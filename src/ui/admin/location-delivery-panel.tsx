@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import type { LocationDeliverySummary } from "@/application/events/location-message-repository";
+import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { formatAdminDate } from "@/ui/admin/view-model";
 import { Button } from "@/ui/primitives/button";
@@ -54,28 +55,35 @@ export function LocationDeliveryPanel({
   return (
     <div className="space-y-4 border-t border-border pt-5">
       <h3 className="font-semibold">Envío a invitados</h3>
-      <p>
-        {`Confirmados: ${summary.paid} · Tienen la ubicación actual: ${summary.received} · Pendientes: ${summary.pending} · Fallidos: ${summary.failed}`}
-      </p>
-      {summary.lastDeliveredAt ? (
-        <p className="admin-muted">Última entrega: {formatAdminDate(summary.lastDeliveredAt)}</p>
-      ) : null}
-      {locationConfirmed ? null : (
-        <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
-      )}
-      {offer ? (
-        <MutationForm action={sendAction} label={offer.label} confirmation={offer.confirmation} />
-      ) : null}
-      <p className="admin-muted">
-        Quien quede confirmado con la ubicación lista la recibe automáticamente por Instagram. Si
-        alguien no nos ha escrito en las últimas 24 horas, el mensaje queda pendiente hasta que
-        escriba, o puedes enviarlo a mano desde Mensajes.
-      </p>
-      {needsAttention ? (
-        <Button variant="link" asChild>
-          <Link href="/admin/mensajes">Ver pendientes en Mensajes</Link>
-        </Button>
-      ) : null}
+      <ActionFeedbackProvider>
+        <p>
+          {`Confirmados: ${summary.paid} · Tienen la ubicación actual: ${summary.received} · Pendientes: ${summary.pending} · Fallidos: ${summary.failed}`}
+        </p>
+        {summary.lastDeliveredAt ? (
+          <p className="admin-muted">Última entrega: {formatAdminDate(summary.lastDeliveredAt)}</p>
+        ) : null}
+        {locationConfirmed ? null : (
+          <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
+        )}
+        {offer ? (
+          <MutationForm
+            action={sendAction}
+            label={offer.label}
+            confirmation={offer.confirmation}
+            reportToSection
+          />
+        ) : null}
+        <p className="admin-muted">
+          Quien quede confirmado con la ubicación lista la recibe automáticamente por Instagram. Si
+          alguien no nos ha escrito en las últimas 24 horas, el mensaje queda pendiente hasta que
+          escriba, o puedes enviarlo a mano desde Mensajes.
+        </p>
+        {needsAttention ? (
+          <Button variant="link" asChild>
+            <Link href="/admin/mensajes">Ver pendientes en Mensajes</Link>
+          </Button>
+        ) : null}
+      </ActionFeedbackProvider>
     </div>
   );
 }

@@ -15,6 +15,7 @@ const outcomeSentences: Record<MessageOutcome, string> = {
 interface ConfirmationInput {
   guests: readonly string[];
   replacements: readonly string[];
+  waitingCount: number;
 }
 
 interface MessageResultInput {
@@ -48,34 +49,62 @@ export function partySizeLabel(count: number): string {
   return count === 1 ? "1 persona" : `${count} personas`;
 }
 
-export function replacementSentence(replacements: readonly string[]): string {
+export function replacementSentence(
+  replacements: readonly string[],
+  waitingCount: number,
+  freedSeats: number,
+): string {
   if (replacements.length === 0) {
-    return "No hay nadie en la cola, así que el lugar quedará libre.";
+    const reason =
+      waitingCount === 0 ? "No hay nadie en la cola" : "La primera solicitud de la cola no cabe";
+    const place = freedSeats === 1 ? "el lugar quedará libre" : "los lugares quedarán libres";
+    return `${reason}, así que ${place}.`;
   }
 
-  const names = replacements.join(" y a ");
+  const names = replacements.join(" y de ");
   if (replacements.length === 1) {
-    return `Se va a agregar a ${names}, que es la primera en la cola.`;
+    return `Se va a agregar desde la cola la solicitud de ${names}.`;
   }
-  return `Se van a agregar a ${names}, que son los primeros en la cola.`;
+  return `Se van a agregar desde la cola las solicitudes de ${names}.`;
 }
 
-export function rejectConfirmation({ guests, replacements }: ConfirmationInput): string {
-  return `Al rechazar a ${guestsLabel(guests)} va a quedar un espacio vacío. ${replacementSentence(replacements)} ¿Estás seguro?`;
+export function rejectConfirmation({
+  guests,
+  replacements,
+  waitingCount,
+}: ConfirmationInput): string {
+  const seats = isCouple(guests)
+    ? "van a quedar dos espacios vacíos"
+    : "va a quedar un espacio vacío";
+  return `Al rechazar a ${guestsLabel(guests)} ${seats}. ${replacementSentence(replacements, waitingCount, guests.length)} ¿Estás seguro?`;
 }
 
-export function cancelUnpaidConfirmation({ guests, replacements }: ConfirmationInput): string {
-  return `Al eliminar a ${guestsLabel(guests)} de la lista va a quedar un espacio vacío. ${replacementSentence(replacements)} ¿Estás seguro?`;
+export function cancelUnpaidConfirmation({
+  guests,
+  replacements,
+  waitingCount,
+}: ConfirmationInput): string {
+  const seats = isCouple(guests)
+    ? "van a quedar dos espacios vacíos"
+    : "va a quedar un espacio vacío";
+  return `Al eliminar a ${guestsLabel(guests)} de la lista ${seats}. ${replacementSentence(replacements, waitingCount, guests.length)} ¿Estás seguro?`;
 }
 
-export function cancelPaidConfirmation({ guests, replacements }: ConfirmationInput): string {
+export function cancelPaidConfirmation({
+  guests,
+  replacements,
+  waitingCount,
+}: ConfirmationInput): string {
   const paid = isCouple(guests) ? "pagaron" : "pagó";
+  const seats = isCouple(guests)
+    ? "Van a quedar dos espacios vacíos"
+    : "Va a quedar un espacio vacío";
   const newcomerNote =
     replacements.length === 0
       ? ""
       : " Quien entre tendrá que pasar por todo el proceso: revisión, lista y pago.";
 
-  return `${guestsLabel(guests)} ya ${paid}. Se le enviará un mensaje lamentando la cancelación y quedará pendiente el reembolso. Va a quedar un espacio vacío. ${replacementSentence(replacements)}${newcomerNote} ¿Estás seguro?`;
+  return `${guestsLabel(guests)} ya ${paid}. Se le enviará un mensaje lamentando la cancelación y quedará pendiente el reembolso. ${seats}. ${replacementSentence(replacements, waitingCount, guests.length)}${newcomerNote} ¿Estás seguro?`;
 }
 
 export const acceptConfirmation =

@@ -19,6 +19,7 @@ const oneSeatId = "22222222-2222-4222-8222-222222222222";
 const twoSeatsId = "33333333-3333-4333-8333-333333333333";
 
 const preview: PromotionPreview = {
+  waitingCount: 2,
   oneSeat: [{ id: oneSeatId, guests: ["Luis"] }],
   twoSeats: [
     { id: oneSeatId, guests: ["Luis"] },
@@ -144,7 +145,12 @@ describe("GuestRowActions in review", () => {
       guestRow({ partySize: 2, guest2Name: "Pedro", guest2Instagram: "pedro" }),
     );
 
-    const [, , formData] = await confirmDialog("Rechazar", guestHandlers.reject);
+    await openDialog("Rechazar");
+    expect(screen.getByText(/van a quedar dos espacios vacíos/)).toBeDefined();
+    expect(screen.getByText(/las solicitudes de Luis y de Marta/)).toBeDefined();
+    clickDialogConfirm("Rechazar");
+    await waitFor(() => expect(guestHandlers.reject).toHaveBeenCalledTimes(1));
+    const [, , formData] = guestHandlers.reject.mock.calls[0] as RecordedCall;
 
     expect(formData.getAll("expectedPromotedEntryIds")).toEqual([oneSeatId, twoSeatsId]);
   });

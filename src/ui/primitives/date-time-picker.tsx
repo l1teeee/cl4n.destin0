@@ -38,7 +38,8 @@ function DateTimePicker({
   const value = date && time ? `${date}T${time}` : "";
 
   function selectDate(nextDate: Date | undefined) {
-    setDate(nextDate ? formatLocalDate(nextDate) : "");
+    if (!nextDate) return;
+    setDate(formatLocalDate(nextDate));
   }
 
   function selectHour(nextHour: string) {

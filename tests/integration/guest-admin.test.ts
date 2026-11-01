@@ -489,7 +489,7 @@ describe("guest admin use cases", () => {
       const review = await insertReservation(eventId, { name: `Rechazo ${eventCase.status}` });
       const waiting = await insertWaitlistEntry(eventId, { name: `Cola ${eventCase.status}` });
       const rejectPreview = await previewPromotion(eventId, pool);
-      expect(rejectPreview).toEqual({ oneSeat: [], twoSeats: [] });
+      expect(rejectPreview).toEqual({ waitingCount: 1, oneSeat: [], twoSeats: [] });
       expect(
         await rejectRequest(repository, {
           reservationId: review.id,
@@ -504,7 +504,7 @@ describe("guest admin use cases", () => {
         stage: "ON_LIST",
       });
       const cancelPreview = await previewPromotion(eventId, pool);
-      expect(cancelPreview).toEqual({ oneSeat: [], twoSeats: [] });
+      expect(cancelPreview).toEqual({ waitingCount: 1, oneSeat: [], twoSeats: [] });
       expect(
         await cancelRequest(repository, {
           reservationId: onList.id,
@@ -532,6 +532,7 @@ describe("guest admin use cases", () => {
     const next = await insertWaitlistEntry(eventId, { name: "Siguiente Válida" });
 
     expect(await previewPromotion(eventId, pool)).toMatchObject({
+      waitingCount: 2,
       oneSeat: [{ id: next.id }],
       twoSeats: [{ id: next.id }],
     });

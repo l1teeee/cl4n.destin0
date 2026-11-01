@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { GuestFields } from "@/application/guests/guest-admin-repository";
 import { EVENT_GUEST_VIEWS } from "@/application/guests/guest-views";
+import { INVALID_INSTAGRAM_MESSAGE } from "@/contracts/guest-request";
 import { normalizeInstagram } from "@/domain/reservation/contact-normalization";
 
 const controlCharacters = /[\u0000-\u001f\u007f]/;
@@ -23,7 +24,7 @@ const instagram = z
   .transform((value, context) => {
     const normalized = normalizeInstagram(value);
     if (!normalized.ok) {
-      context.addIssue({ code: "custom", message: "Ingresa un usuario de Instagram válido." });
+      context.addIssue({ code: "custom", message: INVALID_INSTAGRAM_MESSAGE });
       return z.NEVER;
     }
     return normalized.value;

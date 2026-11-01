@@ -248,6 +248,19 @@ describe("ReservationForm", () => {
     await waitForSliderReady();
   });
 
+  it("shows an invalid Instagram user on blur", async () => {
+    renderForm();
+    await screen.findByTestId("turnstile");
+    fireEvent.click(screen.getByRole("radio", { name: "En pareja" }));
+    const instagram = within(screen.getByRole("group", { name: "Invitado 1" })).getByLabelText(
+      "Usuario de Instagram",
+    );
+    fireEvent.change(instagram, { target: { value: "con espacio" } });
+    fireEvent.blur(instagram);
+    expect(await screen.findByText("Ingresa un usuario de Instagram válido.")).toBeDefined();
+    expect(instagram.getAttribute("aria-invalid")).toBe("true");
+  });
+
   it("stays disabled when both guests use the same Instagram user", async () => {
     renderForm();
 

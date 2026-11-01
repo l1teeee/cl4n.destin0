@@ -129,7 +129,34 @@ export function formatAuditMetadata(metadata: Record<string, unknown>): string {
   if (typeof metadata.imageRemoved === "string") {
     return `Imagen eliminada: ${metadata.imageRemoved}`;
   }
-  return JSON.stringify(metadata);
+  if (
+    typeof metadata.locationMessagesQueued === "number" &&
+    typeof metadata.locationRevision === "number"
+  ) {
+    const count = metadata.locationMessagesQueued;
+    return count > 0
+      ? `Ubicación enviada (versión ${metadata.locationRevision}) a ${count} ${count === 1 ? "persona" : "personas"}`
+      : `Ubicación (versión ${metadata.locationRevision}): nadie pendiente de recibirla`;
+  }
+  if (typeof metadata.stage === "string") {
+    const labels: Record<string, string> = {
+      IN_REVIEW: "Por revisar",
+      ON_LIST: "En la lista",
+      PAID: "Pago verificado",
+    };
+    const size = metadata.partySize;
+    return `Etapa: ${labels[metadata.stage] ?? metadata.stage}${typeof size === "number" ? ` · ${size} ${size === 1 ? "persona" : "personas"}` : ""}`;
+  }
+  if (
+    Array.isArray(metadata.changedFields) &&
+    metadata.changedFields.every((value) => typeof value === "string")
+  ) {
+    return `Campos cambiados: ${metadata.changedFields.join(", ")}`;
+  }
+  const fields = Object.entries(metadata)
+    .filter(([key]) => !key.endsWith("Id"))
+    .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`);
+  return fields.length ? fields.join(" · ") : "-";
 }
 
 export function adminRoleLabel(role: AdminRole): string {

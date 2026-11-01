@@ -153,6 +153,48 @@ describe("LocationDeliveryPanel send button", () => {
       "Ubicación enviada a 3 personas.",
     );
   });
+
+  it("keeps the success message visible when the revalidated summary hides the button", async () => {
+    const sendAction = vi.fn(async () => ({
+      ok: true,
+      message: "Ubicación enviada a 2 personas.",
+    }));
+    const { rerender } = render(panel({ paid: 8, received: 6, neverQueued: 2 }, { sendAction }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación a confirmados (2)" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const confirm = Array.from(dialog.querySelectorAll("button")).find(
+      (button) => button.textContent === "Enviar ubicación a confirmados (2)",
+    )!;
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1));
+    await screen.findByRole("status");
+    rerender(panel({}, { sendAction }));
+
+    expect(screen.queryByRole("button", { name: /Enviar ubicación/ })).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Ubicación enviada a 2 personas.");
+  });
+
+  it("shows an error next to the form when the send action fails", async () => {
+    const sendAction = vi.fn(async () => ({
+      ok: false,
+      message: "Confirma la ubicación antes de enviarla.",
+    }));
+    render(panel({ paid: 8, received: 6, neverQueued: 2 }, { sendAction }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación a confirmados (2)" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const confirm = Array.from(dialog.querySelectorAll("button")).find(
+      (button) => button.textContent === "Enviar ubicación a confirmados (2)",
+    )!;
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1));
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Confirma la ubicación antes de enviarla.",
+    );
+  });
 });
 
 describe("LocationDeliveryPanel pending link", () => {

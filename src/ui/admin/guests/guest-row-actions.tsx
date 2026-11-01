@@ -83,6 +83,7 @@ function ReviewActions({ row, preview, handlers }: ReleaseActionProps) {
         confirmation={rejectConfirmation({
           guests: guestNames(row),
           replacements: replacements.names,
+          waitingCount: preview.waitingCount,
         })}
         danger
         reportToSection
@@ -119,7 +120,11 @@ function CancelFromListAction({
   handlers,
 }: ReleaseActionProps & { stage: "ON_LIST" | "PAID" }) {
   const replacements = replacementsIfReleased(row, preview);
-  const confirmationInput = { guests: guestNames(row), replacements: replacements.names };
+  const confirmationInput = {
+    guests: guestNames(row),
+    replacements: replacements.names,
+    waitingCount: preview.waitingCount,
+  };
 
   return (
     <MutationForm

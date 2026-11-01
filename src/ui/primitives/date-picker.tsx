@@ -43,8 +43,9 @@ function DatePicker({
   const selected = parseLocalDate(value);
 
   function selectDate(date: Date | undefined) {
-    setValue(date ? formatLocalDate(date) : "");
-    if (date) setOpen(false);
+    if (!date) return;
+    setValue(formatLocalDate(date));
+    setOpen(false);
   }
 
   return (
