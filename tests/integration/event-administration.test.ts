@@ -421,7 +421,7 @@ describe("event mutations", () => {
       internalName: "Cena actualizada",
       slug: "cena-actualizada",
       startsAt: new Date("2026-11-22T01:30:00Z"),
-      maxPartySize: 4,
+      maxPartySize: 2,
       opensAt: baseCommand.opensAt,
       closesAt: baseCommand.closesAt,
       autoCloseOnFull: true,
@@ -435,7 +435,7 @@ describe("event mutations", () => {
     expect(updated.ok && updated.value).toMatchObject({
       internalName: "Cena actualizada",
       slug: "cena-actualizada",
-      maxPartySize: 4,
+      maxPartySize: 2,
       autoCloseOnFull: true,
     });
     const audits = await auditFor(created.value.id);
@@ -445,7 +445,6 @@ describe("event mutations", () => {
         "internalName",
         "slug",
         "startsAt",
-        "maxPartySize",
         "autoCloseOnFull",
       ]),
       before: expect.any(Object),
@@ -458,9 +457,41 @@ describe("event mutations", () => {
       "SLUG_LOCKED",
     );
     expectError(
-      await repository.update({ ...update, slug: "cena-actualizada", maxPartySize: 21 }, adminId),
-      "MAX_PARTY_SIZE_ABOVE_CAPACITY",
+      await repository.update({ ...update, slug: "cena-actualizada", maxPartySize: 3 }, adminId),
+      "MAX_PARTY_SIZE_NOT_ALLOWED",
     );
+  });
+
+  it("persists payment instructions on create and update", async () => {
+    const created = await repository.create(
+      { ...baseCommand, slug: "payment-instructions", paymentInstructions: "Transferencia" },
+      adminId,
+    );
+    if (!created.ok) throw new Error(created.error);
+    expect(created.value.paymentInstructions).toBe("Transferencia");
+
+    const updated = await repository.update(
+      {
+        id: created.value.id,
+        internalName: created.value.internalName,
+        slug: created.value.slug,
+        startsAt: created.value.startsAt,
+        maxPartySize: created.value.maxPartySize,
+        opensAt: created.value.opensAt,
+        closesAt: created.value.closesAt,
+        autoCloseOnFull: created.value.autoCloseOnFull,
+        paymentInstructions: "Efectivo o transferencia",
+        location: created.value.location,
+        keepMapsUrl: false,
+        coordinates: null,
+        expectedLocation: {
+          revision: created.value.locationRevision,
+          status: created.value.location.status,
+        },
+      },
+      adminId,
+    );
+    expect(updated.ok && updated.value.paymentInstructions).toBe("Efectivo o transferencia");
   });
 });
 

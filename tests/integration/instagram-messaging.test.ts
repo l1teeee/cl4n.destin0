@@ -986,6 +986,101 @@ describe("PostgreSQL message delivery", () => {
     expect(sendText).toHaveBeenCalledWith(expect.any(String), "next");
   });
 
+  it("keeps seven Meta 5xx failures queued and fails the eighth with the provider error", async () => {
+    const contactId = await createContact(`696${Date.now()}`);
+    const messageId = await createOutbound(contactId, { body: "retry eight times" });
+    const sendText = vi.fn(async () => {
+      throw new MessengerError("server", { status: 500 });
+    });
+    const run = () =>
+      deliverMessagesNow(
+        {
+          repository,
+          messenger: fakeMessenger({ sendText }),
+          now: () => now.getTime(),
+          logFailure: vi.fn(),
+          logStaleLease: vi.fn(),
+        },
+        [messageId],
+        { timeBudgetMs: 1000 },
+      );
+    const state = () =>
+      pool.query<{
+        status: string;
+        attempts: number;
+        last_error: string | null;
+        claims_without_progress: number;
+      }>(
+        `SELECT status, attempts, last_error, claims_without_progress
+           FROM messages WHERE id = $1`,
+        [messageId],
+      );
+
+    for (let attempt = 1; attempt <= 7; attempt += 1) {
+      await pool.query("UPDATE messages SET next_attempt_at = clock_timestamp() WHERE id = $1", [
+        messageId,
+      ]);
+      await expect(run()).resolves.toMatchObject({ retried: 1, failed: 0 });
+      expect((await state()).rows[0]).toEqual({
+        status: "QUEUED",
+        attempts: attempt,
+        last_error: "HTTP_500",
+        claims_without_progress: 0,
+      });
+    }
+
+    await pool.query("UPDATE messages SET next_attempt_at = clock_timestamp() WHERE id = $1", [
+      messageId,
+    ]);
+    await expect(run()).resolves.toMatchObject({ retried: 0, failed: 1 });
+    expect((await state()).rows[0]).toEqual({
+      status: "FAILED",
+      attempts: 8,
+      last_error: "HTTP_500",
+      claims_without_progress: 0,
+    });
+    expect(sendText).toHaveBeenCalledTimes(8);
+  });
+
+  it("releases a deadline-stopped claim without counting no progress", async () => {
+    const contactId = await createContact(`698${Date.now()}`);
+    const messageId = await createOutbound(contactId, { body: "next drain" });
+    const sendText = vi.fn(async () => ({ messageId: "unexpected" }));
+    let clockCalls = 0;
+
+    const summary = await deliverMessagesNow(
+      {
+        repository,
+        messenger: fakeMessenger({ sendText }),
+        now: () => now.getTime() + (clockCalls++ < 3 ? 0 : 1_000),
+        logFailure: vi.fn(),
+        logStaleLease: vi.fn(),
+      },
+      [messageId],
+      { timeBudgetMs: 1_000 },
+    );
+
+    expect(summary.outcomes[messageId]).toBe("QUEUED");
+    expect(sendText).not.toHaveBeenCalled();
+    const state = await pool.query<{
+      status: string;
+      locked_until: Date | null;
+      claims_without_progress: number;
+      due: boolean;
+    }>(
+      `SELECT status, locked_until, claims_without_progress,
+              next_attempt_at <= clock_timestamp() AS due
+         FROM messages WHERE id = $1`,
+      [messageId],
+    );
+    expect(state.rows[0]).toEqual({
+      status: "QUEUED",
+      locked_until: null,
+      claims_without_progress: 0,
+      due: true,
+    });
+  });
+
   it("preserves per-contact order and fences a stale lease", async () => {
     const contactId = await createContact(`70${Date.now()}`);
     const first = await createOutbound(contactId, {
@@ -1024,6 +1119,31 @@ describe("PostgreSQL message delivery", () => {
     const extended = await repository.extendLease(first, reclaimed[0]!.lockedUntil);
     await repository.recordPart(first, extended!, "ordered-mid", true);
     expect((await repository.claimDue(1, [second])).map((row) => row.id)).toContain(second);
+  });
+
+  it("claims a target despite many WAITING_WINDOW rows for other contacts", async () => {
+    await pool.query(
+      `WITH contacts AS (
+         INSERT INTO messaging_contacts (instagram_scoped_id, last_inbound_at)
+         SELECT $1 || lpad(series::text, 3, '0'), clock_timestamp()
+           FROM generate_series(1, 500) AS series
+         RETURNING id
+       )
+       INSERT INTO messages (contact_id, direction, kind, source, status, body, created_at)
+       SELECT id, 'OUTBOUND', 'FREE_TEXT', 'ADMIN', 'WAITING_WINDOW', 'other contact',
+              '2026-10-30T08:00:00Z'
+         FROM contacts`,
+      [`7${Date.now()}`],
+    );
+    const targetContact = await createContact(`697${Date.now()}`);
+    const target = await createOutbound(targetContact, {
+      body: "target contact",
+      createdAt: new Date("2026-10-30T09:00:00Z"),
+    });
+
+    const claimed = await repository.claimDue(1, [target]);
+
+    expect(claimed.map((row) => row.id)).toEqual([target]);
   });
 
   it("replaces an early app echo when markSent completes", async () => {

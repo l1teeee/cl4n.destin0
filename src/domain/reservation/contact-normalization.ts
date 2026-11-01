@@ -16,7 +16,24 @@ export function normalizeEmail(email: string): NormalizationResult {
 }
 
 export function normalizeInstagram(instagram: string): NormalizationResult {
-  const handle = instagram.trim().replace(/^@/, "").toLowerCase();
+  const trimmed = instagram.trim();
+  let handle = trimmed.replace(/^@/, "");
+
+  if (/^(?:https?:\/\/|www\.)/i.test(handle)) {
+    try {
+      const url = new URL(/^https?:\/\//i.test(handle) ? handle : `https://${handle}`);
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+      const path = url.pathname.split("/").filter(Boolean);
+      if (host !== "instagram.com" || path.length !== 1) {
+        return { ok: false, reason: "INVALID_FORMAT" };
+      }
+      handle = path[0]!;
+    } catch {
+      return { ok: false, reason: "INVALID_FORMAT" };
+    }
+  }
+
+  handle = handle.toLowerCase();
 
   if (!handle) {
     return { ok: false, reason: "EMPTY" };

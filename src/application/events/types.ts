@@ -5,6 +5,7 @@ export type EventOperationErrorCode =
   | "EVENT_NOT_FOUND"
   | "SLUG_TAKEN"
   | "SLUG_LOCKED"
+  | "MAX_PARTY_SIZE_NOT_ALLOWED"
   | "MAX_PARTY_SIZE_ABOVE_CAPACITY"
   | "INVALID_WINDOW"
   | "INVALID_TRANSITION"
@@ -51,6 +52,7 @@ export interface EventRecord {
   autoCloseOnFull: boolean;
   waitlistCapacity: number;
   waitlistedCount: number;
+  paymentInstructions: string | null;
   status: EventLifecycleStatus;
   location: EventLocationRecord;
   locationRevision: number;
@@ -67,6 +69,7 @@ export interface CreateEventCommand {
   maxPartySize: number;
   autoCloseOnFull: boolean;
   waitlistCapacity: number;
+  paymentInstructions?: string | null;
   status: "DRAFT" | "SCHEDULED";
   location: EventLocation;
   coordinates: MapsCoordinates | null;
@@ -81,6 +84,7 @@ export interface UpdateEventCommand {
   opensAt: Date;
   closesAt: Date;
   autoCloseOnFull: boolean;
+  paymentInstructions?: string | null;
   location: EventLocation;
   keepMapsUrl: boolean;
   // Null for an unchanged link keeps the stored point, so a failed lookup never erases it.
@@ -92,6 +96,10 @@ export interface AdminEventSummary extends EventRecord {
   phase: EventPhase;
   availableSeats: number;
   confirmedReservationCount: number;
+  inReviewCount: number;
+  onListCount: number;
+  paidCount: number;
+  queueCount: number;
 }
 
 export interface AdminEventDetail extends AdminEventSummary {

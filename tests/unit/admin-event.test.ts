@@ -23,6 +23,7 @@ const validCreate = {
   maxPartySize: 2,
   autoCloseOnFull: false,
   waitlistCapacity: 5,
+  paymentInstructions: null,
   status: "DRAFT",
   locationName: null,
   locationAddress: null,
@@ -44,6 +45,7 @@ describe("admin event contracts", () => {
       capacity: "20",
       maxPartySize: "",
       waitlistCapacity: "5",
+      paymentInstructions: "",
       status: "DRAFT",
       locationName: "",
       locationAddress: "",
@@ -60,6 +62,7 @@ describe("admin event contracts", () => {
       maxPartySize: undefined,
       waitlistCapacity: 5,
       autoCloseOnFull: true,
+      paymentInstructions: "",
     });
   });
 
@@ -74,6 +77,7 @@ describe("admin event contracts", () => {
       closesAt: validCreate.closesAt,
       maxPartySize: validCreate.maxPartySize,
       autoCloseOnFull: validCreate.autoCloseOnFull,
+      paymentInstructions: validCreate.paymentInstructions,
       locationName: validCreate.locationName,
       locationAddress: validCreate.locationAddress,
       locationMapsUrl: validCreate.locationMapsUrl,
@@ -114,6 +118,28 @@ describe("admin event contracts", () => {
     );
     expect(
       createAdminEventSchema.safeParse({ ...validCreate, capacity: 1, maxPartySize: 2 }).success,
+    ).toBe(false);
+    const tooLarge = createAdminEventSchema.safeParse({ ...validCreate, maxPartySize: 3 });
+    expect(tooLarge.success).toBe(false);
+    if (!tooLarge.success) {
+      expect(tooLarge.error.issues.find((issue) => issue.path[0] === "maxPartySize")?.message).toBe(
+        "Máximo 2 personas por solicitud.",
+      );
+    }
+  });
+
+  it("trims optional payment instructions and enforces 600 characters", () => {
+    expect(
+      createAdminEventSchema.parse({
+        ...validCreate,
+        paymentInstructions: "  Transferir a la cuenta indicada  ",
+      }).paymentInstructions,
+    ).toBe("Transferir a la cuenta indicada");
+    expect(
+      createAdminEventSchema.safeParse({
+        ...validCreate,
+        paymentInstructions: "x".repeat(601),
+      }).success,
     ).toBe(false);
   });
 

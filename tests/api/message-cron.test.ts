@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const drain = vi.fn();
 const retryImages = vi.fn();
@@ -19,6 +19,10 @@ beforeEach(() => {
   retryImages.mockReset().mockResolvedValue(undefined);
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("message cron route", () => {
   it.each([undefined, "Bearer wrong", secret, "Basic abc"])(
     "rejects invalid authorization %s",
@@ -33,14 +37,15 @@ describe("message cron route", () => {
     },
   );
 
-  it("drains 50 messages with the configured budget", async () => {
+  it("bounds image retries and drains with the remaining execution budget", async () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(1_000).mockReturnValueOnce(6_000);
     const response = await GET(
       new Request("http://localhost/api/cron/messages", {
         headers: { authorization: `Bearer ${secret}` },
       }),
     );
     expect(response.status).toBe(200);
-    expect(retryImages).toHaveBeenCalledWith(20);
-    expect(drain).toHaveBeenCalledWith({ limit: 50, timeBudgetMs: 40_000 });
+    expect(retryImages).toHaveBeenCalledWith(20, 16_000);
+    expect(drain).toHaveBeenCalledWith({ limit: 50, timeBudgetMs: 45_000 });
   });
 });

@@ -31,12 +31,20 @@ describe("contact normalization", () => {
 
   it("normalizes an Instagram handle", () => {
     expect(normalizeInstagram(" @User.Name ")).toEqual({ ok: true, value: "user.name" });
+    expect(normalizeInstagram("https://www.instagram.com/User.Name/?igsh=abc")).toEqual({
+      ok: true,
+      value: "user.name",
+    });
   });
 
-  it.each(["@bad-name", "@space name", "@user!", `@${"a".repeat(31)}`])(
-    "rejects invalid Instagram input %j",
-    (input) => {
-      expect(normalizeInstagram(input)).toEqual({ ok: false, reason: "INVALID_FORMAT" });
-    },
-  );
+  it.each([
+    "@bad-name",
+    "@space name",
+    "@user!",
+    `@${"a".repeat(31)}`,
+    "https://instagram.com/p/not-a-profile",
+    "https://example.com/user.name",
+  ])("rejects invalid Instagram input %j", (input) => {
+    expect(normalizeInstagram(input)).toEqual({ ok: false, reason: "INVALID_FORMAT" });
+  });
 });

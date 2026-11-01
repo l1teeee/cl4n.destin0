@@ -92,6 +92,13 @@ function promotedSentence(promoted: readonly string[]): string {
   return ` Se agregó a ${promoted.join(" y a ")} a la lista para revisión.`;
 }
 
+// Edit, move and remove promote from the queue as a side effect that no confirmation dialog
+// showed beforehand, so their result has to say who came in.
+export function enteredFromQueueSentence(promoted: readonly string[]): string {
+  if (promoted.length === 0) return "";
+  return ` Entró ${promoted.join(" y ")} desde la cola.`;
+}
+
 export function acceptedResult({ guests, outcome }: MessageResultInput): string {
   const verb = isCouple(guests) ? "están" : "está";
   return withOutcome(`Aceptaste a ${guestsLabel(guests)}. Ya ${verb} en la lista.`, outcome);
@@ -131,8 +138,13 @@ export function promotedFromQueueResult({ guests, outcome }: MessageResultInput)
   );
 }
 
-export function removedFromQueueResult({ guests, outcome }: MessageResultInput): string {
-  return withOutcome(`Se quitó a ${guestsLabel(guests)} de la cola.`, outcome);
+export function removedFromQueueResult({
+  guests,
+  promoted,
+  outcome,
+}: PromotingResultInput): string {
+  const text = `Se quitó a ${guestsLabel(guests)} de la cola.${enteredFromQueueSentence(promoted)}`;
+  return withOutcome(text, outcome);
 }
 
 export function addedResult({ guests, placement, position }: AddedResultInput): string {
