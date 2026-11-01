@@ -1278,6 +1278,71 @@ describe("PostgreSQL message delivery", () => {
     });
   });
 
+  it("loads the messages of many requests in one call, each with only its own", async () => {
+    const contactId = await createContact(`902${Date.now()}`);
+    const firstReservation = await createReservation(await createEvent(), { handle: "many.one" });
+    const secondReservation = await createReservation(await createEvent(), { handle: "many.two" });
+    const silentReservation = await createReservation(await createEvent(), { handle: "many.none" });
+    const eventId = await createEvent();
+    const waitlist = await pool.query<{ id: string }>(
+      `INSERT INTO waitlist_entries (
+         event_id, waitlist_number, status, full_name, instagram_handle, party_size,
+         terms_accepted_at, idempotency_key, submitted_at
+       ) VALUES ($1, 1, 'WAITING', 'Many Guest', 'many.waitlist', 1,
+                 clock_timestamp(), $2, clock_timestamp())
+       RETURNING id`,
+      [eventId, randomUUID()],
+    );
+    const waitlistEntryId = waitlist.rows[0]!.id;
+    const later = await createOutbound(contactId, {
+      body: "first later",
+      reservationId: firstReservation,
+      createdAt: new Date("2026-10-30T09:05:00Z"),
+    });
+    const earlier = await createOutbound(contactId, {
+      body: "first earlier",
+      reservationId: firstReservation,
+      createdAt: new Date("2026-10-30T09:00:00Z"),
+    });
+    const second = await createOutbound(contactId, {
+      body: "second",
+      reservationId: secondReservation,
+    });
+    const queued = await pool.query<{ id: string }>(
+      `INSERT INTO messages (
+         contact_id, waitlist_entry_id, direction, kind, source, status, body
+       ) VALUES ($1, $2, 'OUTBOUND', 'FREE_TEXT', 'ADMIN', 'QUEUED', 'queued') RETURNING id`,
+      [contactId, waitlistEntryId],
+    );
+
+    const grouped = await repository.getRequestMessagesForMany({
+      reservationIds: [firstReservation, secondReservation, silentReservation],
+      waitlistEntryIds: [waitlistEntryId],
+    });
+
+    expect(grouped.byReservationId.get(firstReservation)!.map((message) => message.id)).toEqual([
+      earlier,
+      later,
+    ]);
+    expect(grouped.byReservationId.get(secondReservation)!.map((message) => message.id)).toEqual([
+      second,
+    ]);
+    expect(grouped.byReservationId.has(silentReservation)).toBe(false);
+    expect(grouped.byWaitlistEntryId.get(waitlistEntryId)!.map((message) => message.id)).toEqual([
+      queued.rows[0]!.id,
+    ]);
+  });
+
+  it("returns empty maps for no request ids", async () => {
+    const grouped = await repository.getRequestMessagesForMany({
+      reservationIds: [],
+      waitlistEntryIds: [],
+    });
+
+    expect(grouped.byReservationId.size).toBe(0);
+    expect(grouped.byWaitlistEntryId.size).toBe(0);
+  });
+
   it("delivers older due rows before an immediate admin target", async () => {
     const contactId = await createContact(`905${Date.now()}`);
     await createOutbound(contactId, {

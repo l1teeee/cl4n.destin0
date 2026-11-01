@@ -37,18 +37,36 @@ interface MutationFormProps {
 function FormContent({
   label,
   children,
+  icon,
   danger,
   pending,
-}: Omit<MutationFormProps, "action" | "confirmation" | "icon" | "reportToSection"> & {
+}: Omit<MutationFormProps, "action" | "confirmation" | "reportToSection"> & {
   pending: boolean;
 }) {
   return (
     <>
       {children}
-      <Button type="submit" disabled={pending} variant={danger ? "destructive" : "outline"}>
-        {pending ? <Loader2 className="size-4 animate-spin" /> : null}
-        {pending ? "Procesando..." : label}
-      </Button>
+      {icon ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="submit"
+              aria-label={label}
+              size="icon-sm"
+              variant="ghost"
+              disabled={pending}
+            >
+              {pending ? <Loader2 className="animate-spin" /> : icon}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{label}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <Button type="submit" disabled={pending} variant={danger ? "destructive" : "outline"}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null}
+          {pending ? "Procesando..." : label}
+        </Button>
+      )}
     </>
   );
 }
@@ -75,7 +93,7 @@ export function MutationForm({
   );
   const form = (
     <form action={formAction} className="flex flex-wrap items-end gap-2">
-      <FormContent label={label} danger={danger} pending={pending}>
+      <FormContent label={label} icon={icon} danger={danger} pending={pending}>
         {children}
       </FormContent>
     </form>

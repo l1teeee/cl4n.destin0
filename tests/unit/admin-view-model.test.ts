@@ -5,8 +5,10 @@ import {
   adminStatusBadgeVariant,
   auditPageSizeFor,
   dashboardActions,
+  dashboardGuestColumns,
   editEventBackLink,
   eventPhaseLabel,
+  eventSections,
   formatAdminDate,
   formatAuditMetadata,
   formatCount,
@@ -17,15 +19,13 @@ import {
   emailStatusBadgeVariant,
   emailStatusLabel,
   parseEmailLogSearchParams,
-  parseRosterView,
   parseAuditSearchParams,
+  parseEventSection,
   parseReservationSearchParams,
   publicCluesUrl,
   publicEventUrl,
   publicLinkHint,
   reservationStatusLabel,
-  rosterStatusLabel,
-  rosterStatusBadgeVariant,
 } from "@/ui/admin/view-model";
 
 const now = new Date("2026-10-05T12:00:00Z");
@@ -167,6 +167,82 @@ describe("admin dashboard actions", () => {
   });
 });
 
+describe("event detail sections", () => {
+  it("opens the guest list by default and for unknown values", () => {
+    expect(parseEventSection(undefined, true)).toBe("invitados");
+    expect(parseEventSection("", true)).toBe("invitados");
+    expect(parseEventSection("desconocida", true)).toBe("invitados");
+  });
+
+  it("keeps the old reservaciones id working as an alias of invitados", () => {
+    expect(parseEventSection("reservaciones", false)).toBe("invitados");
+    expect(parseEventSection("reservaciones", true)).toBe("invitados");
+    expect(parseEventSection("invitados", false)).toBe("invitados");
+  });
+
+  it.each(["ubicacion", "gestion", "auditoria"] as const)("opens the %s section", (section) => {
+    expect(parseEventSection(section, false)).toBe(section);
+  });
+
+  it("opens the clues section only while the clues are visible", () => {
+    expect(parseEventSection("pistas", true)).toBe("pistas");
+    expect(parseEventSection("pistas", false)).toBe("invitados");
+  });
+
+  it("reads only the first value of a repeated parameter", () => {
+    expect(parseEventSection(["gestion", "auditoria"], false)).toBe("gestion");
+    expect(parseEventSection(["reservaciones", "gestion"], false)).toBe("invitados");
+  });
+
+  it("lists Invitados first and adds Pistas only while the clues are visible", () => {
+    expect(eventSections(false).map((section) => section.label)).toEqual([
+      "Invitados",
+      "Ubicación",
+      "Gestión",
+      "Auditoría",
+    ]);
+    expect(eventSections(true).map((section) => [section.id, section.label])).toEqual([
+      ["invitados", "Invitados"],
+      ["pistas", "Pistas"],
+      ["ubicacion", "Ubicación"],
+      ["gestion", "Gestión"],
+      ["auditoria", "Auditoría"],
+    ]);
+  });
+});
+
+describe("dashboard guest columns", () => {
+  it("replaces the seat counters with the occupancy, the three stages and the queue", () => {
+    expect(dashboardGuestColumns.map((column) => column.heading)).toEqual([
+      "Ocupados",
+      "Por revisar",
+      "En la lista",
+      "Confirmados",
+      "Cola",
+    ]);
+  });
+
+  it("renders the counts of an event", () => {
+    const summary = event({
+      capacity: 20,
+      reservedSeats: 12,
+      inReviewCount: 3,
+      onListCount: 5,
+      paidCount: 4,
+      queueCount: 2,
+      waitlistCapacity: 5,
+    });
+
+    expect(dashboardGuestColumns.map((column) => column.value(summary))).toEqual([
+      "12/20",
+      "3",
+      "5",
+      "4",
+      "2 / 5",
+    ]);
+  });
+});
+
 describe("admin formatting and query parsing", () => {
   it("formats clue audit metadata", () => {
     expect(formatAuditMetadata({ clueAdded: "clue-1" })).toBe("Pista publicada: clue-1");
@@ -214,7 +290,7 @@ describe("admin formatting and query parsing", () => {
     expect(auditPageSizeFor(undefined)).toBe(10);
   });
 
-  it("maps roster and email labels and allow-lists their filters", () => {
+  it("maps status and email labels and allow-lists their filters", () => {
     expect(adminStatusBadgeVariant("ACTIVE")).toBe("active");
     expect(adminStatusBadgeVariant("INACTIVE")).toBe("inactive");
     expect(adminStatusBadgeVariant("OPEN")).toBe("open");
@@ -225,15 +301,11 @@ describe("admin formatting and query parsing", () => {
     expect(adminStatusBadgeVariant("SCHEDULED")).toBe("default");
     expect(adminStatusBadgeVariant("FULL")).toBe("default");
     expect(adminStatusBadgeVariant("COMPLETED")).toBe("default");
-    expect(rosterStatusLabel("PROMOTED")).toBe("Promovida");
-    expect(rosterStatusBadgeVariant("REJECTED")).toBe("rejected");
     expect(emailStatusLabel("FAILED")).toBe("Falló");
     expect(emailStatusBadgeVariant("SENT")).toBe("confirmed");
     expect(emailKindLabel("ADMIN_SIGNED_IN")).toBe("Inicio de sesión");
     expect(emailKindLabel("EVENT_LOCATION")).toBe("Ubicación del evento");
     expect(emailErrorLabel("LOCATION_SUPERSEDED")).toBe("Existe una ubicación más reciente");
-    expect(parseRosterView("en-cola", "confirmadas")).toBe("en-cola");
-    expect(parseRosterView("invalida", "confirmadas")).toBe("confirmadas");
     expect(parseEmailLogSearchParams({ estado: "FAILED", tipo: "RESERVATION_CONFIRMED" })).toEqual({
       status: "FAILED",
       kind: "RESERVATION_CONFIRMED",
