@@ -20,6 +20,8 @@ import type {
   ConversationSummary,
   LinkedRequestSummary,
   RequestMessageSubject,
+  RequestMessageSubjects,
+  RequestMessagesBySubject,
 } from "@/application/messaging/conversation-queries";
 import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
 import type { MessageKind, MessageStatus } from "@/domain/messaging/message-types";
@@ -100,6 +102,48 @@ function contactScopedId(event: InstagramWebhookEvent): string | null {
     return event.senderId;
   }
   return event.type === "echo" ? event.recipientId : null;
+}
+
+interface MessageRow {
+  id: string;
+  direction: "OUTBOUND" | "INBOUND";
+  kind: MessageKind;
+  source: import("@/domain/messaging/message-types").MessageSource;
+  status: MessageStatus;
+  body: string | null;
+  attachment_urls: string[] | null;
+  last_error: string | null;
+  sent_at: Date | null;
+  read_at: Date | null;
+  created_at: Date;
+  attachment_ids: string[];
+}
+
+function toConversationMessage(row: MessageRow): ConversationMessage {
+  return {
+    id: row.id,
+    direction: row.direction,
+    kind: row.kind,
+    source: row.source,
+    status: row.status,
+    body: row.body,
+    attachmentIds: row.attachment_ids,
+    attachmentUrls: row.direction === "OUTBOUND" ? (row.attachment_urls ?? []) : [],
+    lastError: row.last_error,
+    sentAt: row.sent_at,
+    readAt: row.read_at,
+    createdAt: row.created_at,
+  };
+}
+
+function appendTo(
+  groups: Map<string, ConversationMessage[]>,
+  key: string,
+  message: ConversationMessage,
+) {
+  const group = groups.get(key);
+  if (group) group.push(message);
+  else groups.set(key, [message]);
 }
 
 interface ContactRow extends QueryResultRow {
@@ -1371,20 +1415,7 @@ export class PostgresMessageRepository
   }
 
   private async messagesFor(where: string, value: string): Promise<ConversationMessage[]> {
-    const result = await this.pool.query<{
-      id: string;
-      direction: "OUTBOUND" | "INBOUND";
-      kind: MessageKind;
-      source: import("@/domain/messaging/message-types").MessageSource;
-      status: MessageStatus;
-      body: string | null;
-      attachment_urls: string[] | null;
-      last_error: string | null;
-      sent_at: Date | null;
-      read_at: Date | null;
-      created_at: Date;
-      attachment_ids: string[];
-    }>(
+    const result = await this.pool.query<MessageRow>(
       `SELECT m.id, m.direction, m.kind, m.source, m.status, m.body, m.attachment_urls,
               m.last_error,
               m.sent_at, m.read_at, m.created_at,
@@ -1397,20 +1428,44 @@ export class PostgresMessageRepository
         ORDER BY m.created_at, m.id`,
       [value],
     );
-    return result.rows.map((row) => ({
-      id: row.id,
-      direction: row.direction,
-      kind: row.kind,
-      source: row.source,
-      status: row.status,
-      body: row.body,
-      attachmentIds: row.attachment_ids,
-      attachmentUrls: row.direction === "OUTBOUND" ? (row.attachment_urls ?? []) : [],
-      lastError: row.last_error,
-      sentAt: row.sent_at,
-      readAt: row.read_at,
-      createdAt: row.created_at,
-    }));
+    return result.rows.map(toConversationMessage);
+  }
+
+  async getRequestMessagesForMany(
+    subjects: RequestMessageSubjects,
+  ): Promise<RequestMessagesBySubject> {
+    const grouped: RequestMessagesBySubject = {
+      byReservationId: new Map(),
+      byWaitlistEntryId: new Map(),
+    };
+    if (subjects.reservationIds.length === 0 && subjects.waitlistEntryIds.length === 0) {
+      return grouped;
+    }
+    const result = await this.pool.query<
+      MessageRow & { reservation_id: string | null; waitlist_entry_id: string | null }
+    >(
+      `SELECT m.id, m.direction, m.kind, m.source, m.status, m.body, m.attachment_urls,
+              m.last_error,
+              m.sent_at, m.read_at, m.created_at,
+              m.reservation_id, m.waitlist_entry_id,
+              COALESCE(array_agg(a.id::text ORDER BY a.position)
+                FILTER (WHERE a.id IS NOT NULL), '{}') AS attachment_ids
+         FROM messages m
+         LEFT JOIN message_attachments a ON a.message_id = m.id
+        WHERE m.reservation_id = ANY($1::uuid[]) OR m.waitlist_entry_id = ANY($2::uuid[])
+        GROUP BY m.id
+        ORDER BY m.created_at, m.id`,
+      [subjects.reservationIds, subjects.waitlistEntryIds],
+    );
+    for (const row of result.rows) {
+      const message = toConversationMessage(row);
+      if (row.reservation_id !== null) {
+        appendTo(grouped.byReservationId, row.reservation_id, message);
+      } else if (row.waitlist_entry_id !== null) {
+        appendTo(grouped.byWaitlistEntryId, row.waitlist_entry_id, message);
+      }
+    }
+    return grouped;
   }
 
   async getConversation(contactId: string): Promise<ConversationDetail | null> {

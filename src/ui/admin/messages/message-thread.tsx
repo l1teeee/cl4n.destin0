@@ -34,6 +34,8 @@ interface MessageActions {
 interface MessageThreadProps extends MessageActions {
   messages: readonly ThreadMessageView[];
   username: string | null;
+  // The chat panel follows the newest message; a thread inside a sheet must not scroll the sheet.
+  scrollToNewest?: boolean;
 }
 
 interface MessageItemProps extends MessageActions {
@@ -151,14 +153,15 @@ export function MessageThread({
   retryAction,
   markSentAction,
   discardAction,
+  scrollToNewest = true,
 }: MessageThreadProps) {
   const end = useRef<HTMLDivElement>(null);
   const newestMessageId = messages.at(-1)?.id;
 
   // The component stays mounted when another conversation opens, so follow the newest message id.
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" });
-  }, [newestMessageId]);
+    if (scrollToNewest) end.current?.scrollIntoView({ block: "end" });
+  }, [newestMessageId, scrollToNewest]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">

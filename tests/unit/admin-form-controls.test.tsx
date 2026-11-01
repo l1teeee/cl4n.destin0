@@ -260,12 +260,12 @@ describe("admin form-compatible controls", () => {
     const { container } = render(<EventForm action={action} mode={mode} values={values} />);
     const name = screen.getByLabelText("Nombre interno") as HTMLInputElement;
     const slug = container.querySelector<HTMLInputElement>('[name="slug"]')!;
-    const numberField = container.querySelector<HTMLInputElement>(
-      mode === "create" ? '[name="capacity"]' : '[name="maxPartySize"]',
+    const numberField = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+      mode === "create" ? '[name="capacity"]' : '[name="paymentInstructions"]',
     )!;
     const typedName = mode === "create" ? "Cena nueva" : "Cena editada";
     const typedSlug = mode === "create" ? "cena-nueva" : "cena-editada";
-    const typedNumber = mode === "create" ? "24" : "4";
+    const typedNumber = mode === "create" ? "24" : "Transferencia al banco";
 
     fireEvent.change(name, { target: { value: typedName } });
     fireEvent.change(slug, { target: { value: typedSlug } });
@@ -281,7 +281,7 @@ describe("admin form-compatible controls", () => {
     const submitted = action.mock.calls[0]![1];
     expect(submitted.get("internalName")).toBe(typedName);
     expect(submitted.get("slug")).toBe(typedSlug);
-    expect(submitted.get(mode === "create" ? "capacity" : "maxPartySize")).toBe(typedNumber);
+    expect(submitted.get(mode === "create" ? "capacity" : "paymentInstructions")).toBe(typedNumber);
   });
 
   it("shows EventForm field errors and focuses the first invalid control", async () => {

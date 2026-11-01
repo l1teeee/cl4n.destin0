@@ -25,8 +25,6 @@ import type {
   EventRecord,
   LoadedLocationVersion,
 } from "@/application/events/types";
-import { createCancelReservation } from "@/application/reservations/cancel-reservation";
-import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import {
   changeWaitlistCapacitySchema,
   createAdminEventSchema,
@@ -42,7 +40,6 @@ import { googleMapsLinkResolver } from "@/infrastructure/maps/google-maps-link-r
 import { postgresEventLocationEmailRepository } from "@/infrastructure/db/repositories/postgres-event-location-email-repository";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
-import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import {
   localDateTimeToUtc,
   localEventDateTimeToUtc,
@@ -55,18 +52,6 @@ export interface AdminActionState {
 }
 
 const idSchema = z.object({ id: z.string().uuid("El identificador no es válido.") }).strict();
-const reservationActionSchema = z
-  .object({
-    eventId: z.string().uuid("El evento no es válido."),
-    reservationId: z.string().uuid("La reservación no es válida."),
-  })
-  .strict();
-const waitlistActionSchema = z
-  .object({
-    eventId: z.string().uuid("El evento no es válido."),
-    waitlistEntryId: z.string().uuid("La entrada en cola no es válida."),
-  })
-  .strict();
 const capacitySchema = z
   .object({
     id: z.string().uuid("El identificador no es válido."),
@@ -651,66 +636,4 @@ export async function changeWaitlistCapacityAction(
   if (!result.ok) return operationError(result.error);
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Cola actualizada." };
-}
-
-export async function cancelReservationAction(
-  eventId: string,
-  reservationId: string,
-  _previousState: AdminActionState,
-  _formData: FormData,
-): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
-  void _previousState;
-  void _formData;
-  if (!authorization.authorized) return unauthorized();
-  const parsed = reservationActionSchema.safeParse({ eventId, reservationId });
-  if (!parsed.success) return firstValidationError(parsed.error);
-  const cancelReservation = createCancelReservation(new PostgresReservationAllocationRepository());
-  const result = await cancelReservation({
-    reservationId: parsed.data.reservationId,
-    actorAdminId: authorization.session.admin.id,
-  });
-  if (result === "NOT_FOUND") return invalid("No se encontró la reservación.");
-  if (result === "NOT_CANCELLABLE") return invalid("La reservación ya no se puede cancelar.");
-  scheduleEmailDelivery();
-  scheduleMessageDelivery();
-  revalidatePath("/admin");
-  revalidatePath(`/admin/events/${parsed.data.eventId}`);
-  revalidatePath("/admin/audit");
-  return { ok: true, message: "Reservación cancelada." };
-}
-
-export async function cancelWaitlistEntryAction(
-  eventId: string,
-  waitlistEntryId: string,
-  _previousState: AdminActionState,
-  _formData: FormData,
-): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
-  void _previousState;
-  void _formData;
-  if (!authorization.authorized) return unauthorized();
-  const parsed = waitlistActionSchema.safeParse({ eventId, waitlistEntryId });
-  if (!parsed.success) return firstValidationError(parsed.error);
-
-  const cancelWaitlistEntry = createCancelWaitlistEntry(
-    new PostgresReservationAllocationRepository(),
-  );
-  const result = await cancelWaitlistEntry({
-    waitlistEntryId: parsed.data.waitlistEntryId,
-    actorAdminId: authorization.session.admin.id,
-  });
-  if (result === "NOT_FOUND") return invalid("No se encontró la entrada en cola.");
-  if (result === "NOT_CANCELLABLE") return invalid("La entrada ya no se puede retirar.");
-
-  scheduleEmailDelivery();
-  scheduleMessageDelivery();
-  revalidatePath("/admin");
-  revalidatePath(`/admin/events/${parsed.data.eventId}`);
-  revalidatePath("/admin/audit");
-  return {
-    ok: true,
-    message:
-      "Entrada retirada de la cola. Si se liberó espacio, la siguiente persona entró automáticamente y recibió su correo.",
-  };
 }

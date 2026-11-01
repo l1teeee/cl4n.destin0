@@ -11,8 +11,8 @@ import {
   adminStatusBadgeVariant,
   eventPhaseLabel,
   dashboardActions,
+  dashboardGuestColumns,
   formatAdminDate,
-  formatCount,
 } from "@/ui/admin/view-model";
 import { Badge } from "@/ui/primitives/badge";
 import { Button } from "@/ui/primitives/button";
@@ -76,11 +76,7 @@ export default async function AdminPage() {
                   "Experiencia",
                   "Fecha",
                   "Estado",
-                  "Capacidad",
-                  "Reservados",
-                  "Disponibles",
-                  "Reservaciones",
-                  "En cola",
+                  ...dashboardGuestColumns.map((column) => column.heading),
                   "Abre",
                   "Cierra",
                   "Acciones",
@@ -105,13 +101,9 @@ export default async function AdminPage() {
                         {eventPhaseLabel(event.phase)}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatCount(event.capacity)}</TableCell>
-                    <TableCell>{formatCount(event.reservedSeats)}</TableCell>
-                    <TableCell>{formatCount(event.availableSeats)}</TableCell>
-                    <TableCell>{formatCount(event.confirmedReservationCount)}</TableCell>
-                    <TableCell>
-                      {formatCount(event.waitlistedCount)} / {formatCount(event.waitlistCapacity)}
-                    </TableCell>
+                    {dashboardGuestColumns.map((column) => (
+                      <TableCell key={column.heading}>{column.value(event)}</TableCell>
+                    ))}
                     <TableCell>{formatAdminDate(event.opensAt)}</TableCell>
                     <TableCell>{formatAdminDate(event.closesAt)}</TableCell>
                     <TableCell>
@@ -149,17 +141,14 @@ export default async function AdminPage() {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button variant="ghost" size="icon-sm" asChild>
-                                <Link
-                                  href={`/admin/events/${event.id}`}
-                                  aria-label="Ver reservaciones"
-                                >
+                                <Link href={`/admin/events/${event.id}`} aria-label="Ver invitados">
                                   <LinkPendingIcon>
                                     <CalendarDays />
                                   </LinkPendingIcon>
                                 </Link>
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Ver reservaciones</TooltipContent>
+                            <TooltipContent>Ver invitados</TooltipContent>
                           </Tooltip>
                           {actions.includes("DELETE") ? (
                             <MutationForm

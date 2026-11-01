@@ -58,6 +58,7 @@ export default async function EditEventPage({ params, searchParams }: EditEventP
           closesAt: formatUtcForElSalvador(event.closesAt, "yyyy-MM-dd'T'HH:mm"),
           maxPartySize: event.maxPartySize,
           autoCloseOnFull: event.autoCloseOnFull,
+          paymentInstructions: event.paymentInstructions,
           locationName: event.location.name,
           locationAddress: event.location.address,
           locationMapsUrl: event.location.mapsUrl,
