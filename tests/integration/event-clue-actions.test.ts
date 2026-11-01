@@ -58,8 +58,8 @@ async function insertEvent(status: "SCHEDULED" | "CLOSED"): Promise<string> {
     `INSERT INTO events (
        internal_name, slug, starts_at, capacity, max_party_size,
        opens_at, closes_at, auto_close_on_full, status
-     ) VALUES ('Pistas', $1, '2027-11-21T01:30:00Z', 20, 4,
-       '2027-11-01T14:00:00Z', '2027-11-21T02:00:00Z', false, $2::event_status)
+     ) VALUES ('Pistas', $1, '2098-11-21T01:30:00Z', 20, 4,
+       '2098-11-01T14:00:00Z', '2098-11-21T02:00:00Z', false, $2::event_status)
      RETURNING id`,
     [`clue-actions-${randomUUID()}`, status],
   );
