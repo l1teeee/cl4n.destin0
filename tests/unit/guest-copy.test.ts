@@ -24,8 +24,8 @@ const solo = ["Ana López"];
 const couple = ["Ana López", "Luis Pérez"];
 
 const noQueue = "No hay nadie en la cola, así que el lugar quedará libre.";
-const oneInQueue = "Se va a agregar a Carla, que es la primera en la cola.";
-const twoInQueue = "Se van a agregar a Carla y a Pedro, que son los primeros en la cola.";
+const oneInQueue = "Se va a agregar desde la cola la solicitud de Carla.";
+const twoInQueue = "Se van a agregar desde la cola las solicitudes de Carla y de Pedro.";
 
 describe("guestsLabel", () => {
   it("returns the single name", () => {
@@ -49,20 +49,29 @@ describe("partySizeLabel", () => {
 
 describe("replacementSentence", () => {
   it("says the seat stays free when nobody is in the queue", () => {
-    expect(replacementSentence([])).toBe(noQueue);
+    expect(replacementSentence([], 0, 1)).toBe(noQueue);
+    expect(replacementSentence([], 0, 2)).toBe(
+      "No hay nadie en la cola, así que los lugares quedarán libres.",
+    );
+    expect(replacementSentence([], 1, 1)).toBe(
+      "La primera solicitud de la cola no cabe, así que el lugar quedará libre.",
+    );
+    expect(replacementSentence([], 1, 2)).toBe(
+      "La primera solicitud de la cola no cabe, así que los lugares quedarán libres.",
+    );
   });
 
   it("names the single request that comes in", () => {
-    expect(replacementSentence(["Carla"])).toBe(oneInQueue);
+    expect(replacementSentence(["Carla"], 1, 1)).toBe(oneInQueue);
   });
 
   it("names both requests that come in", () => {
-    expect(replacementSentence(["Carla", "Pedro"])).toBe(twoInQueue);
+    expect(replacementSentence(["Carla", "Pedro"], 2, 2)).toBe(twoInQueue);
   });
 
   it("keeps a couple request as one name", () => {
-    expect(replacementSentence(["Carla y Mario"])).toBe(
-      "Se va a agregar a Carla y Mario, que es la primera en la cola.",
+    expect(replacementSentence(["Carla y Mario"], 1, 2)).toBe(
+      "Se va a agregar desde la cola la solicitud de Carla y Mario.",
     );
   });
 });
@@ -79,7 +88,7 @@ describe("rejectConfirmation", () => {
       case: "a couple and one replacement",
       guests: couple,
       replacements: ["Carla"],
-      expected: `Al rechazar a Ana López y Luis Pérez va a quedar un espacio vacío. ${oneInQueue} ¿Estás seguro?`,
+      expected: `Al rechazar a Ana López y Luis Pérez van a quedar dos espacios vacíos. ${oneInQueue} ¿Estás seguro?`,
     },
     {
       case: "one guest and two replacements",
@@ -88,7 +97,9 @@ describe("rejectConfirmation", () => {
       expected: `Al rechazar a Ana López va a quedar un espacio vacío. ${twoInQueue} ¿Estás seguro?`,
     },
   ])("words $case", ({ guests, replacements, expected }) => {
-    expect(rejectConfirmation({ guests, replacements })).toBe(expected);
+    expect(rejectConfirmation({ guests, replacements, waitingCount: replacements.length })).toBe(
+      expected,
+    );
   });
 });
 
@@ -104,7 +115,7 @@ describe("cancelUnpaidConfirmation", () => {
       case: "a couple and one replacement",
       guests: couple,
       replacements: ["Carla"],
-      expected: `Al eliminar a Ana López y Luis Pérez de la lista va a quedar un espacio vacío. ${oneInQueue} ¿Estás seguro?`,
+      expected: `Al eliminar a Ana López y Luis Pérez de la lista van a quedar dos espacios vacíos. ${oneInQueue} ¿Estás seguro?`,
     },
     {
       case: "one guest and two replacements",
@@ -113,7 +124,9 @@ describe("cancelUnpaidConfirmation", () => {
       expected: `Al eliminar a Ana López de la lista va a quedar un espacio vacío. ${twoInQueue} ¿Estás seguro?`,
     },
   ])("words $case", ({ guests, replacements, expected }) => {
-    expect(cancelUnpaidConfirmation({ guests, replacements })).toBe(expected);
+    expect(
+      cancelUnpaidConfirmation({ guests, replacements, waitingCount: replacements.length }),
+    ).toBe(expected);
   });
 });
 
@@ -133,10 +146,12 @@ describe("cancelPaidConfirmation", () => {
       case: "a couple with two replacements",
       guests: couple,
       replacements: ["Carla", "Pedro"],
-      expected: `Ana López y Luis Pérez ya pagaron. ${lead} ${twoInQueue} ${newcomerNote} ¿Estás seguro?`,
+      expected: `Ana López y Luis Pérez ya pagaron. ${lead.replace("Va a quedar un espacio vacío", "Van a quedar dos espacios vacíos")} ${twoInQueue} ${newcomerNote} ¿Estás seguro?`,
     },
   ])("adds the process note for $case", ({ guests, replacements, expected }) => {
-    expect(cancelPaidConfirmation({ guests, replacements })).toBe(expected);
+    expect(
+      cancelPaidConfirmation({ guests, replacements, waitingCount: replacements.length }),
+    ).toBe(expected);
   });
 
   it.each([
@@ -148,10 +163,10 @@ describe("cancelPaidConfirmation", () => {
     {
       case: "a couple",
       guests: couple,
-      expected: `Ana López y Luis Pérez ya pagaron. ${lead} ${noQueue} ¿Estás seguro?`,
+      expected: `Ana López y Luis Pérez ya pagaron. ${lead.replace("Va a quedar un espacio vacío", "Van a quedar dos espacios vacíos")} No hay nadie en la cola, así que los lugares quedarán libres. ¿Estás seguro?`,
     },
   ])("omits the process note when nobody is in the queue for $case", ({ guests, expected }) => {
-    const text = cancelPaidConfirmation({ guests, replacements: [] });
+    const text = cancelPaidConfirmation({ guests, replacements: [], waitingCount: 0 });
 
     expect(text).toBe(expected);
     expect(text).not.toContain("Quien entre");

@@ -6,7 +6,7 @@ import type {
   ReservationAllocationRepository,
   ReservationResponse,
 } from "@/application/ports/reservation-allocation-repository";
-import { guestRequestSchema } from "@/contracts/guest-request";
+import { guestRequestSchema, INVALID_INSTAGRAM_MESSAGE } from "@/contracts/guest-request";
 import { normalizeInstagram } from "@/domain/reservation/contact-normalization";
 
 import {
@@ -95,10 +95,10 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
     const allergies = parsed.data.hasAllergies ? parsed.data.allergies! : null;
 
     if (!guest1Instagram.ok) {
-      return normalizationFailure("guest1Instagram", "Ingresa un usuario de Instagram válido.");
+      return normalizationFailure("guest1Instagram", INVALID_INSTAGRAM_MESSAGE);
     }
     if (guest2Instagram && !guest2Instagram.ok) {
-      return normalizationFailure("guest2Instagram", "Ingresa un usuario de Instagram válido.");
+      return normalizationFailure("guest2Instagram", INVALID_INSTAGRAM_MESSAGE);
     }
 
     const fingerprint = dependencies.computeFingerprint({

@@ -244,6 +244,32 @@ describe("dashboard guest columns", () => {
 });
 
 describe("admin formatting and query parsing", () => {
+  it("formats location, stage, changed fields and other metadata", () => {
+    expect(formatAuditMetadata({ locationMessagesQueued: 1, locationRevision: 2 })).toBe(
+      "Ubicación enviada (versión 2) a 1 persona",
+    );
+    expect(formatAuditMetadata({ locationMessagesQueued: 2, locationRevision: 3 })).toBe(
+      "Ubicación enviada (versión 3) a 2 personas",
+    );
+    expect(formatAuditMetadata({ locationMessagesQueued: 0, locationRevision: 3 })).toBe(
+      "Ubicación (versión 3): nadie pendiente de recibirla",
+    );
+    expect(formatAuditMetadata({ stage: "IN_REVIEW", partySize: 1 })).toBe(
+      "Etapa: Por revisar · 1 persona",
+    );
+    expect(formatAuditMetadata({ stage: "ON_LIST", partySize: 2 })).toBe(
+      "Etapa: En la lista · 2 personas",
+    );
+    expect(formatAuditMetadata({ stage: "PAID" })).toBe("Etapa: Pago verificado");
+    expect(formatAuditMetadata({ stage: "OTHER" })).toBe("Etapa: OTHER");
+    expect(formatAuditMetadata({ changedFields: ["nombre", "fecha"] })).toBe(
+      "Campos cambiados: nombre, fecha",
+    );
+    expect(formatAuditMetadata({ eventId: "123", nombre: "Ana", count: 2 })).toBe(
+      "nombre: Ana · count: 2",
+    );
+    expect(formatAuditMetadata({ reservationId: "123" })).toBe("-");
+  });
   it("formats clue audit metadata", () => {
     expect(formatAuditMetadata({ clueAdded: "clue-1" })).toBe("Pista publicada: clue-1");
     expect(formatAuditMetadata({ clueRemoved: "clue-2" })).toBe("Pista eliminada: clue-2");

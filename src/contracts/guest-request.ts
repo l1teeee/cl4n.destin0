@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { normalizeInstagram } from "@/domain/reservation/contact-normalization";
 
+export const INVALID_INSTAGRAM_MESSAGE = "Ingresa un usuario de Instagram válido.";
+
 const controlCharacters = /[\u0000-\u001f\u007f]/;
 const noteControlCharacters = /[\u0000-\u0008\u000b-\u001f\u007f]/;
 const controlCharacterMessage = "No se permiten caracteres de control.";
@@ -25,13 +27,15 @@ const requiredInstagram = z
   .string({ error: "El usuario de Instagram es obligatorio." })
   .refine((value) => !controlCharacters.test(value), controlCharacterMessage)
   .trim()
-  .min(1, "El usuario de Instagram es obligatorio.");
+  .min(1, "El usuario de Instagram es obligatorio.")
+  .refine((value) => normalizeInstagram(value).ok, INVALID_INSTAGRAM_MESSAGE);
 
 const optionalInstagram = z
   .string({ error: "El usuario de Instagram debe ser texto." })
   .refine((value) => !controlCharacters.test(value), controlCharacterMessage)
   .trim()
   .min(1, "El usuario de Instagram es obligatorio.")
+  .refine((value) => normalizeInstagram(value).ok, INVALID_INSTAGRAM_MESSAGE)
   .optional();
 
 export const guestRequestBaseSchema = z
