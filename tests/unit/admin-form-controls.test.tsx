@@ -101,23 +101,30 @@ describe("admin date and time controls", () => {
   });
 
   it("formats DateTimePicker and posts only complete values", () => {
-    const first = render(<DateTimePicker name="opensAt" defaultValue="2026-10-09T20:00" />);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 9, 14, 37));
 
-    expect(screen.getByRole("button", { name: "9 oct 2026 · 20:00" })).toBeDefined();
-    expect(hiddenInput(first.container, "opensAt")?.value).toBe("2026-10-09T20:00");
-    first.unmount();
+    try {
+      const first = render(<DateTimePicker name="opensAt" defaultValue="2026-10-09T20:00" />);
 
-    const second = render(<DateTimePicker name="closesAt" />);
-    fireEvent.click(screen.getByRole("button", { name: "Selecciona fecha y hora" }));
-    fireEvent.click(screen.getByRole("button", { name: /viernes, 9 de octubre/i }));
+      expect(screen.getByRole("button", { name: "9 oct 2026 · 20:00" })).toBeDefined();
+      expect(hiddenInput(first.container, "opensAt")?.value).toBe("2026-10-09T20:00");
+      first.unmount();
 
-    expect(hiddenInput(second.container, "closesAt")?.value).toBe("");
-    expect(screen.getByRole("button", { name: /9 oct \d{4}/i })).toBeDefined();
+      const second = render(<DateTimePicker name="closesAt" />);
+      fireEvent.click(screen.getByRole("button", { name: "Selecciona fecha y hora" }));
+      fireEvent.click(screen.getByRole("button", { name: /viernes, 9 de octubre/i }));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "20" })[0]!);
-    fireEvent.click(screen.getByRole("button", { name: "30" }));
+      expect(hiddenInput(second.container, "closesAt")?.value).toBe("");
+      expect(screen.getByRole("button", { name: /9 oct \d{4}/i })).toBeDefined();
 
-    expect(hiddenInput(second.container, "closesAt")?.value).toMatch(/^\d{4}-10-09T20:30$/);
+      fireEvent.click(screen.getAllByRole("button", { name: "20" })[0]!);
+      fireEvent.click(screen.getByRole("button", { name: "30" }));
+
+      expect(hiddenInput(second.container, "closesAt")?.value).toMatch(/^\d{4}-10-09T20:30$/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sets today's date and current time from the shortcut", () => {
