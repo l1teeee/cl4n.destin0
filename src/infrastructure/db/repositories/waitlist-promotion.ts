@@ -18,6 +18,7 @@ interface WaitingEntryRow {
   terms_accepted_at: Date | null;
   link_code: string | null;
   contact_id: string | null;
+  contact_linked_by: "CODE" | "USERNAME" | "MANUAL" | null;
   source: "PUBLIC" | "ADMIN";
   created_by: string | null;
   idempotency_key: string;
@@ -37,7 +38,7 @@ async function readWaitingHead(
     `SELECT id, waitlist_number, full_name, instagram_handle,
             guest2_full_name, guest2_instagram_handle,
             phone_e164, email, email_normalized, party_size, notes, allergies,
-            terms_accepted_at, link_code, contact_id, source, created_by,
+            terms_accepted_at, link_code, contact_id, contact_linked_by, source, created_by,
             idempotency_key, submitted_at
        FROM waitlist_entries
       WHERE event_id = $1
@@ -129,15 +130,15 @@ async function insertPromotedReservation(
        event_id, reservation_number, status, full_name, instagram_handle,
        guest2_full_name, guest2_instagram_handle,
        phone_e164, email, email_normalized, party_size, notes, allergies,
-       terms_accepted_at, link_code, contact_id, source, created_by,
+       terms_accepted_at, link_code, contact_id, contact_linked_by, source, created_by,
        idempotency_key, submitted_at, accepted_at
      )
      VALUES (
        $1, $2, 'CONFIRMED', $3, $4,
        $5, $6,
        $7, $8, $9, $10, $11, $12,
-       $13, $14, $15, $16, $17,
-       $18, $19, $20
+       $13, $14, $15, $16, $17, $18,
+       $19, $20, $21
      )
      RETURNING id`,
     [
@@ -156,6 +157,7 @@ async function insertPromotedReservation(
       entry.terms_accepted_at,
       entry.link_code,
       entry.contact_id,
+      entry.contact_linked_by,
       entry.source,
       entry.created_by,
       entry.idempotency_key,

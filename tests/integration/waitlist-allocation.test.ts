@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { deliverMessagesNow } from "@/application/messaging/deliver-messages";
+import type { InstagramMessenger } from "@/application/messaging/instagram-messenger";
 import { createCancelReservation } from "@/application/reservations/cancel-reservation";
 import { createCancelWaitlistEntry } from "@/application/reservations/cancel-waitlist-entry";
 import { createSubmitReservation } from "@/application/reservations/submit-reservation";
@@ -10,6 +12,7 @@ import { requestFingerprint } from "@/infrastructure/crypto/request-fingerprint"
 import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import type { PostgresEventRepository as EventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { PostgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
 import type { PostgresReservationAllocationRepository as Repository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 import { promoteWaitlist } from "@/infrastructure/db/repositories/waitlist-promotion";
 
@@ -107,6 +110,118 @@ async function messageKinds(eventId: string): Promise<string[]> {
     [eventId],
   );
   return rows.rows.map((row) => row.kind);
+}
+
+interface CodeLinkedEntry {
+  contactId: string;
+  entryId: string;
+  senderId: string;
+}
+
+// Links through the real webhook ingestion, so the pair contact_id + contact_linked_by is written
+// by the same code that production uses.
+async function linkWaitingEntryByCode(eventId: string, position = 0): Promise<CodeLinkedEntry> {
+  const waiting = await pool.query<{ id: string; link_code: string }>(
+    `SELECT id, link_code
+       FROM waitlist_entries
+      WHERE event_id = $1 AND status = 'WAITING'
+      ORDER BY waitlist_number`,
+    [eventId],
+  );
+  const entry = waiting.rows[position]!;
+  const senderId = randomUUID().replace(/\D/g, "");
+  const repository = new PostgresMessageRepository(pool);
+  await repository.ingestEvents([
+    {
+      type: "inbound_message",
+      externalMessageId: randomUUID(),
+      senderId,
+      timestamp: new Date(),
+      text: entry.link_code,
+      attachmentUrls: [],
+      imageAttachmentUrls: [],
+      quickReplyPayload: null,
+      referralRef: null,
+    },
+  ]);
+  const linked = await pool.query<{
+    contact_id: string;
+    contact_linked_by: string;
+  }>(
+    `SELECT contact_id, contact_linked_by
+       FROM waitlist_entries
+      WHERE id = $1`,
+    [entry.id],
+  );
+  expect(linked.rows[0]!.contact_linked_by).toBe("CODE");
+  return { contactId: linked.rows[0]!.contact_id, entryId: entry.id, senderId };
+}
+
+async function expectPromotedReservationKeepsCodeLink(linked: CodeLinkedEntry): Promise<void> {
+  const promoted = await pool.query<{
+    contact_id: string;
+    contact_linked_by: string;
+    status: string;
+  }>(
+    `SELECT r.contact_id, r.contact_linked_by, w.status
+       FROM waitlist_entries w
+       JOIN reservations r ON r.id = w.promoted_reservation_id
+      WHERE w.id = $1`,
+    [linked.entryId],
+  );
+  expect(promoted.rows).toEqual([
+    { contact_id: linked.contactId, contact_linked_by: "CODE", status: "PROMOTED" },
+  ]);
+}
+
+// The WAITLISTED notice is stale once the entry is promoted, so delivery discards it and sends
+// only PROMOTED, to the contact that was linked while the entry was still in the cola.
+async function expectPendingMessagesReachContact(linked: CodeLinkedEntry): Promise<void> {
+  const messages = await pool.query<{
+    id: string;
+    contact_id: string;
+    kind: string;
+    status: string;
+  }>(
+    `SELECT id, contact_id, kind, status
+       FROM messages
+      WHERE waitlist_entry_id = $1
+         OR reservation_id = (SELECT promoted_reservation_id FROM waitlist_entries WHERE id = $1)
+      ORDER BY created_at, id`,
+    [linked.entryId],
+  );
+  expect(messages.rows).toMatchObject([
+    { contact_id: linked.contactId, kind: "WAITLISTED", status: "QUEUED" },
+    { contact_id: linked.contactId, kind: "PROMOTED", status: "QUEUED" },
+  ]);
+
+  const sendText = vi.fn(async () => ({ messageId: `meta-${randomUUID()}` }));
+  const messenger: InstagramMessenger = {
+    sendText,
+    sendImage: vi.fn(async () => ({ messageId: `meta-${randomUUID()}` })),
+    fetchProfile: vi.fn(async () => ({ username: null, name: null })),
+    downloadImage: vi.fn(async () => {
+      throw new Error("Outbound delivery never downloads images");
+    }),
+  };
+  const summary = await deliverMessagesNow(
+    {
+      repository: new PostgresMessageRepository(pool),
+      messenger,
+      now: Date.now,
+      logFailure: vi.fn(),
+      logStaleLease: vi.fn(),
+    },
+    messages.rows.map((message) => message.id),
+    { timeBudgetMs: 5000 },
+  );
+
+  expect(summary.outcomes).toEqual({
+    [messages.rows[0]!.id]: "DISCARDED",
+    [messages.rows[1]!.id]: "SENT",
+  });
+  expect(sendText).toHaveBeenCalledOnce();
+  expect(sendText).toHaveBeenCalledWith(linked.senderId, expect.any(String));
 }
 
 describe("waitlist admission", () => {
@@ -368,14 +483,7 @@ describe("waitlist promotion", () => {
       allergies: "Nueces",
     });
     expect(queued.status).toBe(202);
-    const contact = await pool.query<{ id: string }>(
-      "INSERT INTO messaging_contacts (instagram_scoped_id) VALUES ($1) RETURNING id",
-      [String(Date.now())],
-    );
-    await pool.query("UPDATE waitlist_entries SET contact_id = $2 WHERE event_id = $1", [
-      event.id,
-      contact.rows[0]!.id,
-    ]);
+    const linked = await linkWaitingEntryByCode(event.id);
     const confirmed = await pool.query<{ id: string }>(
       "SELECT id FROM reservations WHERE event_id = $1 AND status = 'CONFIRMED' ORDER BY reservation_number",
       [event.id],
@@ -396,13 +504,14 @@ describe("waitlist promotion", () => {
       guest2_instagram_handle: string;
       link_code: string;
       contact_id: string;
+      contact_linked_by: string;
       source: string;
       created_by: string | null;
       stage: string;
     }>(
       `SELECT r.reservation_number, r.status, r.allergies,
               r.guest2_full_name, r.guest2_instagram_handle, r.link_code,
-              r.contact_id, r.source, r.created_by, r.stage
+              r.contact_id, r.contact_linked_by, r.source, r.created_by, r.stage
          FROM waitlist_entries w
          JOIN reservations r ON r.id = w.promoted_reservation_id
         WHERE w.event_id = $1 AND w.status = 'PROMOTED'`,
@@ -416,7 +525,8 @@ describe("waitlist promotion", () => {
         guest2_full_name: "Second Guest",
         guest2_instagram_handle: "second.guest",
         link_code: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
-        contact_id: contact.rows[0]!.id,
+        contact_id: linked.contactId,
+        contact_linked_by: "CODE",
         source: "PUBLIC",
         created_by: null,
         stage: "IN_REVIEW",
@@ -451,6 +561,7 @@ describe("waitlist promotion", () => {
       "PROMOTED",
     ]);
     expect(await outboxKinds(event.id)).toEqual([]);
+    await expectPendingMessagesReachContact(linked);
   });
 
   it("keeps the original idempotent replay as the 202 after promotion", async () => {
@@ -486,6 +597,22 @@ describe("waitlist promotion", () => {
       [event.id],
     );
     expect(entries.rows.map((row) => row.status)).toEqual(["PROMOTED", "PROMOTED"]);
+  });
+
+  it("keeps the CODE link when a capacity increase promotes a linked entry", async () => {
+    const event = await fullEventWithQueue();
+    await submit(event.slug, 122);
+    const linked = await linkWaitingEntryByCode(event.id);
+
+    const result = await eventRepository.changeCapacity(event.id, 2, adminId);
+
+    expect(result.ok && result.value).toMatchObject({
+      capacity: 2,
+      reservedSeats: 2,
+      waitlistedCount: 0,
+    });
+    await expectPromotedReservationKeepsCodeLink(linked);
+    await expectPendingMessagesReachContact(linked);
   });
 
   it("cancels a waiting entry that duplicates a confirmed reservation instead of promoting it", async () => {
@@ -603,6 +730,43 @@ describe("cancelWaitlistEntry", () => {
     expect(await cancelWaitlistEntry({ waitlistEntryId: second!.id, actorAdminId: adminId })).toBe(
       "NOT_CANCELLABLE",
     );
+  });
+
+  it("keeps the CODE link when removing a head that did not fit promotes the entry behind it", async () => {
+    const event = await fullEventWithQueue({ seats: 3 });
+    const couple = await submit(event.slug, 135, {
+      partySize: 2,
+      guest2Name: "Second Guest",
+      guest2Instagram: "second.guest",
+    });
+    const single = await submit(event.slug, 136);
+    expect([couple.status, single.status]).toEqual([202, 202]);
+    const linked = await linkWaitingEntryByCode(event.id, 1);
+    const queued = await pool.query<{ id: string }>(
+      "SELECT id FROM waitlist_entries WHERE event_id = $1 ORDER BY waitlist_number",
+      [event.id],
+    );
+    const seatHolder = await pool.query<{ id: string }>(
+      "SELECT id FROM reservations WHERE event_id = $1 AND status = 'CONFIRMED' ORDER BY reservation_number LIMIT 1",
+      [event.id],
+    );
+
+    expect(
+      await cancelReservation({ reservationId: seatHolder.rows[0]!.id, actorAdminId: adminId }),
+    ).toBe("CANCELLED");
+
+    // One seat is free, but the couple at the head does not fit and strict FIFO keeps the single waiting.
+    const beforeRemoval = await pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [
+      linked.entryId,
+    ]);
+    expect(beforeRemoval.rows).toEqual([{ status: "WAITING" }]);
+
+    expect(
+      await cancelWaitlistEntry({ waitlistEntryId: queued.rows[0]!.id, actorAdminId: adminId }),
+    ).toBe("CANCELLED");
+
+    await expectPromotedReservationKeepsCodeLink(linked);
+    await expectPendingMessagesReachContact(linked);
   });
 
   it("returns NOT_FOUND for an unknown entry", async () => {

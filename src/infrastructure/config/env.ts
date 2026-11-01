@@ -12,6 +12,14 @@ const optionalEmail = z.preprocess(
   z.email().optional(),
 );
 
+const optionalInstagramUsername = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z
+    .string()
+    .regex(/^[a-z0-9._]{1,30}$/)
+    .optional(),
+);
+
 const turnstileTestKeyPrefixes = ["1x0000", "2x0000", "3x0000"];
 
 function isTurnstileTestKey(value: string | undefined): boolean {
@@ -28,6 +36,20 @@ const serverEnvSchema = z
     APP_SECRET: z.string().min(32),
     CRON_SECRET: optionalString,
     EMAIL_MODE: z.enum(["brevo", "log"]),
+    MESSAGING_MODE: z.enum(["instagram", "log"]),
+    META_APP_SECRET: optionalString,
+    META_WEBHOOK_VERIFY_TOKEN: optionalString,
+    INSTAGRAM_ACCOUNT_ID: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().regex(/^\d+$/).optional(),
+    ),
+    INSTAGRAM_ACCESS_TOKEN: optionalString,
+    META_GRAPH_API_BASE_URL: z
+      .url()
+      .refine((value) => new URL(value).protocol === "https:", "must use https")
+      .transform((value) => value.replace(/\/$/, ""))
+      .default("https://graph.instagram.com/v26.0"),
+    NEXT_PUBLIC_INSTAGRAM_USERNAME: optionalInstagramUsername,
     BREVO_API_KEY: optionalString,
     EMAIL_FROM_ADDRESS: optionalEmail,
     EMAIL_FROM_NAME: z.string().trim().min(1).default("Clandestino"),
@@ -182,6 +204,46 @@ const serverEnvSchema = z
         code: "custom",
         path: ["EMAIL_MODE"],
         message: "must be brevo in preview or production",
+      });
+    }
+
+    if (protectedEnvironment && value.MESSAGING_MODE !== "instagram") {
+      context.addIssue({
+        code: "custom",
+        path: ["MESSAGING_MODE"],
+        message: "must be instagram in preview or production",
+      });
+    }
+
+    if (value.MESSAGING_MODE === "instagram") {
+      const requiredSecrets = [
+        ["META_APP_SECRET", value.META_APP_SECRET, 16],
+        ["META_WEBHOOK_VERIFY_TOKEN", value.META_WEBHOOK_VERIFY_TOKEN, 16],
+        ["INSTAGRAM_ACCESS_TOKEN", value.INSTAGRAM_ACCESS_TOKEN, 20],
+      ] as const;
+      for (const [field, secret, minimum] of requiredSecrets) {
+        if (!secret || secret.length < minimum) {
+          context.addIssue({
+            code: "custom",
+            path: [field],
+            message: `must contain at least ${minimum} characters when MESSAGING_MODE is instagram`,
+          });
+        }
+      }
+      if (!value.INSTAGRAM_ACCOUNT_ID) {
+        context.addIssue({
+          code: "custom",
+          path: ["INSTAGRAM_ACCOUNT_ID"],
+          message: "is required when MESSAGING_MODE is instagram",
+        });
+      }
+    }
+
+    if (protectedEnvironment && !value.NEXT_PUBLIC_INSTAGRAM_USERNAME) {
+      context.addIssue({
+        code: "custom",
+        path: ["NEXT_PUBLIC_INSTAGRAM_USERNAME"],
+        message: "is required in preview or production",
       });
     }
 

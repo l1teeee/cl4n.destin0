@@ -56,7 +56,7 @@ Admin transitions, each in one transaction that locks the event row `FOR UPDATE`
 
 Reject and cancel receive the ids of the cola entries the admin saw in the confirmation dialog ("se va a agregar a ..."). The transaction runs the promotion and compares the promoted entry ids, in order, with the expected list; on any difference it rolls back and answers `WAITLIST_CHANGED`, so the admin never confirms a different replacement than the one shown. A read-only preview computes the same list: free seats after the release, then cola entries in `waitlist_number` order while the head fits (strict FIFO).
 
-Promotion (ADR-002 W3) now inserts the reservation with stage IN_REVIEW, copies guest 2, source, link code and contact, enqueues the PROMOTED message and no longer sends the location.
+Promotion (ADR-002 W3) now inserts the reservation with stage IN_REVIEW, copies guest 2, source, link code and the contact with its link provenance (`contact_linked_by`), enqueues the PROMOTED message and no longer sends the location.
 
 ## 6. Cola management
 
@@ -74,14 +74,17 @@ An admin can add a person or a couple. It runs the same allocation transaction w
 ### Tables
 
 - `messaging_contacts`: one per Instagram user who wrote to the business (Instagram-scoped id), with `username`, `display_name`, `last_inbound_at` (drives the 24 h window) and `admin_read_at` (unread badge).
-- `reservations.contact_id` and `waitlist_entries.contact_id`: the conversation linked to the request. Promotion copies it.
+- `reservations.contact_id` and `waitlist_entries.contact_id`: the conversation linked to the request, written together with `contact_linked_by` (CODE, USERNAME or MANUAL). A CHECK constraint on both tables rejects one column without the other. Promotion copies both.
 - `messages`: one row per inbound or outbound message. It is both the chat history and the outbox.
+- `messages.parts_sent` and `external_part_ids` make deterministic text-chunk and image delivery resumable. `received_at` records local receipt time for unread counts.
 - `message_attachments`: inbound images downloaded and stored as `bytea`, so payment receipts survive Meta CDN expiry.
 - `message_templates`: editable texts with `{variable}` placeholders, seeded by the migration.
 
 ### Linking a request to a conversation
 
-Each public request gets a 6-character `link_code` (alphabet without I, O, 0, 1; at least two digits so normal words never match). Codes are unique across reservations and cola entries, except that a promoted reservation carries the code of its own cola entry. Each table has its own unique index, and the public seat insert and the cola insert also check the other table inside the allocation transaction. On a collision the transaction rolls back and the request answers an unstored `TRY_AGAIN`, so the retry draws a new code. The success screen shows it with a button to `https://ig.me/m/<business username>?ref=<code>`. The webhook links the conversation when the code arrives in a message text, in `message.referral.ref` (new thread) or in a `messaging_referral` event (existing thread). If the guest writes without the code, the app fetches the username through the User Profile API and links when exactly one active request of a live event has that handle and no contact yet. Admins can link and unlink manually. A linked conversation whose username matches neither guest is flagged in the UI.
+Each public request gets a 6-character `link_code` (alphabet without I, O, 0, 1; at least two digits so normal words never match). Codes are unique across reservations and cola entries, except that a promoted reservation carries the code of its own cola entry. Each table has its own unique index, and the public seat insert and the cola insert also check the other table inside the allocation transaction. On a collision the transaction rolls back and the request answers an unstored `TRY_AGAIN`, so the retry draws a new code. A promoted reservation and its cola row share a code and count as one request.
+
+The success screen shows the code with a button to `https://ig.me/m/<business username>?ref=<code>`. The webhook links the conversation when the code arrives in a message text, in `message.referral.ref` (new thread) or in a `messaging_referral` event (existing thread). If the guest writes without the code, the app fetches the username through the User Profile API. Username linking happens only when exactly one active request of a live event has guest 1's handle, has no contact and the event is not deleted, CANCELLED or COMPLETED and starts in the future. Guest 2 never auto-links. Code linking may replace a USERNAME link but never a CODE or MANUAL link. Manual linking overrides every method. The provenance is stored in `contact_linked_by`. Re-pointing retargets unsent messages that do not hold a live lease and audits the previous contact. Admins can unlink manually; unlinking returns unsent and failed messages to WAITING_CONTACT and is audited. A linked conversation whose username matches neither guest is flagged in the UI.
 
 ### Instagram platform rules that shape the design
 
@@ -116,8 +119,8 @@ The same lease and fenced-completion pattern as ADR-003: claim QUEUED rows with 
 
 1. Relevance at send time: a status message whose request has moved on is DISCARDED (for example ON_LIST while the request is no longer ON_LIST, LOCATION for a superseded revision, CLUE for a deleted clue). Terminal messages (REJECTED, CANCELLED_*, REFUNDED, FREE_TEXT) are always relevant.
 2. Window: if `last_inbound_at` is older than 24 hours minus a 5-minute margin, the row goes to WAITING_WINDOW without calling Meta.
-3. Send: text above 1000 UTF-8 bytes is split at whitespace into several calls; images go as one message with up to 10 attachments by public URL.
-4. Result: success -> SENT with the Meta message id. Meta's outside-window error -> WAITING_WINDOW. 429, 5xx and network -> retry with the email backoff, FAILED after 8 attempts. Other 4xx -> FAILED with `META_<code>_<subcode>`.
+3. Send: the deterministic parts are the 1000-byte text chunks followed by one image call per attachment URL. Delivery resumes at `parts_sent`; it extends the fenced two-minute lease before each part.
+4. Result: after each accepted part, one transaction takes `pg_advisory_xact_lock(hashtextextended(mid, 0))`, removes an early INSTAGRAM_APP echo, appends the Meta id and increments `parts_sent`. The last part also sets SENT, `sent_at` and `external_message_id`. A database failure after Meta accepts a part propagates and is never classified as a messenger retry. A 200 without `message_id` fails permanently. Messenger failures alone increment `attempts`; outside-window prechecks, claims and relevance discards do not. Meta's outside-window error -> WAITING_WINDOW. 429, 5xx and network -> retry with the email backoff, FAILED after 8 failed attempts. Other 4xx -> FAILED with `META_<code>_<subcode>`.
 
 Triggers: `after()` in every request that enqueues; a synchronous attempt with a short budget inside admin actions so the confirmation shows what really happened; the webhook after it releases waiting rows; the daily cron as a safety net.
 
@@ -129,6 +132,9 @@ Admins can retry FAILED rows, discard pending rows, and for any pending or faile
 
 - GET answers the verification handshake when `hub.mode = subscribe` and `hub.verify_token` equals `META_WEBHOOK_VERIFY_TOKEN` (constant-time compare).
 - POST reads the raw body (1 MB cap) and verifies `X-Hub-Signature-256` (HMAC-SHA256 with `META_APP_SECRET`, constant-time) before parsing. It handles `messages` (inbound, `is_echo` outbound typed in the Instagram app, deduplicated by Meta message id), `messaging_seen` (READ), `messaging_referral` (link and open the window) and reactions (open the window). Database work runs before the 200; network work (profile fetch, image download, delivery) runs in `after()`. Logs carry no message text, usernames or ids beyond the internal row id.
+- Contacts are upserted in scoped-id order before event processing. Each event runs behind a SAVEPOINT, so SQLSTATE class 22/23 drops only that item while other errors return 500 for Meta to retry.
+- Echo deduplication takes the same transaction-scoped advisory lock as the part recorder and matches both `external_message_id` and `external_part_ids`. Unsend events keep or insert an inbound tombstone with `[mensaje eliminado]`, so later redelivery cannot resurrect content.
+- Missing inbound image bytes are retried by webhook follow-up and the cron for three days. Non-images, oversized responses and unsafe hosts are marked permanent and skipped on later retries.
 
 ### Modes
 
