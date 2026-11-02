@@ -17,6 +17,13 @@ function event(
   };
 }
 
+const eventDateParts = {
+  weekday: "sábado",
+  day: "21",
+  month: "noviembre",
+  time: "7:30 p. m.",
+};
+
 describe("buildHomeViewModel", () => {
   it("builds every open event and excludes full events", () => {
     expect(
@@ -31,10 +38,12 @@ describe("buildHomeViewModel", () => {
         {
           slug: "primera-cena",
           formattedDate: "Sábado 21 de noviembre, 7:30 p. m.",
+          dateParts: eventDateParts,
         },
         {
           slug: "segunda-cena",
           formattedDate: "Sábado 21 de noviembre, 7:30 p. m.",
+          dateParts: eventDateParts,
         },
       ],
     });
@@ -75,6 +84,7 @@ describe("buildHomeViewModel", () => {
         {
           slug: "cola",
           formattedDate: "Sábado 21 de noviembre, 7:30 p. m.",
+          dateParts: eventDateParts,
           waitlistOnly: true,
         },
       ],

@@ -17,7 +17,7 @@ export function ReservationExperience(props: ReservationExperienceProps) {
           <p className="public-eyebrow">CLANDESTINO SUPPER CLAN</p>
           <h1>SOLICITAR ACCESO</h1>
           <p className="reservation-date">{props.formattedDate}</p>
-          <p className="public-eyebrow">ACCESO LIMITADO</p>
+          <p className="public-eyebrow reservation-access">ACCESO LIMITADO</p>
         </div>
         <ReservationForm {...props} />
       </main>

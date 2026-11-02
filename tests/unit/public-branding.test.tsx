@@ -36,15 +36,17 @@ describe("public branding", () => {
     expect(screen.queryByRole("link", { name: "RSVP" })).toBeNull();
   });
 
-  it("keeps the reservation anchor available for open events", () => {
+  it("points the RSVP link at the supplied reservation href", () => {
     const { container } = render(
-      <PublicLanding status="Acceso abierto" showReservationLink>
+      <PublicLanding status="Acceso abierto" reservationHref="/solicitar/cena-demo">
         Próxima fecha
       </PublicLanding>,
     );
 
-    expect(screen.getByRole("link", { name: "RSVP" }).getAttribute("href")).toBe("#reservar");
-    expect(container.querySelector("main#reservar")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "RSVP" }).getAttribute("href")).toBe(
+      "/solicitar/cena-demo",
+    );
+    expect(container.querySelector("#reservar")).toBeNull();
   });
 
   it("preserves the supplied wordmark and return link on the concept page", () => {

@@ -23,7 +23,7 @@ function closedStateCopy(variant: ClosedStateVariant): string {
 export function ClosedState({ variant }: ClosedStateProps) {
   return (
     <PublicLanding status="EL CLAN ESTÁ CERRADO">
-      <p>{closedStateCopy(variant)}</p>
+      <p className="public-home-copy">{closedStateCopy(variant)}</p>
     </PublicLanding>
   );
 }

@@ -7,25 +7,70 @@ interface HomeExperienceProps {
   viewModel: Extract<HomeViewModel, { state: "OPEN" }>;
 }
 
+const steps = [
+  {
+    number: "01",
+    title: "Solicita tu lugar",
+    description: "Llena el formulario con tu usuario de Instagram.",
+  },
+  {
+    number: "02",
+    title: "Te escribimos",
+    description: "Revisamos tu solicitud y te confirmamos por Instagram.",
+  },
+  {
+    number: "03",
+    title: "Recibe la ubicación",
+    description: "La dirección llega por mensaje antes de la cena.",
+  },
+] as const;
+
 export function HomeExperience({ viewModel }: HomeExperienceProps) {
+  const [firstEvent, ...otherEvents] = viewModel.events;
+  const reservationHref =
+    firstEvent && otherEvents.length === 0 ? `/solicitar/${firstEvent.slug}` : "#eventos";
+
   return (
-    <PublicLanding status="EL CLAN ESTÁ ABIERTO" showReservationLink>
-      <div className="public-events">
+    <PublicLanding status="EL CLAN ESTÁ ABIERTO" reservationHref={reservationHref}>
+      <div className="public-events" id="eventos">
         {viewModel.events.map((event) => (
-          <section key={event.slug} className="public-event">
-            <p className="public-event-date">{event.formattedDate}</p>
-            <p className="public-eyebrow">ACCESO LIMITADO</p>
-            <Link href={`/solicitar/${event.slug}`} className="public-reserve-link">
-              SOLICITAR ACCESO
+          <article key={event.slug} className="public-event" aria-label={event.formattedDate}>
+            <p className="public-eyebrow">{event.dateParts.weekday}</p>
+            <p className="public-event-day">{event.dateParts.day}</p>
+            <p className="public-event-when">
+              <span className="public-event-month">{event.dateParts.month}</span>
+              {" · "}
+              {event.dateParts.time}
+            </p>
+            <p className="public-eyebrow public-event-access">
+              {event.waitlistOnly ? "Cupos agotados · Aún hay lugar en la cola" : "Acceso limitado"}
+            </p>
+            <Link href={`/solicitar/${event.slug}`} className="public-cta">
+              {event.waitlistOnly ? "Unirme a la cola" : "Solicitar acceso"}
             </Link>
-            {event.waitlistOnly ? (
-              <p className="public-event-note">
-                Los cupos se agotaron. Aún hay lugares en la cola.
-              </p>
-            ) : null}
-          </section>
+          </article>
         ))}
       </div>
+
+      <section className="public-steps" aria-labelledby="como-funciona">
+        <h2 id="como-funciona" className="public-eyebrow">
+          Cómo funciona
+        </h2>
+        <ol className="public-steps-list">
+          {steps.map((step) => (
+            <li key={step.number} className="public-step">
+              <span className="public-step-number">{step.number}</span>
+              <h3>{step.title}</h3>
+              <p>{step.description}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <nav className="public-more-links" aria-label="Más información">
+        <Link href="/concepto">Qué es un supper clan</Link>
+        <Link href="/bebidas">Bebidas</Link>
+      </nav>
     </PublicLanding>
   );
 }

@@ -409,242 +409,275 @@ export function ReservationForm({
   return (
     <form onSubmit={(event) => event.preventDefault()} className="reservation-form" noValidate>
       {canChoosePartySize ? (
-        <fieldset className="reservation-party">
-          <legend id="partySize-legend">¿Cuántas personas?</legend>
-          <Controller
-            control={control}
-            name="partySize"
-            render={({ field }) => (
-              <SegmentedControl
-                ref={field.ref}
-                className="reservation-choice"
-                value={field.value ? String(field.value) : ""}
-                onValueChange={(value) => field.onChange(Number(value))}
-                onBlur={field.onBlur}
-                required
-                aria-labelledby="partySize-legend"
-                aria-invalid={Boolean(errors.partySize)}
-                aria-describedby={errors.partySize ? "partySize-error" : undefined}
-              >
-                <SegmentedControlItem className="reservation-choice-item" value="1">
-                  Solo
-                </SegmentedControlItem>
-                <SegmentedControlItem className="reservation-choice-item" value="2">
-                  En pareja
-                </SegmentedControlItem>
-              </SegmentedControl>
-            )}
-          />
-          <FieldError id="partySize-error" message={errors.partySize?.message} />
-        </fieldset>
+        <div className="reservation-section">
+          <h2 className="reservation-section-heading">Quiénes van</h2>
+          <fieldset className="reservation-party">
+            <legend id="partySize-legend" className="reservation-label">
+              ¿Cuántas personas?
+            </legend>
+            <Controller
+              control={control}
+              name="partySize"
+              render={({ field }) => (
+                <SegmentedControl
+                  ref={field.ref}
+                  className="reservation-choice"
+                  value={field.value ? String(field.value) : ""}
+                  onValueChange={(value) => field.onChange(Number(value))}
+                  onBlur={field.onBlur}
+                  required
+                  aria-labelledby="partySize-legend"
+                  aria-invalid={Boolean(errors.partySize)}
+                  aria-describedby={errors.partySize ? "partySize-error" : undefined}
+                >
+                  <SegmentedControlItem className="reservation-choice-item" value="1">
+                    Solo
+                  </SegmentedControlItem>
+                  <SegmentedControlItem className="reservation-choice-item" value="2">
+                    En pareja
+                  </SegmentedControlItem>
+                </SegmentedControl>
+              )}
+            />
+            <FieldError id="partySize-error" message={errors.partySize?.message} />
+          </fieldset>
+        </div>
       ) : null}
 
-      <div role="group" aria-labelledby="guest1-heading" className="reservation-guest">
-        <h2 id="guest1-heading" className="reservation-guest-heading">
+      <div role="group" aria-labelledby="guest1-heading" className="reservation-section">
+        <h2 id="guest1-heading" className="reservation-section-heading">
           {isCouple ? "Invitado 1" : "Tus datos"}
         </h2>
 
-        <div>
-          <label htmlFor="guest1Name">Nombre completo</label>
-          <input
-            id="guest1Name"
-            autoComplete="name"
-            className={inputClassName}
-            aria-invalid={Boolean(errors.guest1Name)}
-            {...register("guest1Name")}
-          />
-          <FieldError message={errors.guest1Name?.message} />
-        </div>
+        <div className="reservation-guest-fields">
+          <div className="reservation-field">
+            <label htmlFor="guest1Name" className="reservation-label">
+              Nombre completo
+            </label>
+            <input
+              id="guest1Name"
+              autoComplete="name"
+              className={inputClassName}
+              aria-invalid={Boolean(errors.guest1Name)}
+              {...register("guest1Name")}
+            />
+            <FieldError message={errors.guest1Name?.message} />
+          </div>
 
-        <div>
-          <label htmlFor="guest1Instagram">Usuario de Instagram</label>
-          <input
-            id="guest1Instagram"
-            autoComplete="off"
-            className={inputClassName}
-            aria-invalid={Boolean(errors.guest1Instagram)}
-            {...register("guest1Instagram")}
-          />
-          <FieldError message={errors.guest1Instagram?.message} />
+          <div className="reservation-field">
+            <label htmlFor="guest1Instagram" className="reservation-label">
+              Usuario de Instagram
+            </label>
+            <input
+              id="guest1Instagram"
+              autoComplete="off"
+              className={inputClassName}
+              aria-invalid={Boolean(errors.guest1Instagram)}
+              {...register("guest1Instagram")}
+            />
+            <FieldError message={errors.guest1Instagram?.message} />
+          </div>
         </div>
       </div>
 
       {isCouple ? (
-        <div role="group" aria-labelledby="guest2-heading" className="reservation-guest">
-          <h2 id="guest2-heading" className="reservation-guest-heading">
+        <div role="group" aria-labelledby="guest2-heading" className="reservation-section">
+          <h2 id="guest2-heading" className="reservation-section-heading">
             Invitado 2
           </h2>
 
-          <div>
-            <label htmlFor="guest2Name">Nombre completo</label>
-            <input
-              id="guest2Name"
-              autoComplete="off"
-              className={inputClassName}
-              aria-invalid={Boolean(errors.guest2Name)}
-              {...register("guest2Name")}
-            />
-            <FieldError message={errors.guest2Name?.message} />
-          </div>
-
-          <div>
-            <label htmlFor="guest2Instagram">Usuario de Instagram</label>
-            <input
-              id="guest2Instagram"
-              autoComplete="off"
-              className={inputClassName}
-              aria-invalid={Boolean(errors.guest2Instagram)}
-              {...register("guest2Instagram")}
-            />
-            <FieldError message={errors.guest2Instagram?.message} />
-          </div>
-        </div>
-      ) : null}
-
-      <fieldset
-        className="reservation-allergies"
-        role="radiogroup"
-        aria-invalid={Boolean(errors.hasAllergies)}
-        aria-describedby={errors.hasAllergies ? "hasAllergies-error" : undefined}
-      >
-        <legend>{isCouple ? "¿Alguno de los dos tiene alergias?" : "¿Tienes alergias?"}</legend>
-        <Controller
-          control={control}
-          name="hasAllergies"
-          render={({ field }) => (
-            <div className="reservation-allergy-options">
-              <label className="reservation-terms">
-                <input
-                  ref={field.ref}
-                  name={field.name}
-                  type="radio"
-                  checked={field.value === false}
-                  required
-                  onBlur={field.onBlur}
-                  onChange={() => field.onChange(false)}
-                />
-                <span>No</span>
+          <div className="reservation-guest-fields">
+            <div className="reservation-field">
+              <label htmlFor="guest2Name" className="reservation-label">
+                Nombre completo
               </label>
-              <label className="reservation-terms">
-                <input
-                  name={field.name}
-                  type="radio"
-                  checked={field.value === true}
-                  required
-                  onBlur={field.onBlur}
-                  onChange={() => field.onChange(true)}
-                />
-                <span>Sí</span>
-              </label>
+              <input
+                id="guest2Name"
+                autoComplete="off"
+                className={inputClassName}
+                aria-invalid={Boolean(errors.guest2Name)}
+                {...register("guest2Name")}
+              />
+              <FieldError message={errors.guest2Name?.message} />
             </div>
-          )}
-        />
-        <FieldError id="hasAllergies-error" message={errors.hasAllergies?.message} />
-      </fieldset>
 
-      {hasAllergies ? (
-        <div>
-          <label htmlFor="allergies">{isCouple ? "¿Quién y a qué?" : "¿A qué?"}</label>
-          <textarea
-            id="allergies"
-            rows={3}
-            maxLength={300}
-            className={inputClassName}
-            aria-invalid={Boolean(errors.allergies)}
-            aria-describedby={allergiesDescription(isCouple, Boolean(errors.allergies))}
-            {...register("allergies")}
-          />
-          {isCouple ? (
-            <p id="allergies-help" className="reservation-help">
-              Indica de quién es cada alergia.
-            </p>
-          ) : null}
-          <FieldError id="allergies-error" message={errors.allergies?.message} />
+            <div className="reservation-field">
+              <label htmlFor="guest2Instagram" className="reservation-label">
+                Usuario de Instagram
+              </label>
+              <input
+                id="guest2Instagram"
+                autoComplete="off"
+                className={inputClassName}
+                aria-invalid={Boolean(errors.guest2Instagram)}
+                {...register("guest2Instagram")}
+              />
+              <FieldError message={errors.guest2Instagram?.message} />
+            </div>
+          </div>
         </div>
       ) : null}
 
-      <div>
-        <label htmlFor="notes">Observaciones (opcional)</label>
-        <textarea
-          id="notes"
-          rows={4}
-          className={inputClassName}
-          aria-invalid={Boolean(errors.notes)}
-          {...register("notes")}
-        />
-        <FieldError message={errors.notes?.message} />
+      <div className="reservation-section">
+        <h2 className="reservation-section-heading">Alergias</h2>
+
+        <fieldset
+          className="reservation-allergies"
+          role="radiogroup"
+          aria-invalid={Boolean(errors.hasAllergies)}
+          aria-describedby={errors.hasAllergies ? "hasAllergies-error" : undefined}
+        >
+          <legend className="reservation-label">
+            {isCouple ? "¿Alguno de los dos tiene alergias?" : "¿Tienes alergias?"}
+          </legend>
+          <Controller
+            control={control}
+            name="hasAllergies"
+            render={({ field }) => (
+              <div className="reservation-allergy-options">
+                <label className="reservation-terms">
+                  <input
+                    ref={field.ref}
+                    name={field.name}
+                    type="radio"
+                    checked={field.value === false}
+                    required
+                    onBlur={field.onBlur}
+                    onChange={() => field.onChange(false)}
+                  />
+                  <span>No</span>
+                </label>
+                <label className="reservation-terms">
+                  <input
+                    name={field.name}
+                    type="radio"
+                    checked={field.value === true}
+                    required
+                    onBlur={field.onBlur}
+                    onChange={() => field.onChange(true)}
+                  />
+                  <span>Sí</span>
+                </label>
+              </div>
+            )}
+          />
+          <FieldError id="hasAllergies-error" message={errors.hasAllergies?.message} />
+        </fieldset>
+
+        {hasAllergies ? (
+          <div className="reservation-field">
+            <label htmlFor="allergies" className="reservation-label">
+              {isCouple ? "¿Quién y a qué?" : "¿A qué?"}
+            </label>
+            <textarea
+              id="allergies"
+              rows={3}
+              maxLength={300}
+              className={inputClassName}
+              aria-invalid={Boolean(errors.allergies)}
+              aria-describedby={allergiesDescription(isCouple, Boolean(errors.allergies))}
+              {...register("allergies")}
+            />
+            {isCouple ? (
+              <p id="allergies-help" className="reservation-help">
+                Indica de quién es cada alergia.
+              </p>
+            ) : null}
+            <FieldError id="allergies-error" message={errors.allergies?.message} />
+          </div>
+        ) : null}
       </div>
 
-      <div>
-        <div className="reservation-terms">
-          <input
-            id="acceptTerms"
-            type="checkbox"
-            aria-invalid={Boolean(errors.acceptTerms)}
-            {...register("acceptTerms")}
-          />
-          <label htmlFor="acceptTerms">
-            Acepto los <Link href="/terminos">términos</Link> y la{" "}
-            <Link href="/privacidad">política de privacidad</Link>
+      <div className="reservation-section">
+        <div className="reservation-field">
+          <label htmlFor="notes" className="reservation-label">
+            Observaciones (opcional)
           </label>
+          <textarea
+            id="notes"
+            rows={4}
+            className={inputClassName}
+            aria-invalid={Boolean(errors.notes)}
+            {...register("notes")}
+          />
+          <FieldError message={errors.notes?.message} />
         </div>
-        <FieldError message={errors.acceptTerms?.message} />
       </div>
 
-      {idempotencyKey && siteKey && !confirmedState ? (
-        <Turnstile
-          key={idempotencyKey}
-          ref={turnstileRef}
-          siteKey={siteKey}
-          scriptOptions={{ nonce }}
-          options={{ action: "reserve", cData: idempotencyKey, refreshExpired: "auto" }}
-          onSuccess={setTurnstileToken}
-          onExpire={() => setTurnstileToken(null)}
-          onError={() => {
-            setTurnstileToken(null);
-            setFormState({
-              kind: "error",
-              message: "No pudimos cargar la verificación. Inténtalo de nuevo.",
-              fieldErrors: {},
-              automaticRetry: false,
-            });
-          }}
-        />
-      ) : null}
+      <div className="reservation-section">
+        <h2 className="reservation-section-heading">Confirmación</h2>
 
-      {!siteKey ? <p role="alert">La verificación de seguridad no está disponible.</p> : null}
+        <div>
+          <div className="reservation-terms">
+            <input
+              id="acceptTerms"
+              type="checkbox"
+              aria-invalid={Boolean(errors.acceptTerms)}
+              {...register("acceptTerms")}
+            />
+            <label htmlFor="acceptTerms">
+              Acepto los <Link href="/terminos">términos</Link> y la{" "}
+              <Link href="/privacidad">política de privacidad</Link>
+            </label>
+          </div>
+          <FieldError message={errors.acceptTerms?.message} />
+        </div>
 
-      <div aria-live="polite" className="reservation-message">
-        {formState?.kind === "error" ? <p>{formState.message}</p> : null}
-      </div>
+        {idempotencyKey && siteKey && !confirmedState ? (
+          <Turnstile
+            key={idempotencyKey}
+            ref={turnstileRef}
+            siteKey={siteKey}
+            scriptOptions={{ nonce }}
+            options={{ action: "reserve", cData: idempotencyKey, refreshExpired: "auto" }}
+            onSuccess={setTurnstileToken}
+            onExpire={() => setTurnstileToken(null)}
+            onError={() => {
+              setTurnstileToken(null);
+              setFormState({
+                kind: "error",
+                message: "No pudimos cargar la verificación. Inténtalo de nuevo.",
+                fieldErrors: {},
+                automaticRetry: false,
+              });
+            }}
+          />
+        ) : null}
 
-      <div className="reservation-slide" onClick={() => void showAllFieldErrors()}>
-        <SlideCommit
-          label={
-            !isValid
-              ? "COMPLETA EL FORMULARIO"
-              : !turnstileToken || !idempotencyKey
-                ? "VERIFICANDO..."
-                : "DESLIZA PARA SOLICITAR ACCESO"
-          }
-          doneLabel="ENVIADO"
-          errorLabel="NO SE PUDO ENVIAR"
-          onConfirm={confirmReservation}
-          onDone={showConfirmationAfterDone}
-          trackColor="transparent"
-          handleColor="#fffbf4"
-          successColor="#fffbf4"
-          dangerColor="#fca5a5"
-          height={56}
-          radius={28}
-          holdMs={700}
-          disabled={!isValid || !turnstileToken || !idempotencyKey || isSubmitting}
-          fluid
-          aria-describedby="reservation-slide-hint"
-        />
-        <p id="reservation-slide-hint" className="reservation-slide-hint">
-          Desliza el control hasta el final o pulsa Fin para enviar.
-        </p>
+        {!siteKey ? <p role="alert">La verificación de seguridad no está disponible.</p> : null}
+
+        <div aria-live="polite" className="reservation-message">
+          {formState?.kind === "error" ? <p>{formState.message}</p> : null}
+        </div>
+
+        <div className="reservation-slide" onClick={() => void showAllFieldErrors()}>
+          <SlideCommit
+            label={
+              !isValid
+                ? "COMPLETA EL FORMULARIO"
+                : !turnstileToken || !idempotencyKey
+                  ? "VERIFICANDO..."
+                  : "DESLIZA PARA SOLICITAR ACCESO"
+            }
+            doneLabel="ENVIADO"
+            errorLabel="NO SE PUDO ENVIAR"
+            onConfirm={confirmReservation}
+            onDone={showConfirmationAfterDone}
+            trackColor="transparent"
+            handleColor="#fffbf4"
+            successColor="#fffbf4"
+            dangerColor="#fca5a5"
+            height={56}
+            radius={28}
+            holdMs={700}
+            disabled={!isValid || !turnstileToken || !idempotencyKey || isSubmitting}
+            fluid
+            aria-describedby="reservation-slide-hint"
+          />
+          <p id="reservation-slide-hint" className="reservation-slide-hint">
+            Desliza el control hasta el final o pulsa Fin para enviar.
+          </p>
+        </div>
       </div>
     </form>
   );

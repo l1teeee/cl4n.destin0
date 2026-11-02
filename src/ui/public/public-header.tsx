@@ -3,13 +3,13 @@ import Link from "next/link";
 import { BrandMark } from "./brand-mark";
 
 interface PublicHeaderProps {
-  showReservationLink?: boolean;
+  reservationHref?: string;
   aboutHref?: string;
   aboutLabel?: string;
 }
 
 export function PublicHeader({
-  showReservationLink = false,
+  reservationHref,
   aboutHref = "/concepto",
   aboutLabel = "Qué es un supper clan",
 }: PublicHeaderProps) {
@@ -20,7 +20,7 @@ export function PublicHeader({
         <span>CLANDESTINO</span>
       </Link>
       <nav className="public-nav" aria-label="Navegación principal">
-        {showReservationLink ? <a href="#reservar">RSVP</a> : null}
+        {reservationHref ? <Link href={reservationHref}>RSVP</Link> : null}
         <a href={aboutHref}>{aboutLabel}</a>
       </nav>
     </header>
