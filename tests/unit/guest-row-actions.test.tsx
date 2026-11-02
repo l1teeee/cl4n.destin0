@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
@@ -152,8 +152,8 @@ describe("GuestRowActions in review", () => {
     );
 
     await openDialog("Rechazar");
-    expect(screen.getByText(/van a quedar dos espacios vacíos/)).toBeDefined();
-    expect(screen.getByText(/las solicitudes de Luis y de Marta/)).toBeDefined();
+    expect(screen.getByText(/Va a dejar 2 cupos abiertos\./)).toBeDefined();
+    expect(screen.getByText(/Las siguientes en la cola son Luis y Marta\./)).toBeDefined();
     clickDialogConfirm("Rechazar");
     await waitFor(() => expect(guestHandlers.reject).toHaveBeenCalledTimes(1));
     const [, , formData] = guestHandlers.reject.mock.calls[0] as RecordedCall;
@@ -180,7 +180,7 @@ describe("GuestRowActions on the list", () => {
   it("posts expectedStage ON_LIST when removing an unpaid guest", async () => {
     const guestHandlers = renderActions(guestRow({ stage: "ON_LIST" }));
 
-    const [id, , formData] = await confirmDialog("Eliminar de la lista", guestHandlers.cancel);
+    const [id, , formData] = await confirmDialog("Sacar de la lista", guestHandlers.cancel);
 
     expect(id).toBe(rowId);
     expect(formData.get("expectedStage")).toBe("ON_LIST");
@@ -191,7 +191,7 @@ describe("GuestRowActions on the list", () => {
     const guestHandlers = renderActions(guestRow({ stage: "PAID" }));
 
     expect(screen.queryByRole("button", { name: "Pago verificado" })).toBeNull();
-    const [, , formData] = await confirmDialog("Eliminar de la lista", guestHandlers.cancel);
+    const [, , formData] = await confirmDialog("Sacar de la lista", guestHandlers.cancel);
 
     expect(formData.get("expectedStage")).toBe("PAID");
   });
@@ -294,35 +294,64 @@ describe("GuestRowActions after release", () => {
   });
 });
 
-describe("GuestRowActions choosing who takes the freed seat", () => {
-  it("posts the automatic mode and no entry id by default", async () => {
+describe("GuestRowActions releasing a request", () => {
+  it("says who is next in the cola and posts the automatic mode with the expected ids", async () => {
     const guestHandlers = renderActions(guestRow());
 
-    const [, , formData] = await confirmDialog("Rechazar", guestHandlers.reject);
+    await openDialog("Rechazar");
+    expect(screen.getByText(/Se rechaza la solicitud de Ana López\./)).toBeDefined();
+    expect(screen.getByText(/Va a dejar un cupo abierto\./)).toBeDefined();
+    expect(screen.getByText(/La siguiente persona en la cola es Luis\./)).toBeDefined();
+    clickDialogConfirm("Rechazar");
+    await waitFor(() => expect(guestHandlers.reject).toHaveBeenCalledTimes(1));
+    const [, , formData] = guestHandlers.reject.mock.calls[0] as RecordedCall;
 
     expect(formData.get("replacementMode")).toBe("auto");
     expect(formData.get("replacementEntryId")).toBeNull();
+    expect(formData.getAll("expectedPromotedEntryIds")).toEqual([oneSeatId]);
   });
 
-  it("keeps the submit disabled until an entry of the cola is chosen", async () => {
+  it("names the guest who leaves the list", async () => {
+    renderActions(guestRow({ stage: "ON_LIST" }));
+
+    await openDialog("Sacar de la lista");
+
+    expect(screen.getByText(/Ana López sale de la lista\./)).toBeDefined();
+  });
+
+  it("explains an empty cola and offers no choice", async () => {
+    renderActions(guestRow(), {
+      preview: { waitingCount: 0, oneSeat: [], twoSeats: [], waiting: [] },
+    });
+
+    await openDialog("Rechazar");
+
+    expect(screen.getByText(/No hay nadie en la cola\./)).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Seleccionar de la lista de colas" })).toBeNull();
+  });
+
+  it("shows the whole cola when the admin wants to pick", async () => {
     renderActions(guestRow());
 
     await openDialog("Rechazar");
-    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar de la lista de colas" }));
 
-    const submit = screen.getAllByRole("button", { name: "Rechazar" }).at(-1)!;
-    expect(submit.hasAttribute("disabled")).toBe(true);
-    fireEvent.click(screen.getByRole("radio", { name: /Marta/ }));
-    expect(submit.hasAttribute("disabled")).toBe(false);
+    expect(screen.getByText(/Elige a quién agregar a la lista en su lugar\./)).toBeDefined();
+    const cola = screen.getByRole("list", { name: "Cola" });
+    expect(within(cola).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByText("#1")).toBeDefined();
+    expect(screen.getByText("Rosa y Iván")).toBeDefined();
+    const confirm = screen.getAllByRole("button", { name: "Rechazar" }).at(-1)!;
+    expect(confirm.hasAttribute("disabled")).toBe(true);
   });
 
-  it("posts the mode and the chosen entry id", async () => {
+  it("posts the chosen mode and the entry whose button was pressed", async () => {
     const guestHandlers = renderActions(guestRow({ stage: "ON_LIST" }));
 
-    await openDialog("Eliminar de la lista");
-    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
-    fireEvent.click(screen.getByRole("radio", { name: /Marta/ }));
-    clickDialogConfirm("Eliminar de la lista");
+    await openDialog("Sacar de la lista");
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar de la lista de colas" }));
+    const marta = screen.getByText("Marta").closest("li")!;
+    fireEvent.click(within(marta).getByRole("button", { name: "Agregar a la lista" }));
     await waitFor(() => expect(guestHandlers.cancel).toHaveBeenCalledTimes(1));
     const [, , formData] = guestHandlers.cancel.mock.calls[0] as RecordedCall;
 
@@ -335,33 +364,55 @@ describe("GuestRowActions choosing who takes the freed seat", () => {
     renderActions(guestRow());
 
     await openDialog("Rechazar");
-    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar de la lista de colas" }));
 
-    const couple = screen.getByRole("radio", { name: /Rosa y Iván/ });
-    expect(couple.hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText("No cabe")).toBeDefined();
-    expect(screen.getByRole("radio", { name: /Marta/ }).hasAttribute("disabled")).toBe(false);
+    const couple = screen.getByText("Rosa y Iván").closest("li")!;
+    expect(
+      within(couple).getByRole("button", { name: "Agregar a la lista" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(within(couple).getByText("No cabe")).toBeDefined();
+    const marta = screen.getByText("Marta").closest("li")!;
+    expect(
+      within(marta).getByRole("button", { name: "Agregar a la lista" }).hasAttribute("disabled"),
+    ).toBe(false);
   });
 
   it("lets a couple release the seats for a couple of the cola", async () => {
     renderActions(guestRow({ partySize: 2, guest2Name: "Pedro", guest2Instagram: "pedro" }));
 
     await openDialog("Rechazar");
-    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar de la lista de colas" }));
 
-    expect(screen.getByRole("radio", { name: /Rosa y Iván/ }).hasAttribute("disabled")).toBe(false);
-    expect(screen.getByText("2 personas")).toBeDefined();
-    expect(screen.getByText("#3")).toBeDefined();
+    const couple = screen.getByText("Rosa y Iván").closest("li")!;
+    expect(
+      within(couple).getByRole("button", { name: "Agregar a la lista" }).hasAttribute("disabled"),
+    ).toBe(false);
+    expect(within(couple).getByText("2 personas")).toBeDefined();
+    expect(within(couple).getByText("#3")).toBeDefined();
   });
 
-  it("explains an empty cola and offers no choice", async () => {
-    renderActions(guestRow(), {
-      preview: { waitingCount: 0, oneSeat: [], twoSeats: [], waiting: [] },
-    });
+  it("goes back to the summary with Volver", async () => {
+    renderActions(guestRow());
 
     await openDialog("Rechazar");
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar de la lista de colas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Volver" }));
 
-    expect(screen.getByText("No hay nadie en la cola.")).toBeDefined();
-    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.getByText(/Se rechaza la solicitud de Ana López\./)).toBeDefined();
+    expect(screen.queryByRole("list", { name: "Cola" })).toBeNull();
+    const confirm = screen.getAllByRole("button", { name: "Rechazar" }).at(-1)!;
+    expect(confirm.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("opens on the summary again after the dialog was closed on the list", async () => {
+    renderActions(guestRow());
+
+    await openDialog("Rechazar");
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar de la lista de colas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await openDialog("Rechazar");
+
+    expect(screen.getByText(/Se rechaza la solicitud de Ana López\./)).toBeDefined();
   });
 });

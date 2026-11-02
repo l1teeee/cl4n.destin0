@@ -7,17 +7,20 @@ import type {
   WaitingQueueEntry,
 } from "@/infrastructure/db/repositories/event-guest-queries";
 import { MutationForm, type MutationAction } from "@/ui/admin/mutation-form";
+import { Button } from "@/ui/primitives/button";
 
 import { ExpectedReplacementInputs } from "./expected-replacement-inputs";
 import {
   cancelPaidConfirmation,
   cancelUnpaidConfirmation,
-  guestsLabel,
+  chooseReplacementDescription,
   rejectConfirmation,
 } from "./guest-copy";
-import { ReplacementChoice, type ReplacementMode } from "./replacement-choice";
+import { QueueReplacementList } from "./queue-replacement-list";
 
 export type ReleaseKind = "REJECT" | "CANCEL_UNPAID" | "CANCEL_PAID";
+
+type ReleaseView = "summary" | "queue";
 
 interface ReleaseFormProps {
   action: MutationAction;
@@ -36,8 +39,8 @@ const confirmationByKind = {
   CANCEL_PAID: cancelPaidConfirmation,
 } satisfies Record<ReleaseKind, typeof rejectConfirmation>;
 
-// Rejecting or cancelling frees the seats of the released request; the admin either lets the
-// first of the cola come in or picks who takes them.
+// Rejecting or cancelling frees the seats of the released request; the dialog says who the
+// automatic promotion takes and lets the admin pick someone else from the cola instead.
 export function ReleaseForm({
   action,
   label,
@@ -48,36 +51,51 @@ export function ReleaseForm({
   waiting,
   children,
 }: ReleaseFormProps) {
-  const [mode, setMode] = useState<ReplacementMode>("auto");
-  const [entryId, setEntryId] = useState<string | null>(null);
+  const [view, setView] = useState<ReleaseView>("summary");
+  const choosing = view === "queue";
 
-  const chosenEntry = waiting.find((entry) => entry.id === entryId);
-  const replacements =
-    mode === "chosen" && chosenEntry
-      ? [guestsLabel(chosenEntry.guests)]
-      : autoEntries.map((entry) => guestsLabel(entry.guests));
+  const description = choosing
+    ? chooseReplacementDescription(guests.length)
+    : confirmationByKind[kind]({
+        guests,
+        replacements: autoEntries.map((entry) => entry.guests),
+        waitingCount,
+      });
 
   return (
     <MutationForm
       action={action}
       label={label}
-      confirmation={confirmationByKind[kind]({ guests, replacements, waitingCount })}
+      confirmation={description}
       danger
       reportToSection
-      submitDisabled={mode === "chosen" && chosenEntry === undefined}
+      submitDisabled={choosing}
+      onOpenChange={() => setView("summary")}
     >
-      <ReplacementChoice
-        mode={mode}
-        onModeChange={setMode}
-        entryId={entryId}
-        onEntryChange={setEntryId}
-        autoEntries={autoEntries}
-        waiting={waiting}
-        releasedSeats={guests.length}
-      />
-      {mode === "auto" ? (
-        <ExpectedReplacementInputs entryIds={autoEntries.map((entry) => entry.id)} />
-      ) : null}
+      <input type="hidden" name="replacementMode" value={choosing ? "chosen" : "auto"} />
+      <div key={view} className="animate-in duration-200 fade-in-0 motion-reduce:animate-none">
+        {choosing ? (
+          <QueueReplacementList
+            waiting={waiting}
+            releasedSeats={guests.length}
+            onBack={() => setView("summary")}
+          />
+        ) : (
+          <>
+            <ExpectedReplacementInputs entryIds={autoEntries.map((entry) => entry.id)} />
+            {waiting.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-fit"
+                onClick={() => setView("queue")}
+              >
+                Seleccionar de la lista de colas
+              </Button>
+            ) : null}
+          </>
+        )}
+      </div>
       {children}
     </MutationForm>
   );

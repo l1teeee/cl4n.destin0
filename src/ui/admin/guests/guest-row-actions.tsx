@@ -107,7 +107,7 @@ function CancelFromListAction({
   return (
     <ReleaseForm
       action={handlers.cancel.bind(null, row.id)}
-      label="Eliminar de la lista"
+      label="Sacar de la lista"
       kind={stage === "PAID" ? "CANCEL_PAID" : "CANCEL_UNPAID"}
       guests={guestNames(row)}
       waitingCount={preview.waitingCount}
