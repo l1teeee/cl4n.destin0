@@ -22,7 +22,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/primitives/tooltip
 
 const initialState: AdminActionState = { ok: false, message: "" };
 
-type MutationAction = (state: AdminActionState, formData: FormData) => Promise<AdminActionState>;
+export type MutationAction = (
+  state: AdminActionState,
+  formData: FormData,
+) => Promise<AdminActionState>;
 
 interface MutationFormProps {
   action: MutationAction;
@@ -32,6 +35,7 @@ interface MutationFormProps {
   icon?: ReactNode;
   danger?: boolean;
   reportToSection?: boolean;
+  submitDisabled?: boolean;
 }
 
 function FormContent({
@@ -79,6 +83,7 @@ export function MutationForm({
   icon,
   danger = false,
   reportToSection = false,
+  submitDisabled = false,
 }: MutationFormProps) {
   const feedback = useActionFeedback();
   const [open, setOpen] = useState(false);
@@ -144,7 +149,7 @@ export function MutationForm({
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <Button
                   type="submit"
-                  disabled={pending}
+                  disabled={pending || submitDisabled}
                   variant={danger ? "destructive" : "default"}
                 >
                   {pending ? <Loader2 className="size-4 animate-spin" /> : null}

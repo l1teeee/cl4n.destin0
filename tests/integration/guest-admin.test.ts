@@ -625,7 +625,14 @@ describe("guest admin use cases", () => {
       const review = await insertReservation(eventId, { name: `Rechazo ${eventCase.status}` });
       const waiting = await insertWaitlistEntry(eventId, { name: `Cola ${eventCase.status}` });
       const rejectPreview = await previewPromotion(eventId, pool);
-      expect(rejectPreview).toEqual({ waitingCount: 1, oneSeat: [], twoSeats: [] });
+      expect(rejectPreview).toEqual({
+        waitingCount: 1,
+        oneSeat: [],
+        twoSeats: [],
+        waiting: [
+          { id: waiting.id, position: 1, partySize: 1, guests: [`Cola ${eventCase.status}`] },
+        ],
+      });
       expect(
         await rejectRequest(repository, {
           reservationId: review.id,
@@ -643,7 +650,14 @@ describe("guest admin use cases", () => {
         stage: "ON_LIST",
       });
       const cancelPreview = await previewPromotion(eventId, pool);
-      expect(cancelPreview).toEqual({ waitingCount: 1, oneSeat: [], twoSeats: [] });
+      expect(cancelPreview).toEqual({
+        waitingCount: 1,
+        oneSeat: [],
+        twoSeats: [],
+        waiting: [
+          { id: waiting.id, position: 1, partySize: 1, guests: [`Cola ${eventCase.status}`] },
+        ],
+      });
       expect(
         await cancelRequest(repository, {
           reservationId: onList.id,
@@ -1199,6 +1213,10 @@ describe("guest admin use cases", () => {
     const preview = await previewPromotion(eventId, pool);
     expect(preview.oneSeat).toEqual([{ id: waiting.id, guests: ["Sara", "Sara Dos"] }]);
     expect(preview.twoSeats).toHaveLength(2);
+    expect(preview.waiting.map((entry) => [entry.position, entry.partySize])).toEqual([
+      [1, 2],
+      [2, 1],
+    ]);
 
     const detail = await getGuestRequestDetail("RESERVATION", review.id, pool);
     expect(detail).toMatchObject({
