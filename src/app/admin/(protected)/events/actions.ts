@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
 import { removeEventClue } from "@/application/events/event-clues";
+import { resolveCreateSchedule, resolveUpdateSchedule } from "@/application/events/event-schedule";
 import {
   cancelEvent,
   changeCapacity,
@@ -33,6 +34,7 @@ import {
   readCreateEventFormData,
   updateAdminEventSchema,
 } from "@/contracts/admin-event";
+import type { ScheduleErrors } from "@/domain/event/event-schedule";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
@@ -162,6 +164,14 @@ function formValidationError(error: z.ZodError): AdminActionState {
   };
 }
 
+function scheduleError(errors: ScheduleErrors): AdminActionState {
+  const fieldErrors: Partial<Record<string, string>> = {};
+  if (errors.startsAt) fieldErrors.eventDate = errors.startsAt;
+  if (errors.opensAt) fieldErrors.opensAt = errors.opensAt;
+  if (errors.closesAt) fieldErrors.closesAt = errors.closesAt;
+  return { ok: false, message: "Revisa los campos marcados.", fieldErrors };
+}
+
 function dateConversionError(error: unknown, field: string): AdminActionState {
   const message = error instanceof Error ? error.message : "Las fechas no son válidas.";
   return {
@@ -229,13 +239,21 @@ export async function createEventAction(
     return dateConversionError(error, "closesAt");
   }
 
+  const schedule = await resolveCreateSchedule(postgresEventRepository, {
+    startsAt,
+    opensAt,
+    closesAt,
+    openNow: parsed.data.openNow,
+  });
+  if (!schedule.ok) return scheduleError(schedule.errors);
+
   const result = await createEvent(
     postgresEventRepository,
     googleMapsLinkResolver,
     {
       ...parsed.data,
       startsAt,
-      opensAt,
+      opensAt: schedule.opensAt,
       closesAt,
       location: {
         name: parsed.data.locationName,
@@ -270,11 +288,13 @@ export async function updateEventAction(
     eventTime: formData.get("eventTime"),
     opensAt: formData.get("opensAt"),
     closesAt: formData.get("closesAt"),
+    openNow: formData.get("openNow") === "1",
     maxPartySize: optionalNumber(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
     paymentInstructions: formData.has("paymentInstructions")
       ? formData.get("paymentInstructions")
       : undefined,
+    price: formData.get("price"),
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
     locationMapsUrl: formData.get("locationMapsUrl"),
@@ -305,6 +325,14 @@ export async function updateEventAction(
     return dateConversionError(error, "closesAt");
   }
 
+  const schedule = await resolveUpdateSchedule(postgresEventRepository, parsedId.data.id, {
+    startsAt,
+    opensAt,
+    closesAt,
+    openNow: parsed.data.openNow,
+  });
+  if (!schedule.ok) return scheduleError(schedule.errors);
+
   const result = await updateEvent(
     postgresEventRepository,
     googleMapsLinkResolver,
@@ -312,7 +340,7 @@ export async function updateEventAction(
       id: parsedId.data.id,
       ...parsed.data,
       startsAt,
-      opensAt,
+      opensAt: schedule.opensAt,
       closesAt,
       location: {
         name: parsed.data.locationName,

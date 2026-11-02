@@ -191,14 +191,23 @@ describe("messageOutcomeSentence", () => {
 
 describe("acceptedResult", () => {
   it("uses the singular and omits the empty outcome", () => {
-    expect(acceptedResult({ guests: solo, outcome: "NOT_SENT" })).toBe(
+    expect(acceptedResult({ guests: solo, outcome: "NOT_SENT", paymentMissing: false })).toBe(
       "Aceptaste a Ana López. Ya está en la lista.",
     );
   });
 
   it("uses the plural and appends the outcome after a space", () => {
-    expect(acceptedResult({ guests: couple, outcome: "SENT" })).toBe(
+    expect(acceptedResult({ guests: couple, outcome: "SENT", paymentMissing: false })).toBe(
       "Aceptaste a Ana López y Luis Pérez. Ya están en la lista. Mensaje enviado por Instagram.",
+    );
+  });
+
+  it("warns at the end that the message went out without the payment data", () => {
+    expect(acceptedResult({ guests: solo, outcome: "SENT", paymentMissing: true })).toBe(
+      "Aceptaste a Ana López. Ya está en la lista. Mensaje enviado por Instagram. Faltan datos de pago: el mensaje salió sin ellos.",
+    );
+    expect(acceptedResult({ guests: solo, outcome: "NOT_SENT", paymentMissing: true })).toBe(
+      "Aceptaste a Ana López. Ya está en la lista. Faltan datos de pago: el mensaje salió sin ellos.",
     );
   });
 });

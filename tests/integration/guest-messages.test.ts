@@ -10,6 +10,7 @@ import {
 } from "@/infrastructure/db/repositories/guest-messages";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
+import { configurePaymentSettings } from "../helpers/guest-flow-test-data";
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 
 interface Fixtures {
@@ -24,19 +25,40 @@ interface Fixtures {
 let pool: Pool;
 let fixtures: Fixtures;
 
+function expectedPayment(monto: string) {
+  return {
+    monto,
+    banco: "Banco Demo",
+    tipo_cuenta: "Ahorro",
+    cuenta: "0123456789",
+    titular: "Clandestino",
+    enlace_pago: "",
+    nota_pago: "Paga antes del jueves",
+    pago: [
+      `Monto: ${monto}`,
+      "Banco: Banco Demo",
+      "Tipo de cuenta: Ahorro",
+      "Cuenta: 0123456789",
+      "Titular: Clandestino",
+      "Paga antes del jueves",
+    ].join("\n"),
+  };
+}
+
 async function createFixtures(client: PoolClient): Promise<Fixtures> {
   const startsAt = new Date("2030-11-23T01:30:00.000Z");
   const event = await client.query<{ id: string }>(
     `INSERT INTO events (
        slug, internal_name, starts_at, capacity, max_party_size, opens_at, closes_at,
-       payment_instructions
+       payment_instructions, price_cents
      ) VALUES (
        'guest-message-values', 'Guest message values', $1, 20, 2,
        $1::timestamptz - interval '2 days', $1::timestamptz - interval '1 day',
-       'Banco Demo, cuenta 123'
+       'Paga antes del jueves', 2500
      ) RETURNING id`,
     [startsAt],
   );
+  await configurePaymentSettings(client);
   const eventId = event.rows[0]!.id;
   const contacts = await client.query<{ id: string }>(
     `INSERT INTO messaging_contacts (instagram_scoped_id, username)
@@ -152,7 +174,7 @@ describe("guest message repository", () => {
         nombre: "Ana",
         nombres: "Ana y Luis",
         fecha: formatPublicEventDate(fixtures.startsAt),
-        pago: "Banco Demo, cuenta 123",
+        ...expectedPayment("$50.00"),
       });
       await expect(
         loadGuestMessageValues(client, { reservationId: fixtures.unlinkedReservationId }),
@@ -160,7 +182,7 @@ describe("guest message repository", () => {
         nombre: "Carlos",
         nombres: "Carlos",
         fecha: formatPublicEventDate(fixtures.startsAt),
-        pago: "Banco Demo, cuenta 123",
+        ...expectedPayment("$25.00"),
       });
       await expect(
         loadGuestMessageValues(client, { waitlistEntryId: fixtures.unlinkedWaitlistId }),
@@ -168,9 +190,57 @@ describe("guest message repository", () => {
         nombre: "María",
         nombres: "María",
         fecha: formatPublicEventDate(fixtures.startsAt),
-        pago: "Banco Demo, cuenta 123",
+        ...expectedPayment("$25.00"),
         posicion: "2",
       });
+    } finally {
+      client.release();
+    }
+  });
+
+  it("leaves the bank variables empty and omits their lines while the payment settings are missing", async () => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM payment_settings");
+      const values = await loadGuestMessageValues(client, {
+        reservationId: fixtures.linkedReservationId,
+      });
+      await client.query("ROLLBACK");
+
+      expect(values).toMatchObject({
+        monto: "$50.00",
+        banco: "",
+        cuenta: "",
+        pago: "Monto: $50.00\nPaga antes del jueves",
+      });
+    } finally {
+      client.release();
+    }
+  });
+
+  it("renders the seeded ON_LIST template with the payment details", async () => {
+    const client = await pool.connect();
+    try {
+      const values = await loadGuestMessageValues(client, {
+        reservationId: fixtures.unlinkedReservationId,
+      });
+      const body = await renderGuestMessage(client, "ON_LIST", values);
+
+      expect(body).toBe(
+        [
+          "¡Felicidades, Carlos, estás en la lista! Para asegurar tu lugar tienes 48 horas para transferir $25.00.",
+          "",
+          "Banco: Banco Demo",
+          "Tipo de cuenta: Ahorro",
+          "Cuenta: 0123456789",
+          "Titular: Clandestino",
+          "",
+          "Paga antes del jueves",
+          "",
+          "Cuando transfieras, envíanos el comprobante por aquí.",
+        ].join("\n"),
+      );
     } finally {
       client.release();
     }

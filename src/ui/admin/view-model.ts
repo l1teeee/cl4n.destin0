@@ -44,6 +44,7 @@ const auditEntityTypes = new Set<AuditLogItem["entityType"]>([
   "MESSAGE_TEMPLATE",
   "MESSAGING_CONTACT",
   "INSTAGRAM_CONNECTION",
+  "PAYMENT_SETTINGS",
 ]);
 
 function first(value: string | string[] | undefined): string | undefined {

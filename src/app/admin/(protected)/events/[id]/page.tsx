@@ -8,6 +8,7 @@ import {
 import { getAdminAuditLog, getAdminEventDetail } from "@/application/events/event-use-cases";
 import { listActiveExtras } from "@/application/extras/extra-use-cases";
 import type { EventGuestView } from "@/application/guests/guest-views";
+import { loadPaymentSettings } from "@/application/payments/payment-settings";
 import { areCluesVisible } from "@/domain/event/event-clues";
 import { auditPageSizeFor } from "@/ui/admin/view-model";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
@@ -21,6 +22,7 @@ import {
   previewPromotion,
 } from "@/infrastructure/db/repositories/event-guest-queries";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { postgresPaymentSettingsRepository } from "@/infrastructure/db/repositories/postgres-payment-settings-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { postgresLocationMessageRepository } from "@/infrastructure/db/repositories/postgres-location-message-repository";
 import {
@@ -124,6 +126,8 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const cluesVisible = areCluesVisible(event.phase);
   const section = parseEventSection(query.seccion, cluesVisible);
   const sections = eventSections(cluesVisible);
+  const paymentSettings =
+    section === "invitados" ? await loadPaymentSettings(postgresPaymentSettingsRepository) : null;
   const [guests, economy, audit, images, locationDelivery, clues, clueDelivery] = await Promise.all(
     [
       section === "invitados" ? loadEventGuests(id, guestView) : Promise.resolve(null),
@@ -428,6 +432,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           counts={guests.counts}
           guests={guests.guests}
           preview={guests.preview}
+          paymentMissing={event.priceCents === null || paymentSettings === null}
           handlers={{
             accept: acceptRequestAction,
             verifyPayment: verifyPaymentAction,

@@ -16,6 +16,7 @@ import type {
 import type { EventLocationStatus } from "@/domain/event/event-location";
 
 export interface EventRepository {
+  databaseTime(): Promise<Date>;
   create(
     command: CreateEventCommand,
     actorAdminId: string,

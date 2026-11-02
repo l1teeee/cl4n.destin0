@@ -30,6 +30,7 @@ const validValues = {
   maxPartySize: 2,
   autoCloseOnFull: true,
   waitlistCapacity: 5,
+  priceCents: 2500,
   status: "DRAFT",
   locationName: null,
   locationAddress: null,
@@ -170,16 +171,99 @@ describe("edit event form", () => {
 });
 
 describe("event form guest flow fields", () => {
-  it("offers the party size select, payment instructions and the queue label", () => {
+  it("offers the party size select, the price, the payment note and the queue label", () => {
     renderCreate();
 
     expect(screen.getByText("Personas por solicitud")).toBeDefined();
     expect(screen.getByText("Lugares en la cola")).toBeDefined();
-    const instructions = document.querySelector<HTMLTextAreaElement>(
-      '[name="paymentInstructions"]',
+    const price = document.querySelector<HTMLInputElement>('[name="price"]');
+    expect(price?.required).toBe(true);
+    expect(price?.value).toBe("25.00");
+    expect(screen.getByText("Precio por persona (USD)")).toBeDefined();
+    const note = document.querySelector<HTMLTextAreaElement>('[name="paymentInstructions"]');
+    expect(note).not.toBeNull();
+    expect(note?.required).toBe(false);
+    expect(screen.getByLabelText("Nota de pago (opcional)")).toBe(note);
+  });
+
+  it("requires the price before leaving step one", () => {
+    renderCreate(undefined, { ...validValues, priceCents: undefined });
+
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    expect(screen.getByText("El precio por persona es obligatorio.")).toBeDefined();
+    expect(document.querySelector('[name="price"]')?.getAttribute("aria-invalid")).toBe("true");
+  });
+});
+
+describe("event form section hints", () => {
+  const hints = [
+    "Nombre y enlace público de la experiencia.",
+    "Día y hora de la cena, en hora de El Salvador.",
+    "Capacidad: lugares totales. Personas por solicitud: 1 solo individuales, 2 también parejas. Cola: cuántas personas pueden esperar si se llena.",
+    "Cuándo se abre y se cierra el formulario público para pedir lugar.",
+    "Desde esta hora la gente puede enviar solicitudes.",
+    "Después de esta hora ya no se aceptan solicitudes. Debe ser antes de la cena.",
+    "Precio por persona. Los datos bancarios se configuran una vez en Mi cuenta > Datos de pago.",
+    "Se envía por Instagram solo a las personas confirmadas.",
+  ];
+
+  it("explains every section when creating", () => {
+    renderCreate();
+
+    for (const hint of [
+      ...hints,
+      "Borrador: no se ve en el sitio. Programada: se publica y se abre sola a la hora de apertura.",
+    ]) {
+      expect(screen.getByText(hint)).toBeDefined();
+    }
+  });
+
+  it("explains every section when editing", () => {
+    render(
+      <EventForm
+        action={vi.fn(async () => ({ ok: true, message: "" }))}
+        mode="edit"
+        values={{ ...validValues, locationRevision: 0 }}
+      />,
     );
-    expect(instructions).not.toBeNull();
-    expect(instructions?.required).toBe(false);
-    expect(screen.getByText(/Se incluyen en el mensaje de .estás en la lista./)).toBeDefined();
+
+    for (const hint of hints) {
+      expect(screen.getByText(hint)).toBeDefined();
+    }
+  });
+});
+
+describe("opening now", () => {
+  it("prefills the opening with the suggested time when creating", () => {
+    const { container } = render(
+      <EventForm
+        action={vi.fn(async () => ({ ok: true, message: "" }))}
+        mode="create"
+        suggestedOpensAt="2026-11-01T15:43"
+      />,
+    );
+
+    expect(container.querySelector<HTMLInputElement>('[name="opensAt"]')?.value).toBe(
+      "2026-11-01T15:43",
+    );
+  });
+
+  it("submits openNow=1 only after pressing Abrir ahora", async () => {
+    const action = vi.fn<EventAction>(async (state, formData) => {
+      void state;
+      void formData;
+      return { ok: true, message: "" };
+    });
+    renderCreate(action);
+    expect(document.querySelector('[name="openNow"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Abrir ahora" }));
+    expect(screen.getByText("Se abrirá en cuanto guardes.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Crear experiencia" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledOnce());
+    expect(action.mock.calls[0]![1].get("openNow")).toBe("1");
   });
 });

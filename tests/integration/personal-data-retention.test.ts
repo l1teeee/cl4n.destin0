@@ -19,6 +19,7 @@ import { PostgresReservationAllocationRepository } from "@/infrastructure/db/rep
 import * as logger from "@/infrastructure/observability/logger";
 
 import {
+  configurePaymentSettings,
   insertAdminUser,
   insertGuestReservation,
   openEventLock,
@@ -35,6 +36,7 @@ beforeAll(async () => {
   await resetTestDatabase();
   pool = new Pool({ connectionString: testDatabaseUrl().toString() });
   repository = new PostgresPersonalDataRetentionRepository(pool);
+  await configurePaymentSettings(pool);
 });
 
 afterAll(async () => {

@@ -1,8 +1,11 @@
 import { changeOwnPasswordAction } from "@/app/admin/(protected)/account/actions";
 import { disconnectInstagramAction } from "@/app/admin/(protected)/account/instagram-connection-actions";
+import { savePaymentSettingsAction } from "@/app/admin/(protected)/account/payment-settings-actions";
+import { loadPaymentSettings } from "@/application/payments/payment-settings";
 import { hasPermission } from "@/domain/admin/admin-access";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
+import { postgresPaymentSettingsRepository } from "@/infrastructure/db/repositories/postgres-payment-settings-repository";
 import { loadInstagramConnectionStatus } from "@/infrastructure/instagram/instagram-connection-runtime";
 import { PasswordForm } from "@/ui/admin/admin-user-forms";
 import { instagramStatItem } from "@/ui/admin/instagram-stat";
@@ -11,6 +14,7 @@ import {
   instagramConnectionNotices,
   type InstagramConnectionNotice,
 } from "@/ui/admin/messages/instagram-connection-notices";
+import { PaymentSettingsForm } from "@/ui/admin/payment-settings-form";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import { adminRoleLabel, formatAdminDate } from "@/ui/admin/view-model";
 
@@ -64,6 +68,20 @@ export default async function AccountPage({
     );
   }
 
+  let paymentSection = null;
+  if (hasPermission(admin.role, "payments.manage")) {
+    const paymentSettings = await loadPaymentSettings(postgresPaymentSettingsRepository);
+    paymentSection = (
+      <section className="admin-section space-y-4">
+        <h2 className="admin-section-title">Datos de pago</h2>
+        {paymentSettings === null ? (
+          <p className="admin-muted">Completa los datos de pago para poder aceptar invitados.</p>
+        ) : null}
+        <PaymentSettingsForm action={savePaymentSettingsAction} settings={paymentSettings} />
+      </section>
+    );
+  }
+
   return (
     <main className="admin-page space-y-10">
       <div>
@@ -88,6 +106,7 @@ export default async function AccountPage({
         <PasswordForm action={changeOwnPasswordAction} mode="change" />
       </section>
       {instagramPanel}
+      {paymentSection}
     </main>
   );
 }

@@ -32,6 +32,7 @@ import {
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
 import { postgresGuestAdminRepository } from "@/infrastructure/db/repositories/postgres-guest-admin-repository";
 
+import { configurePaymentSettings } from "../helpers/guest-flow-test-data";
 import { resetTestDatabase } from "../helpers/test-db";
 
 const initialState = { ok: false, message: "" };
@@ -41,6 +42,7 @@ let eventId: string;
 beforeAll(async () => {
   await resetTestDatabase();
   pool = (await import("@/infrastructure/db/client")).pool;
+  await configurePaymentSettings(pool);
   const admin = await pool.query<{ id: string }>(
     `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
      VALUES ('guest-actions@example.com', 'guest-actions@example.com', 'hash', 'Guest Actions')
@@ -54,11 +56,11 @@ beforeAll(async () => {
   const event = await pool.query<{ id: string }>(
     `INSERT INTO events (
        internal_name, slug, starts_at, capacity, max_party_size,
-       opens_at, closes_at, waitlist_capacity, status
+       opens_at, closes_at, waitlist_capacity, status, price_cents
      )
      VALUES ('Acciones', 'guest-actions', clock_timestamp() + interval '7 days', 2, 2,
              clock_timestamp() - interval '1 day', clock_timestamp() + interval '6 days', 2,
-             'SCHEDULED')
+             'SCHEDULED', 2500)
      RETURNING id`,
   );
   eventId = event.rows[0]!.id;
@@ -86,11 +88,11 @@ async function insertEvent(
   const event = await pool.query<{ id: string }>(
     `INSERT INTO events (
        internal_name, slug, starts_at, capacity, max_party_size,
-       opens_at, closes_at, waitlist_capacity, status
+       opens_at, closes_at, waitlist_capacity, status, price_cents
      )
      VALUES ($1, $1, clock_timestamp() + interval '7 days', $2, 2,
              clock_timestamp() - interval '1 day', clock_timestamp() + interval '6 days', $3,
-             'SCHEDULED')
+             'SCHEDULED', 2500)
      RETURNING id`,
     [slug, capacity, waitlistCapacity],
   );
@@ -149,6 +151,56 @@ describe("guest admin Server Actions", () => {
       ok: false,
       fieldErrors: { hasAllergies: "Indica si hay alergias." },
     });
+  });
+
+  it("accepts anyway and says so when the payment data or the price is missing", async () => {
+    const lenientEventId = await insertEvent("accept-lenient", 2, 0);
+    await addRequestAction(lenientEventId, initialState, guestForm("Gabi Guarda", "@gabi.guarda"));
+    await addRequestAction(lenientEventId, initialState, guestForm("Hugo Guarda", "@hugo.guarda"));
+    const noPrice = await reservationIdOf(lenientEventId, "gabi.guarda");
+    const noSettings = await reservationIdOf(lenientEventId, "hugo.guarda");
+    const warning = " Faltan datos de pago: el mensaje salió sin ellos.";
+
+    await pool.query("UPDATE events SET price_cents = NULL WHERE id = $1", [lenientEventId]);
+    const withoutPrice = await acceptRequestAction(noPrice, initialState, new FormData());
+    expect(withoutPrice).toMatchObject({ ok: true });
+    expect(withoutPrice.message.endsWith(warning)).toBe(true);
+
+    await pool.query("UPDATE events SET price_cents = 2500 WHERE id = $1", [lenientEventId]);
+    await pool.query("DELETE FROM payment_settings");
+    try {
+      const withoutSettings = await acceptRequestAction(noSettings, initialState, new FormData());
+      expect(withoutSettings).toMatchObject({ ok: true });
+      expect(withoutSettings.message.endsWith(warning)).toBe(true);
+    } finally {
+      await configurePaymentSettings(pool);
+    }
+
+    const stored = await pool.query<{ stage: string }>(
+      "SELECT stage FROM reservations WHERE id = ANY($1::uuid[])",
+      [[noPrice, noSettings]],
+    );
+    expect(stored.rows.map((row) => row.stage)).toEqual(["ON_LIST", "ON_LIST"]);
+    const messages = await pool.query<{ body: string }>(
+      `SELECT body FROM messages WHERE reservation_id = $1 AND kind = 'ON_LIST'`,
+      [noSettings],
+    );
+    expect(messages.rows).toHaveLength(1);
+    expect(messages.rows[0]!.body).toContain("$25.00");
+  });
+
+  it("does not warn when the payment data and the price are set", async () => {
+    const readyEventId = await insertEvent("accept-ready", 2, 0);
+    await addRequestAction(readyEventId, initialState, guestForm("Rita Lista", "@rita.lista"));
+
+    const accepted = await acceptRequestAction(
+      await reservationIdOf(readyEventId, "rita.lista"),
+      initialState,
+      new FormData(),
+    );
+
+    expect(accepted).toMatchObject({ ok: true });
+    expect(accepted.message).not.toContain("Faltan datos de pago");
   });
 
   it("adds and accepts a request, delivers synchronously, and revalidates the event", async () => {

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { parseDrinkPriceCents } from "@/domain/drink/drink-price";
+
 // Number("") is 0, which would silently turn an empty field into "waitlist off".
 export function optionalNumber(value: FormDataEntryValue | null): number | undefined {
   if (typeof value !== "string" || value.trim() === "") return undefined;
@@ -14,11 +16,13 @@ export function readCreateEventFormData(formData: FormData) {
     eventTime: formData.get("eventTime"),
     opensAt: formData.get("opensAt"),
     closesAt: formData.get("closesAt"),
+    openNow: formData.get("openNow") === "1",
     capacity: optionalNumber(formData.get("capacity")),
     maxPartySize: optionalNumber(formData.get("maxPartySize")),
     autoCloseOnFull: formData.get("autoCloseOnFull") === "on",
     waitlistCapacity: optionalNumber(formData.get("waitlistCapacity")),
     paymentInstructions: formData.get("paymentInstructions"),
+    price: formData.get("price"),
     status: formData.get("status"),
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
@@ -47,6 +51,27 @@ const slug = z
   .min(1, "El slug es obligatorio.")
   .max(80, "El slug no puede superar 80 caracteres.")
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "El slug no tiene un formato válido.");
+
+const PRICE_REQUIRED_MESSAGE = "El precio por persona es obligatorio.";
+const PRICE_INVALID_MESSAGE = "Escribe el precio con números, por ejemplo 25.00.";
+
+const pricePerPerson = z
+  .string({ error: PRICE_REQUIRED_MESSAGE })
+  .trim()
+  .superRefine((value, context) => {
+    if (value === "") {
+      context.addIssue({ code: "custom", message: PRICE_REQUIRED_MESSAGE });
+    } else if (parseDrinkPriceCents(value) === null) {
+      context.addIssue({ code: "custom", message: PRICE_INVALID_MESSAGE });
+    }
+  })
+  .transform((value) => parseDrinkPriceCents(value)!);
+
+const optionalPricePerPerson = z.preprocess(
+  (value) =>
+    value === null || (typeof value === "string" && value.trim() === "") ? undefined : value,
+  pricePerPerson.optional(),
+);
 
 const mapsUrlMessage =
   "Pega un enlace de Google Maps (https://maps.app.goo.gl/... o https://www.google.com/maps/...).";
@@ -105,6 +130,7 @@ const eventFields = {
   eventTime: localTime,
   opensAt: localDateTime("La fecha de apertura es obligatoria."),
   closesAt: localDateTime("La fecha de cierre es obligatoria."),
+  openNow: z.boolean({ error: "La apertura inmediata debe ser verdadera o falsa." }),
   capacity: z
     .number({ error: "La capacidad debe ser un número." })
     .int("La capacidad debe ser un número entero.")
@@ -125,6 +151,7 @@ const eventFields = {
 export const createAdminEventSchema = z
   .object({
     ...eventFields,
+    price: pricePerPerson,
     status: z.enum(["DRAFT", "SCHEDULED"], {
       error: "El estado debe ser DRAFT o SCHEDULED.",
     }),
@@ -133,7 +160,8 @@ export const createAdminEventSchema = z
   .refine((value) => value.maxPartySize <= value.capacity, {
     path: ["maxPartySize"],
     message: "El tamaño máximo del grupo no puede superar la capacidad.",
-  });
+  })
+  .transform(({ price, ...input }) => ({ ...input, priceCents: price }));
 
 export const updateAdminEventSchema = z
   .object({
@@ -143,15 +171,18 @@ export const updateAdminEventSchema = z
     eventTime: eventFields.eventTime,
     opensAt: eventFields.opensAt,
     closesAt: eventFields.closesAt,
+    openNow: eventFields.openNow,
     maxPartySize: eventFields.maxPartySize,
     autoCloseOnFull: eventFields.autoCloseOnFull,
     paymentInstructions: eventFields.paymentInstructions.optional(),
+    price: optionalPricePerPerson,
     ...locationFields,
     keepMapsUrl: z.boolean(),
     locationRevision: z.string().regex(/^\d+$/).transform(Number),
     locationStatusLoaded: z.enum(["PENDING", "CONFIRMED"]),
   })
-  .strict();
+  .strict()
+  .transform(({ price, ...input }) => ({ ...input, priceCents: price }));
 
 export const changeWaitlistCapacitySchema = z
   .object({

@@ -192,6 +192,7 @@ describe("admin form-compatible controls", () => {
     maxPartySize: 2,
     autoCloseOnFull: false,
     waitlistCapacity: 5,
+    priceCents: 2500,
     locationName: null,
     locationAddress: null,
     locationMapsUrl: null,
