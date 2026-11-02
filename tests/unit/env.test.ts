@@ -58,6 +58,20 @@ describe("parseDatabaseEnv", () => {
 });
 
 describe("parseServerEnv", () => {
+  it.each([
+    [undefined, false],
+    ["", false],
+    ["true", true],
+    ["TRUE", false],
+    ["false", false],
+    ["1", false],
+  ])("parses INSTAGRAM_ALLOW_ANY_ACCOUNT %j as %s", (value, expected) => {
+    expect(
+      parseServerEnv({ ...validEnvironment, INSTAGRAM_ALLOW_ANY_ACCOUNT: value })
+        .INSTAGRAM_ALLOW_ANY_ACCOUNT,
+    ).toBe(expected);
+  });
+
   it("parses valid local configuration", () => {
     const parsed = parseServerEnv(validEnvironment);
 

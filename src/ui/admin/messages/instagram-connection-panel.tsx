@@ -26,6 +26,7 @@ export interface InstagramConnectionPanelProps {
     tokenExpiresAtLabel: string;
     expiresSoon: boolean;
   } | null;
+  allowAnyAccount: boolean;
   requiredUsername: string | null;
   notice: InstagramConnectionNotice | null;
   disconnectAction: (state: AdminActionState, formData: FormData) => Promise<AdminActionState>;
@@ -81,6 +82,7 @@ function noticeAlert(
 export function InstagramConnectionPanel({
   mode,
   connection,
+  allowAnyAccount,
   requiredUsername,
   notice,
   disconnectAction,
@@ -93,11 +95,21 @@ export function InstagramConnectionPanel({
       <h2 className="admin-section-title">Cuenta de Instagram</h2>
       {topNotice ? <Alert variant={topNotice.variant}>{topNotice.message}</Alert> : null}
       {mode === "log" ? (
-        <p className="admin-muted">Modo de prueba: los mensajes no salen a Instagram.</p>
+        <div>
+          <p className="admin-muted">Modo de prueba: los mensajes no salen a Instagram.</p>
+          {allowAnyAccount ? (
+            <p className="admin-muted">Modo de prueba: se acepta cualquier cuenta de Instagram.</p>
+          ) : null}
+        </div>
       ) : connection === null ? (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <Badge variant="waitlist">Sin vincular</Badge>
+            {allowAnyAccount ? (
+              <p className="admin-muted">
+                Modo de prueba: se acepta cualquier cuenta de Instagram.
+              </p>
+            ) : null}
             <p className="admin-muted">
               {requiredUsername
                 ? `Vincula la cuenta @${requiredUsername} para enviar y recibir mensajes.`
@@ -117,6 +129,11 @@ export function InstagramConnectionPanel({
               <Badge variant="confirmed">Vinculada</Badge>
               <span>@{connection.username}</span>
             </div>
+            {allowAnyAccount ? (
+              <p className="admin-muted">
+                Modo de prueba: se acepta cualquier cuenta de Instagram.
+              </p>
+            ) : null}
             <p className="admin-muted">Vinculada el {connection.connectedAtLabel}</p>
             <p className="admin-muted">
               El permiso se renueva solo. Vence el {connection.tokenExpiresAtLabel}.
