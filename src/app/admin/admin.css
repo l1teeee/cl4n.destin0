@@ -113,6 +113,27 @@
   border-top-color: #c9736a;
 }
 
+.admin-unread-badge {
+  animation: admin-badge-bounce 8s cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+}
+
+@keyframes admin-badge-bounce {
+  0%,
+  12%,
+  100% {
+    transform: translateY(0);
+  }
+  3% {
+    transform: translateY(-5px);
+  }
+  6% {
+    transform: translateY(0);
+  }
+  8.5% {
+    transform: translateY(-2px);
+  }
+}
+
 @keyframes admin-page-enter {
   from {
     opacity: 0;

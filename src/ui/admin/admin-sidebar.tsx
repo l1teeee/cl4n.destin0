@@ -115,7 +115,11 @@ function AdminNavigation({
 
               return (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild tooltip={item.label} className={menuButtonClassName}>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip={item.label}
+                    className={`${menuButtonClassName}${item.showsUnreadMessages ? " group-data-[collapsible=icon]:overflow-visible" : ""}`}
+                  >
                     <Link
                       href={item.href}
                       aria-current={active ? "page" : undefined}
