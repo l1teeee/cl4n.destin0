@@ -70,4 +70,25 @@ describe("StatGrid", () => {
 
     expect(screen.getByText("Abierta")).toBeDefined();
   });
+
+  it("renders a detail line under the value", () => {
+    render(
+      <StatGrid
+        compact
+        items={[{ label: "Instagram", value: "Sincronizado", detail: "@clandestino" }]}
+      />,
+    );
+
+    expect(screen.getByText("Sincronizado")).toBeDefined();
+    expect(screen.getByText("@clandestino")).toBeDefined();
+  });
+
+  it("offers line breaks only after @ and . in compact values", () => {
+    const { container } = render(
+      <StatGrid compact items={[{ label: "Email", value: "ana.perez@correo.com" }]} />,
+    );
+
+    expect(container.querySelector("dd")?.textContent).toBe("ana.perez@correo.com");
+    expect(container.querySelectorAll("dd wbr")).toHaveLength(3);
+  });
 });

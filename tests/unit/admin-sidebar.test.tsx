@@ -140,7 +140,7 @@ describe("AdminSidebar", () => {
     expect(screen.queryByRole("button", { name: "Contraer menú" })).toBeNull();
   });
 
-  it("shows pending feedback immediately after a section link is clicked", () => {
+  it("marks a section link busy after a click without drawing a line under it", () => {
     renderSidebar();
     const link = screen.getByRole("link", { name: "Correos" });
     link.addEventListener("click", (event) => event.preventDefault(), { once: true });
@@ -148,7 +148,13 @@ describe("AdminSidebar", () => {
     fireEvent.click(link);
 
     expect(link.getAttribute("aria-busy")).toBe("true");
-    expect(link.querySelector("span.animate-pulse")).not.toBeNull();
+    expect(link.querySelector("span.animate-pulse")).toBeNull();
+  });
+
+  it("renders no tooltips on the collapsed icons", () => {
+    renderSidebar();
+
+    expect(document.querySelector("[data-slot=tooltip-trigger]")).toBeNull();
   });
 
   it("opens and closes the mobile sheet", () => {

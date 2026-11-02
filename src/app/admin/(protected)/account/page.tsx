@@ -5,6 +5,7 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { loadInstagramConnectionStatus } from "@/infrastructure/instagram/instagram-connection-runtime";
 import { PasswordForm } from "@/ui/admin/admin-user-forms";
+import { instagramStatItem } from "@/ui/admin/instagram-stat";
 import { InstagramConnectionPanel } from "@/ui/admin/messages/instagram-connection-panel";
 import {
   instagramConnectionNotices,
@@ -35,9 +36,10 @@ export default async function AccountPage({
   const admin = authorization.session.admin;
   const canManage = hasPermission(admin.role, "instagram.connect");
 
+  const [status, query] = await Promise.all([loadInstagramConnectionStatus(), searchParams]);
+
   let instagramPanel = null;
   if (canManage) {
-    const [status, query] = await Promise.all([loadInstagramConnectionStatus(), searchParams]);
     const notice = parseInstagramNotice(query.instagram);
     const requiredUsername = env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? null;
     const connection =
@@ -69,10 +71,12 @@ export default async function AccountPage({
         <p className="admin-description">Tus datos de acceso al panel.</p>
       </div>
       <StatGrid
+        compact
         items={[
           { label: "Nombre", value: admin.displayName },
           { label: "Email", value: admin.email },
           { label: "Rol", value: adminRoleLabel(admin.role) },
+          instagramStatItem(status),
         ]}
       />
       <section className="admin-section space-y-4">

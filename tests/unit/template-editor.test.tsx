@@ -22,7 +22,6 @@ function renderEditor(readOnly = false) {
     <TemplateEditor
       templateKey="WAITLISTED"
       title="En la cola"
-      timing="Cuando nos escribe"
       initialBody="Hola {nombre}"
       variables={["nombre", "posicion"]}
       updatedLabel="Última edición: 14/11/2026 10:00 por Ana"

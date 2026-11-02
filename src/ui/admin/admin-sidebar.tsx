@@ -67,7 +67,7 @@ const navItems: AdminNavItem[] = [
 ];
 
 const menuButtonClassName =
-  "relative h-11 gap-3 rounded-full px-3 text-[#8d8b85] transition-colors duration-200 hover:bg-transparent hover:text-[#fffbf4] active:bg-transparent active:text-[#fffbf4] group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0! [&>svg]:size-[1.125rem] [&>svg]:stroke-[1.75]";
+  "relative h-11 gap-3 rounded-full no-underline hover:no-underline focus-visible:no-underline px-3 text-[#8d8b85] transition-colors duration-200 hover:bg-transparent hover:text-[#fffbf4] active:bg-transparent active:text-[#fffbf4] group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0! [&>svg]:size-[1.125rem] [&>svg]:stroke-[1.75]";
 
 const menuLabelClassName =
   "relative z-10 overflow-hidden text-[0.72rem] tracking-[0.2em] whitespace-nowrap uppercase opacity-100 transition-opacity duration-200 group-data-[collapsible=icon]:w-0 group-data-[collapsible=icon]:opacity-0";
@@ -119,7 +119,6 @@ function AdminNavigation({
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild
-                    tooltip={item.label}
                     className={`${menuButtonClassName}${item.showsUnreadMessages ? " group-data-[collapsible=icon]:overflow-visible" : ""}`}
                   >
                     <Link
@@ -140,12 +139,6 @@ function AdminNavigation({
                           <UnreadCountBadge count={unreadMessageCount} />
                         </span>
                       ) : null}
-                      {pending && (
-                        <span
-                          aria-hidden="true"
-                          className="absolute inset-x-3 bottom-0.5 h-0.5 animate-pulse rounded-full bg-[#b5a675] motion-reduce:animate-none"
-                        />
-                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -209,11 +202,7 @@ export function AdminSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <form action={signOutAction}>
-              <SidebarMenuButton
-                type="submit"
-                tooltip="Cerrar sesión"
-                className={menuButtonClassName}
-              >
+              <SidebarMenuButton type="submit" className={menuButtonClassName}>
                 <LogOut className="relative z-10" />
                 <span className={menuLabelClassName}>Cerrar sesión</span>
               </SidebarMenuButton>
