@@ -134,7 +134,7 @@ function AdminNavigation({
                       <Icon className="relative z-10" />
                       <span className={menuLabelClassName}>{item.label}</span>
                       {item.showsUnreadMessages ? (
-                        <span className="relative z-10 ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:-right-1">
+                        <span className="relative z-10 ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-0 group-data-[collapsible=icon]:-right-1.5">
                           <UnreadCountBadge count={unreadMessageCount} />
                         </span>
                       ) : null}

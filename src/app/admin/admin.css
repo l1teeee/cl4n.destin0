@@ -114,23 +114,23 @@
 }
 
 .admin-unread-badge {
-  animation: admin-badge-bounce 8s cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+  animation: admin-badge-bounce 1.4s ease-in-out infinite;
 }
 
 @keyframes admin-badge-bounce {
   0%,
-  12%,
+  50%,
   100% {
     transform: translateY(0);
   }
-  3% {
-    transform: translateY(-5px);
+  20% {
+    transform: translateY(-3px);
   }
-  6% {
+  35% {
     transform: translateY(0);
   }
-  8.5% {
-    transform: translateY(-2px);
+  42% {
+    transform: translateY(-1px);
   }
 }
 
