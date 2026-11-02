@@ -142,7 +142,7 @@ export function ReservationForm({
     formState: { errors, isSubmitting, isValid },
   } = useForm<ReservationFormInput, unknown, ReservationFormValues>({
     resolver: zodResolver(reservationFormSchema(maxPartySize)),
-    defaultValues: canChoosePartySize ? {} : { partySize: 1 },
+    defaultValues: { partySize: 1 },
     mode: "onTouched",
   });
   const partySize = useWatch({ control, name: "partySize" });
@@ -617,7 +617,8 @@ export function ReservationForm({
             />
             <label htmlFor="acceptTerms">
               Acepto los <Link href="/terminos">términos</Link> y la{" "}
-              <Link href="/privacidad">política de privacidad</Link>
+              <Link href="/privacidad">política de privacidad</Link>, incluido el uso de mi
+              información de alergias solo para preparar la experiencia.
             </label>
           </div>
           <FieldError message={errors.acceptTerms?.message} />

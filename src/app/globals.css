@@ -170,6 +170,8 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -199,6 +201,12 @@ textarea {
 .concept-links a {
   padding-block: 0.35rem;
   transition: opacity 400ms ease;
+}
+
+.public-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
 }
 
 .public-nav a:focus-visible,
@@ -241,10 +249,11 @@ textarea {
 .public-home h1,
 .reservation-intro h1 {
   max-width: 22ch;
-  font-size: clamp(2.5rem, 5vw, 4.5rem);
+  font-size: clamp(2.25rem, 5vw, 4.5rem);
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1;
+  overflow-wrap: anywhere;
   text-wrap: balance;
 }
 
@@ -268,8 +277,10 @@ textarea {
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
   padding: 2.5rem 1.5rem;
   border: 1px solid var(--border);
+  overflow-wrap: anywhere;
 }
 
 .public-event-day {
@@ -293,6 +304,7 @@ textarea {
   padding-top: 1rem;
   border-top: 1px solid var(--border);
   opacity: 0.7;
+  text-wrap: balance;
 }
 
 .public-cta {
@@ -300,6 +312,7 @@ textarea {
   align-items: center;
   justify-content: center;
   min-height: 3.5rem;
+  max-width: 100%;
   margin-top: 0.5rem;
   padding: 0 2.5rem;
   border: 1px solid var(--clan-foreground);
@@ -366,22 +379,13 @@ textarea {
   line-height: 1.6;
 }
 
-.public-more-links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem 2rem;
-  margin-top: 1.5rem;
-  font-size: 0.875rem;
-}
-
-.public-more-links a,
 .public-footer-links a {
-  padding-block: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
   transition: opacity 400ms ease;
 }
 
-.public-more-links a:focus-visible,
 .public-footer-links a:focus-visible {
   opacity: 0.6;
 }
@@ -474,6 +478,7 @@ textarea {
 
 .reservation-date {
   font-size: 1.125rem;
+  text-wrap: balance;
 }
 
 .reservation-access {
@@ -529,6 +534,7 @@ textarea {
   width: 100%;
   min-height: 3rem;
   padding: 0.5rem 0;
+  font-size: 1rem;
   border: 0;
   border-bottom: 1px solid #777972;
   border-radius: 0;
@@ -563,15 +569,17 @@ textarea.reservation-input {
 
 .reservation-terms {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.75rem;
+  min-height: 2.75rem;
   font-size: 0.9375rem;
 }
 
 .reservation-terms input {
-  width: 1rem;
-  height: 1rem;
-  margin-top: 0.2rem;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0;
   accent-color: var(--clan-foreground);
 }
 
@@ -689,6 +697,7 @@ textarea.reservation-input {
   gap: 1rem;
   width: min(100%, 36rem);
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .reservation-success h2 {
@@ -737,6 +746,7 @@ textarea.reservation-input {
 
 .reservation-link-code code {
   display: inline-block;
+  max-width: 100%;
   padding: 0.35rem 0.75rem;
   border: 1px solid #777972;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -854,7 +864,6 @@ textarea.reservation-input {
     opacity: 0.6;
   }
 
-  .public-more-links a:hover,
   .public-footer-links a:hover {
     opacity: 0.6;
   }
@@ -880,7 +889,7 @@ textarea.reservation-input {
 
   .public-header {
     min-height: 4.75rem;
-    padding: 0.8rem 1rem;
+    padding: 0.5rem 1.25rem;
   }
 
   .public-header-brand span {
@@ -896,7 +905,16 @@ textarea.reservation-input {
   }
 
   .public-event {
-    padding-inline: 1rem;
+    padding: 1.5rem 1.25rem;
+  }
+
+  .public-cta {
+    padding-inline: 1.5rem;
+  }
+
+  .public-footer {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .concept-page {

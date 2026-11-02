@@ -66,11 +66,6 @@ export function HomeExperience({ viewModel }: HomeExperienceProps) {
           ))}
         </ol>
       </section>
-
-      <nav className="public-more-links" aria-label="Más información">
-        <Link href="/concepto">Qué es un supper clan</Link>
-        <Link href="/bebidas">Bebidas</Link>
-      </nav>
     </PublicLanding>
   );
 }

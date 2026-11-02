@@ -290,16 +290,32 @@ describe("ReservationForm", () => {
     expect(errorLine?.classList.contains("min-h-5")).toBe(true);
   });
 
-  it("asks whether the guest comes alone or as a couple with nothing selected", () => {
+  it("selects Solo by default on the first render", () => {
     renderForm();
 
     const question = screen.getByRole("radiogroup", { name: "¿Cuántas personas?" });
     const solo = within(question).getByRole("radio", { name: "Solo" });
     const couple = within(question).getByRole("radio", { name: "En pareja" });
     expect(question.getAttribute("aria-required")).toBe("true");
-    expect(solo.getAttribute("aria-checked")).toBe("false");
+    expect(solo.getAttribute("aria-checked")).toBe("true");
     expect(couple.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("group", { name: "Tus datos" })).toBeDefined();
     expect(screen.queryByRole("group", { name: "Invitado 2" })).toBeNull();
+  });
+
+  it("sends a solo request without touching the party control", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(receivedResponse(1));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderForm();
+
+    await screen.findByTestId("turnstile");
+    fillGuest(screen.getByRole("group", { name: "Tus datos" }), "Ana Martinez", "ana.martinez");
+    answerAllergiesAndAcceptTerms();
+    fireEvent.keyDown(await waitForSliderReady(), { key: "End" });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentBody(fetchMock)).toMatchObject({ partySize: 1, guest1Name: "Ana Martinez" });
   });
 
   it("asks for one person under Tus datos", async () => {
@@ -868,7 +884,7 @@ describe("ReservationForm", () => {
     });
   });
 
-  it("shows every field error and focuses the party question first when disabled", async () => {
+  it("shows every field error and focuses the name first when disabled", async () => {
     renderForm();
 
     await screen.findByTestId("turnstile");
@@ -877,12 +893,11 @@ describe("ReservationForm", () => {
     expect(wrapper).not.toBeNull();
     fireEvent.click(wrapper as HTMLElement);
 
-    expect(await screen.findByText("Elige si vienes solo o en pareja.")).toBeDefined();
-    expect(screen.getByText("El nombre completo es obligatorio.")).toBeDefined();
+    expect(await screen.findByText("El nombre completo es obligatorio.")).toBeDefined();
     expect(screen.getByText("El usuario de Instagram es obligatorio.")).toBeDefined();
+    expect(screen.queryByText("Elige si vienes solo o en pareja.")).toBeNull();
     await waitFor(() => {
-      const question = screen.getByRole("radiogroup", { name: "¿Cuántas personas?" });
-      expect(question.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(screen.getByLabelText("Nombre completo"));
     });
   });
 
