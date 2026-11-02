@@ -736,6 +736,11 @@ describe("ReservationForm", () => {
     expect(
       screen.getByText("Si escribes desde la computadora, envíanos este código en el mensaje."),
     ).toBeDefined();
+    expect(
+      screen.getByText(
+        "Revisa también tus solicitudes de mensajes en Instagram (Mensajes > Solicitudes): si no nos sigues, nuestra respuesta puede llegar ahí.",
+      ),
+    ).toBeDefined();
   });
 
   it("uses the singular for one person", async () => {
@@ -754,6 +759,9 @@ describe("ReservationForm", () => {
       ),
     ).toBeDefined();
     expect(screen.getByText("Si se libera un lugar te escribiremos por Instagram.")).toBeDefined();
+    expect(
+      screen.getByText("Revisa también tus solicitudes de mensajes en Instagram."),
+    ).toBeDefined();
     expect(screen.getByText("2 personas · Sabado")).toBeDefined();
     expect(screen.getByRole("heading", { name: "Último paso" })).toBeDefined();
     expect(screen.getByRole("link", { name: "Abrir chat en Instagram" }).getAttribute("href")).toBe(

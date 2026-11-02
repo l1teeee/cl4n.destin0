@@ -42,6 +42,10 @@ type ConfirmedReservationState = Extract<
 
 const inputClassName = "reservation-input";
 
+// SlideCommit takes hex colors. They match the light page values in globals.css.
+const LIGHT_PAGE_INK = "#11120d";
+const LIGHT_PAGE_ERROR = "#b42318";
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -67,7 +71,7 @@ export function FieldError({ message, id }: { message?: string; id?: string }) {
   return (
     <p
       id={id}
-      className="reservation-field-error mt-1 min-h-5 text-sm leading-5 text-red-300"
+      className="reservation-field-error mt-1 min-h-5 text-sm leading-5"
       aria-live="polite"
     >
       {message ?? ""}
@@ -107,6 +111,11 @@ function InstagramLastStep({
           {username
             ? "Si escribes desde la computadora, envíanos este código en el mensaje."
             : "Envíanos este código por mensaje directo en Instagram."}
+        </p>
+        <p className="reservation-help">
+          {
+            "Revisa también tus solicitudes de mensajes en Instagram (Mensajes > Solicitudes): si no nos sigues, nuestra respuesta puede llegar ahí."
+          }
         </p>
       </div>
     </div>
@@ -414,6 +423,7 @@ export function ReservationForm({
           {confirmedState.position} de la cola.
         </p>
         <p>Si se libera un lugar te escribiremos por Instagram.</p>
+        <p>Revisa también tus solicitudes de mensajes en Instagram.</p>
         <p className="reservation-success-details">
           {formatPartySize(confirmedState.partySize)} · {formattedDate}
         </p>
@@ -707,7 +717,12 @@ export function ReservationForm({
             ref={turnstileRef}
             siteKey={siteKey}
             scriptOptions={{ nonce }}
-            options={{ action: "reserve", cData: idempotencyKey, refreshExpired: "auto" }}
+            options={{
+              action: "reserve",
+              cData: idempotencyKey,
+              refreshExpired: "auto",
+              theme: "light",
+            }}
             onSuccess={setTurnstileToken}
             onExpire={() => setTurnstileToken(null)}
             onError={() => {
@@ -742,9 +757,9 @@ export function ReservationForm({
             onConfirm={confirmReservation}
             onDone={showConfirmationAfterDone}
             trackColor="transparent"
-            handleColor="#fffbf4"
-            successColor="#fffbf4"
-            dangerColor="#fca5a5"
+            handleColor={LIGHT_PAGE_INK}
+            successColor={LIGHT_PAGE_INK}
+            dangerColor={LIGHT_PAGE_ERROR}
             height={56}
             radius={28}
             holdMs={700}

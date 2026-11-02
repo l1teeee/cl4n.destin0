@@ -117,6 +117,18 @@
   --radius: 0rem;
 }
 
+@property --clan-background {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #11120d;
+}
+
+@property --clan-foreground {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #fffbf4;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -148,6 +160,9 @@ textarea {
 .public-page {
   --public-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --public-enter-offset: 12px;
+  --public-line-strong: #777972;
+  --public-line-hover: #b9b7b0;
+  --public-error: #fca5a5;
   position: relative;
   isolation: isolate;
   min-height: 100svh;
@@ -155,6 +170,45 @@ textarea {
   color: var(--clan-foreground);
   font-family: "Quicksand", Arial, Helvetica, sans-serif;
   font-weight: 400;
+}
+
+/* Inverted palette for the reservation page. Every derived color follows --clan-foreground, so
+   the fade from the dark home only animates the two registered colors and the rest follows. */
+.public-page--light {
+  color-scheme: light;
+  --clan-background: #fffbf4;
+  --clan-foreground: #11120d;
+  --clan-muted: color-mix(in srgb, var(--clan-foreground) 70%, transparent);
+  --background: var(--clan-background);
+  --foreground: var(--clan-foreground);
+  --primary: var(--clan-foreground);
+  --primary-foreground: var(--clan-background);
+  --ring: var(--clan-foreground);
+  --border: color-mix(in srgb, var(--clan-foreground) 15%, transparent);
+  --muted-foreground: color-mix(in srgb, var(--clan-foreground) 65%, transparent);
+  --public-line-strong: color-mix(in srgb, var(--clan-foreground) 50%, transparent);
+  --public-line-hover: color-mix(in srgb, var(--clan-foreground) 80%, transparent);
+  --public-error: #b42318;
+  --destructive: var(--public-error);
+}
+
+.public-page--light[data-enter="from-dark"] {
+  animation: public-light-in 600ms ease-out;
+}
+
+html:has(.public-page--light) {
+  color-scheme: light;
+}
+
+body:has(.public-page--light) {
+  background: var(--clan-foreground);
+}
+
+@keyframes public-light-in {
+  from {
+    --clan-background: #11120d;
+    --clan-foreground: #fffbf4;
+  }
 }
 
 .public-header {
@@ -569,7 +623,7 @@ textarea {
   padding: 0.5rem 0;
   font-size: 1rem;
   border: 0;
-  border-bottom: 1px solid #777972;
+  border-bottom: 1px solid var(--public-line-strong);
   border-radius: 0;
   background: transparent;
   color: var(--clan-foreground);
@@ -630,7 +684,7 @@ textarea.reservation-input {
 
 .reservation-choice {
   width: 100%;
-  border-color: #777972;
+  border-color: var(--public-line-strong);
 }
 
 .reservation-choice[aria-invalid="true"] {
@@ -660,6 +714,10 @@ textarea.reservation-input {
   font-size: 0.875rem;
 }
 
+.reservation-field-error {
+  color: var(--public-error);
+}
+
 .reservation-message {
   min-height: 1.5rem;
   font-size: 0.875rem;
@@ -676,7 +734,7 @@ textarea.reservation-input {
 
 .reservation-slide .slide-commit__track {
   box-sizing: border-box;
-  border: 1px solid #777972;
+  border: 1px solid var(--public-line-strong);
   box-shadow: none;
   transition: border-color 200ms ease;
 }
@@ -690,6 +748,19 @@ textarea.reservation-input {
   font-size: clamp(0.625rem, 3.3vw, 0.8125rem);
   font-weight: 700;
   letter-spacing: 0.08em;
+}
+
+.reservation-slide .slide-commit__text {
+  color: color-mix(in srgb, var(--clan-foreground) 70%, transparent);
+}
+
+.reservation-slide .slide-commit__text--error {
+  color: var(--sc-no);
+}
+
+.reservation-slide .slide-commit__capsule,
+.reservation-slide .slide-commit[data-phase="done"] .slide-commit__capsule {
+  color: var(--clan-background);
 }
 
 .reservation-slide .slide-commit__done {
@@ -781,7 +852,7 @@ textarea.reservation-input {
   display: inline-block;
   max-width: 100%;
   padding: 0.35rem 0.75rem;
-  border: 1px solid #777972;
+  border: 1px solid var(--public-line-strong);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 1.25rem;
   font-weight: 700;
@@ -907,11 +978,11 @@ textarea.reservation-input {
   }
 
   .reservation-input:hover:not(:disabled, :focus) {
-    border-bottom-color: #b9b7b0;
+    border-bottom-color: var(--public-line-hover);
   }
 
   .reservation-slide .slide-commit:not([data-disabled]) .slide-commit__track:hover {
-    border-color: #b9b7b0;
+    border-color: var(--public-line-hover);
   }
 }
 

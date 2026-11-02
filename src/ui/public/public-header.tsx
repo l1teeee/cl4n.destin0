@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BrandMark } from "./brand-mark";
+import { ReservationLink } from "./light-page-transition";
 
 interface PublicHeaderProps {
   reservationHref?: string;
@@ -20,7 +21,7 @@ export function PublicHeader({
         <span>CLANDESTINO</span>
       </Link>
       <nav className="public-nav" aria-label="Navegación principal">
-        {reservationHref ? <Link href={reservationHref}>RSVP</Link> : null}
+        {reservationHref ? <ReservationLink href={reservationHref}>RSVP</ReservationLink> : null}
         <a href={aboutHref}>{aboutLabel}</a>
       </nav>
     </header>

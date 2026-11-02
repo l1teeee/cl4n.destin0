@@ -1,6 +1,5 @@
-import Link from "next/link";
-
 import type { HomeViewModel } from "./home-view-model";
+import { ReservationLink } from "./light-page-transition";
 import { PublicLanding } from "./public-landing";
 
 interface HomeExperienceProps {
@@ -45,9 +44,9 @@ export function HomeExperience({ viewModel }: HomeExperienceProps) {
             <p className="public-eyebrow public-event-access">
               {event.waitlistOnly ? "Cupos agotados · Aún hay lugar en la cola" : "Acceso limitado"}
             </p>
-            <Link href={`/solicitar/${event.slug}`} className="public-cta">
+            <ReservationLink href={`/solicitar/${event.slug}`} className="public-cta">
               {event.waitlistOnly ? "Unirme a la cola" : "Solicitar acceso"}
-            </Link>
+            </ReservationLink>
           </article>
         ))}
       </div>

@@ -1,5 +1,6 @@
-import { ReservationForm } from "./reservation-form";
+import { LightPage } from "./light-page-transition";
 import { PublicHeader } from "./public-header";
+import { ReservationForm } from "./reservation-form";
 
 interface ReservationExperienceProps {
   eventSlug: string;
@@ -10,7 +11,7 @@ interface ReservationExperienceProps {
 
 export function ReservationExperience(props: ReservationExperienceProps) {
   return (
-    <div className="public-page">
+    <LightPage>
       <PublicHeader />
       <main className="reservation-page">
         <div className="reservation-intro">
@@ -21,6 +22,6 @@ export function ReservationExperience(props: ReservationExperienceProps) {
         </div>
         <ReservationForm {...props} />
       </main>
-    </div>
+    </LightPage>
   );
 }
