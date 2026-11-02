@@ -1,0 +1,96 @@
+.legal-page {
+  width: min(100%, 44rem);
+  margin: 0 auto;
+  padding: 3rem 1.25rem 6rem;
+  color: var(--clan-muted);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.legal-page h1 {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: clamp(2.25rem, 7vw, 3.5rem);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+  color: var(--clan-foreground);
+}
+
+.legal-page h2 {
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+  border-top: 1px solid #2b2c26;
+  padding-top: 1.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--clan-foreground);
+}
+
+.legal-page p {
+  margin-top: 0.75rem;
+}
+
+.legal-page .public-eyebrow {
+  margin-top: 0;
+  color: var(--clan-foreground);
+}
+
+.legal-page .legal-updated {
+  margin-top: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.legal-page ul {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.legal-page li {
+  margin-top: 0.35rem;
+}
+
+.legal-page a {
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  transition: opacity 400ms ease;
+}
+
+.legal-page a:focus-visible {
+  opacity: 0.6;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .legal-page a:hover {
+    opacity: 0.6;
+  }
+}
+
+.legal-page > :nth-child(1),
+.legal-page > :nth-child(2),
+.legal-page > :nth-child(3) {
+  animation: public-reveal 800ms var(--public-ease) backwards;
+}
+
+.legal-page > :nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.legal-page > :nth-child(2) {
+  animation-delay: 100ms;
+}
+
+.legal-page > :nth-child(3) {
+  animation-delay: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legal-page > :nth-child(1),
+  .legal-page > :nth-child(2),
+  .legal-page > :nth-child(3) {
+    animation: none;
+  }
+}
