@@ -28,11 +28,12 @@ import {
   adminGuestFieldsSchema,
   adminGuestIdSchema,
   expectedCancellationStageSchema,
-  expectedPromotedEntryIdsSchema,
   moveEntryDirectionSchema,
   paymentNoteSchema,
   readAdminGuestFields,
+  readReservationReplacement,
   readSendMessage,
+  reservationReplacementSchema,
 } from "@/contracts/admin-guest";
 import { retryableDatabaseErrorCode } from "@/infrastructure/db/retryable-database-error";
 import { postgresGuestAdminRepository } from "@/infrastructure/db/repositories/postgres-guest-admin-repository";
@@ -58,6 +59,7 @@ const errorMessages: Record<GuestMutationFailure["code"], string> = {
   INVALID_STAGE: "La solicitud ya cambió de estado. Recarga la página.",
   WAITLIST_CHANGED:
     "La cola cambió mientras confirmabas. Revisa quién entra y vuelve a intentarlo.",
+  REPLACEMENT_DOES_NOT_FIT: "La persona elegida no cabe en los lugares que se liberan.",
   NO_SEAT: "No hay un lugar libre para eso.",
   TRY_AGAIN: "La experiencia está muy ocupada. Intenta de nuevo en unos segundos.",
   PARTY_SIZE_NOT_ALLOWED: "El grupo supera el máximo permitido.",
@@ -238,17 +240,15 @@ export async function rejectRequestAction(
   if ("error" in authorization) return authorization.error;
   const reservationId = parseId(id);
   if (typeof reservationId !== "string") return reservationId;
-  const expected = expectedPromotedEntryIdsSchema.safeParse(
-    formData.getAll("expectedPromotedEntryIds"),
-  );
-  if (!expected.success) return validationError(expected.error);
+  const replacement = reservationReplacementSchema.safeParse(readReservationReplacement(formData));
+  if (!replacement.success) return validationError(replacement.error);
   const sendMessage = readSendMessage(formData);
   const execution = await executeMutation(() =>
     rejectRequest(postgresGuestAdminRepository, {
       reservationId,
       actorAdminId: authorization.adminId,
       sendMessage,
-      expectedPromotedEntryIds: expected.data,
+      replacement: replacement.data,
     }),
   );
   if ("error" in execution) return execution.error;
@@ -276,10 +276,8 @@ export async function cancelRequestAction(
   if ("error" in authorization) return authorization.error;
   const reservationId = parseId(id);
   if (typeof reservationId !== "string") return reservationId;
-  const expected = expectedPromotedEntryIdsSchema.safeParse(
-    formData.getAll("expectedPromotedEntryIds"),
-  );
-  if (!expected.success) return validationError(expected.error);
+  const replacement = reservationReplacementSchema.safeParse(readReservationReplacement(formData));
+  if (!replacement.success) return validationError(replacement.error);
   const expectedStage = expectedCancellationStageSchema.safeParse(formData.get("expectedStage"));
   if (!expectedStage.success) return validationError(expectedStage.error);
   const sendMessage = readSendMessage(formData);
@@ -288,7 +286,7 @@ export async function cancelRequestAction(
       reservationId,
       actorAdminId: authorization.adminId,
       sendMessage,
-      expectedPromotedEntryIds: expected.data,
+      replacement: replacement.data,
       expectedStage: expectedStage.data,
     }),
   );

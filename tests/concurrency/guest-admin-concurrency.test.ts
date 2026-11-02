@@ -328,6 +328,114 @@ async function waitForBlockedInsert(table: "reservations" | "waitlist_entries"):
 }
 
 describe("guest admin concurrency", () => {
+  it.each(["IN_REVIEW", "ON_LIST", "PAID"] as const)(
+    "allows only one of two admins releasing %s reservations to choose the same entry",
+    async (stage) => {
+      const event = await insertTestEvent(pool, {
+        capacity: 2,
+        maxPartySize: 1,
+        waitlistCapacity: 5,
+      });
+      const first = await insertReservation(event.id, "Primera Elegida", stage);
+      const second = await insertReservation(event.id, "Segunda Elegida", stage);
+      const head = await insertWaitlistEntry(event.id, "Cabeza Esperando Elección");
+      const chosen = await insertWaitlistEntry(event.id, "Elección Compartida");
+      const secondAdmin = await pool.query<{ id: string }>(
+        `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
+         VALUES ($1, $1, 'hash', 'Segundo Admin') RETURNING id`,
+        [`${randomUUID()}@example.com`],
+      );
+      function release(reservationId: string, actorAdminId: string) {
+        const command = {
+          reservationId,
+          actorAdminId,
+          sendMessage: true,
+          replacement: { mode: "chosen" as const, waitlistEntryId: chosen.id },
+        };
+        return stage === "IN_REVIEW"
+          ? rejectRequest(repository, command)
+          : cancelRequest(repository, { ...command, expectedStage: stage });
+      }
+      const results = await fireBehindHeldEventLock(event.id, [
+        () => release(first.id, adminId),
+        () => release(second.id, secondAdmin.rows[0]!.id),
+      ]);
+      expect(results.filter((result) => result.ok)).toHaveLength(1);
+      const failures = results.filter((result) => !result.ok);
+      expect(failures).toEqual([{ ok: false, code: "WAITLIST_CHANGED" }]);
+      await expect(
+        pool.query("SELECT status FROM reservations WHERE id = $1", [second.id]),
+      ).resolves.toMatchObject({ rows: [{ status: "CONFIRMED" }] });
+      await expect(
+        pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [head.id]),
+      ).resolves.toMatchObject({ rows: [{ status: "WAITING" }] });
+      await expect(
+        pool.query("SELECT COUNT(*)::int AS count FROM messages WHERE event_id = $1", [event.id]),
+      ).resolves.toMatchObject({ rows: [{ count: 2 }] });
+      await assertInvariants(event.id);
+    },
+  );
+
+  it("keeps oversold at zero when twenty chosen replacements race a public submission", async () => {
+    const event = await insertTestEvent(pool, {
+      capacity: 20,
+      maxPartySize: 1,
+      waitlistCapacity: 50,
+    });
+    const reservations: InsertedReservation[] = [];
+    const chosenEntries: InsertedWaitlistEntry[] = [];
+    const head = await insertWaitlistEntry(event.id, "Cabeza Conservada");
+    for (let index = 0; index < 20; index += 1) {
+      reservations.push(await insertReservation(event.id, `Sale Elegida ${index}`));
+      chosenEntries.push(await insertWaitlistEntry(event.id, `Entra Elegida ${index}`));
+    }
+    const operations: Array<() => ReturnType<typeof rejectRequest>> = [];
+    for (const [index, reservation] of reservations.entries()) {
+      operations.push(() =>
+        rejectRequest(repository, {
+          reservationId: reservation.id,
+          actorAdminId: adminId,
+          sendMessage: false,
+          replacement: { mode: "chosen", waitlistEntryId: chosenEntries[index]!.id },
+        }),
+      );
+    }
+
+    const [submission, ...replacements] = await race([
+      () =>
+        submitReservation({
+          idempotencyKey: randomUUID(),
+          body: reservationBody(event.slug, 2000),
+          remoteIp: null,
+          rateLimitSubject: "twenty-chosen-public",
+        }),
+      ...operations,
+    ]);
+
+    expect(submission).toMatchObject({ status: 202, body: { status: "WAITLISTED" } });
+    expect(replacements).toHaveLength(20);
+    for (const [index, result] of replacements.entries()) {
+      expect(result).toMatchObject({
+        ok: true,
+        promoted: [{ entryId: chosenEntries[index]!.id }],
+      });
+    }
+    await expect(
+      pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [head.id]),
+    ).resolves.toMatchObject({ rows: [{ status: "WAITING" }] });
+    await expect(
+      pool.query(
+        `SELECT GREATEST(COALESCE((SELECT SUM(party_size)::int FROM reservations
+                                    WHERE event_id = e.id AND status = 'CONFIRMED'), 0)
+                        - capacity, 0) AS oversold,
+                reserved_seats
+           FROM events e WHERE id = $1`,
+        [event.id],
+      ),
+    ).resolves.toMatchObject({ rows: [{ oversold: 0, reserved_seats: 20 }] });
+    await assertInvariants(event.id);
+  });
+
   it("serializes two simultaneous rejections and rolls back the stale waitlist preview", async () => {
     const event = await insertTestEvent(pool, {
       capacity: 2,
@@ -348,14 +456,14 @@ describe("guest admin concurrency", () => {
           reservationId: firstReservation.id,
           actorAdminId: adminId,
           sendMessage: false,
-          expectedPromotedEntryIds: [entries[0]!.id],
+          replacement: { mode: "auto", expectedPromotedEntryIds: [entries[0]!.id] },
         }),
       () =>
         rejectRequest(repository, {
           reservationId: secondReservation.id,
           actorAdminId: adminId,
           sendMessage: false,
-          expectedPromotedEntryIds: [entries[0]!.id],
+          replacement: { mode: "auto", expectedPromotedEntryIds: [entries[0]!.id] },
         }),
     ]);
 
@@ -387,7 +495,7 @@ describe("guest admin concurrency", () => {
           reservationId: reservation.id,
           actorAdminId: adminId,
           sendMessage: false,
-          expectedPromotedEntryIds: [head.id],
+          replacement: { mode: "auto", expectedPromotedEntryIds: [head.id] },
         }),
       ...Array.from(
         { length: 50 },
@@ -434,7 +542,7 @@ describe("guest admin concurrency", () => {
           reservationId: reservation.id,
           actorAdminId: adminId,
           sendMessage: false,
-          expectedPromotedEntryIds: [],
+          replacement: { mode: "auto", expectedPromotedEntryIds: [] },
         });
 
       const [first, second] = await fireBehindHeldEventLock(
@@ -693,7 +801,7 @@ describe("guest admin concurrency", () => {
             reservationId: reservation.id,
             actorAdminId: adminId,
             sendMessage: false,
-            expectedPromotedEntryIds: [],
+            replacement: { mode: "auto", expectedPromotedEntryIds: [] },
             expectedStage: "ON_LIST",
           }),
       ),
@@ -731,7 +839,7 @@ describe("guest admin concurrency", () => {
           reservationId: reservation.id,
           actorAdminId: adminId,
           sendMessage: false,
-          expectedPromotedEntryIds: [],
+          replacement: { mode: "auto", expectedPromotedEntryIds: [] },
           expectedStage: "ON_LIST",
         });
 

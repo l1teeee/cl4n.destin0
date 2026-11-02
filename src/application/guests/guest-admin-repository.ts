@@ -1,6 +1,7 @@
 export type GuestAdminErrorCode =
   | "INVALID_STAGE"
   | "WAITLIST_CHANGED"
+  | "REPLACEMENT_DOES_NOT_FIT"
   | "NO_SEAT"
   | "NO_SPACE"
   | "TRY_AGAIN"
@@ -55,7 +56,9 @@ export interface VerifyPaymentCommand extends ReservationCommand {
 
 export interface ReleaseReservationCommand extends ReservationCommand {
   sendMessage: boolean;
-  expectedPromotedEntryIds: string[];
+  replacement:
+    | { mode: "auto"; expectedPromotedEntryIds: string[] }
+    | { mode: "chosen"; waitlistEntryId: string };
 }
 
 export interface CancelReservationCommand extends ReleaseReservationCommand {

@@ -257,6 +257,140 @@ async function invariant(eventId: string) {
 }
 
 describe("guest admin use cases", () => {
+  describe.each(["IN_REVIEW", "ON_LIST", "PAID"] as const)("release from %s", (stage) => {
+    it.each(["auto", "chosen"] as const)("promotes with %s and queues messages", async (mode) => {
+      const eventId = await insertEvent({ capacity: 2 });
+      const reservation = await insertReservation(eventId, {
+        name: "Sale Pareja",
+        partySize: 2,
+        stage,
+      });
+      const head = await insertWaitlistEntry(eventId, { name: "Cabeza Esperando" });
+      const chosen = await insertWaitlistEntry(eventId, { name: "Elegida Entra" });
+      const replacement =
+        mode === "auto"
+          ? { mode, expectedPromotedEntryIds: [head.id, chosen.id] }
+          : { mode, waitlistEntryId: chosen.id };
+      const command = {
+        reservationId: reservation.id,
+        actorAdminId: adminId,
+        sendMessage: true,
+        replacement,
+      };
+      const result =
+        stage === "IN_REVIEW"
+          ? await rejectRequest(repository, command)
+          : await cancelRequest(repository, { ...command, expectedStage: stage });
+      const promotedIds = mode === "auto" ? [head.id, chosen.id] : [chosen.id];
+      expect(result).toMatchObject({
+        ok: true,
+        promoted: promotedIds.map((entryId) => ({ entryId })),
+      });
+      if (!result.ok) throw new Error(result.code);
+      expect(result.messageIds).toHaveLength(promotedIds.length + 1);
+      const promotedMessages = await pool.query<{ entry_id: string; reservation_id: string }>(
+        `SELECT w.id AS entry_id, m.reservation_id
+           FROM messages m
+           JOIN waitlist_entries w ON w.promoted_reservation_id = m.reservation_id
+          WHERE m.event_id = $1 AND m.kind = 'PROMOTED'
+          ORDER BY w.waitlist_number`,
+        [eventId],
+      );
+      expect(promotedMessages.rows.map((message) => message.entry_id)).toEqual(promotedIds);
+      expect(promotedMessages.rows.map((message) => message.reservation_id)).toEqual(
+        result.promoted.map((promotion) => promotion.reservationId),
+      );
+      await expect(
+        pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [head.id]),
+      ).resolves.toMatchObject({ rows: [{ status: mode === "auto" ? "PROMOTED" : "WAITING" }] });
+      await expect(
+        pool.query("SELECT reserved_seats FROM events WHERE id = $1", [eventId]),
+      ).resolves.toMatchObject({ rows: [{ reserved_seats: promotedIds.length }] });
+      const audit = await pool.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM audit_logs
+          WHERE entity_id = $1 AND action IN ('RESERVATION_REJECTED', 'RESERVATION_CANCELLED')`,
+        [reservation.id],
+      );
+      expect(audit.rows[0]!.metadata).toMatchObject({
+        promotedCount: promotedIds.length,
+        replacementMode: mode,
+      });
+      expect(JSON.stringify(audit.rows)).not.toContain("Sale Pareja");
+      expect(JSON.stringify(audit.rows)).not.toContain("Elegida Entra");
+      await invariant(eventId);
+    });
+
+    it.each(["cancelled", "promoted", "other-event", "missing", "too-large"] as const)(
+      "rolls back the release, messages and audit for a %s chosen entry",
+      async (reason) => {
+        const eventId = await insertEvent({ capacity: 3 });
+        const reservation = await insertReservation(eventId, { name: "Se Queda", stage });
+        const head = await insertWaitlistEntry(eventId, { name: "Cabeza Intacta" });
+        const chosenEventId = reason === "other-event" ? await insertEvent() : eventId;
+        const chosen = await insertWaitlistEntry(chosenEventId, {
+          name: "Reemplazo Inválido",
+          status: reason === "cancelled" ? "CANCELLED" : "WAITING",
+          partySize: reason === "too-large" ? 2 : 1,
+        });
+        if (reason === "promoted") {
+          expect(
+            await promoteEntry(repository, { entryId: chosen.id, actorAdminId: adminId }),
+          ).toMatchObject({ ok: true });
+        }
+        await insertReservation(eventId, {
+          name: "Ocupa Resto",
+          partySize: reason === "promoted" ? 1 : 2,
+        });
+        const eventIds = [...new Set([eventId, chosenEventId])];
+        async function snapshot() {
+          const events = await pool.query("SELECT * FROM events WHERE id = ANY($1) ORDER BY id", [
+            eventIds,
+          ]);
+          const reservations = await pool.query(
+            "SELECT * FROM reservations WHERE event_id = ANY($1) ORDER BY id",
+            [eventIds],
+          );
+          const entries = await pool.query(
+            "SELECT * FROM waitlist_entries WHERE event_id = ANY($1) ORDER BY id",
+            [eventIds],
+          );
+          const messages = await pool.query(
+            "SELECT * FROM messages WHERE event_id = ANY($1) ORDER BY id",
+            [eventIds],
+          );
+          const audit = await pool.query(
+            "SELECT * FROM audit_logs WHERE metadata->>'eventId' = ANY($1) ORDER BY id",
+            [eventIds],
+          );
+          return [events.rows, reservations.rows, entries.rows, messages.rows, audit.rows];
+        }
+        const before = await snapshot();
+        const command = {
+          reservationId: reservation.id,
+          actorAdminId: adminId,
+          sendMessage: true,
+          replacement: {
+            mode: "chosen" as const,
+            waitlistEntryId: reason === "missing" ? randomUUID() : chosen.id,
+          },
+        };
+        const result =
+          stage === "IN_REVIEW"
+            ? await rejectRequest(repository, command)
+            : await cancelRequest(repository, { ...command, expectedStage: stage });
+        expect(result).toEqual({
+          ok: false,
+          code: reason === "too-large" ? "REPLACEMENT_DOES_NOT_FIT" : "WAITLIST_CHANGED",
+        });
+        expect(await snapshot()).toEqual(before);
+        await expect(
+          pool.query("SELECT status FROM waitlist_entries WHERE id = $1", [head.id]),
+        ).resolves.toMatchObject({ rows: [{ status: "WAITING" }] });
+        for (const id of eventIds) await invariant(id);
+      },
+    );
+  });
+
   it("accepts, verifies payment, cancels paid, and marks refunded with audited messages", async () => {
     const eventId = await insertEvent({ capacity: 2 });
     const reservation = await insertReservation(eventId, { name: "Ana" });
@@ -284,7 +418,7 @@ describe("guest admin use cases", () => {
       reservationId: reservation.id,
       actorAdminId: adminId,
       sendMessage: false,
-      expectedPromotedEntryIds: [],
+      replacement: { mode: "auto", expectedPromotedEntryIds: [] },
       expectedStage: "PAID",
     });
     expect(cancelled).toMatchObject({ ok: true, refundPending: true, messageIds: [] });
@@ -328,7 +462,7 @@ describe("guest admin use cases", () => {
       reservationId: reservation.id,
       actorAdminId: adminId,
       sendMessage: true,
-      expectedPromotedEntryIds: [],
+      replacement: { mode: "auto", expectedPromotedEntryIds: [] },
     });
     expect(stale).toEqual({ ok: false, code: "WAITLIST_CHANGED" });
     expect(
@@ -344,7 +478,7 @@ describe("guest admin use cases", () => {
       reservationId: reservation.id,
       actorAdminId: adminId,
       sendMessage: true,
-      expectedPromotedEntryIds: [waiting.id],
+      replacement: { mode: "auto", expectedPromotedEntryIds: [waiting.id] },
     });
     expect(rejected).toMatchObject({
       ok: true,
@@ -434,7 +568,7 @@ describe("guest admin use cases", () => {
         reservationId: acceptedReservation.id,
         actorAdminId: adminId,
         sendMessage: false,
-        expectedPromotedEntryIds: [],
+        replacement: { mode: "auto", expectedPromotedEntryIds: [] },
         expectedStage: "ON_LIST",
       }),
     ).toMatchObject({ ok: true, refundPending: false });
@@ -449,7 +583,7 @@ describe("guest admin use cases", () => {
         reservationId: onList.id,
         actorAdminId: adminId,
         sendMessage: true,
-        expectedPromotedEntryIds: [],
+        replacement: { mode: "auto", expectedPromotedEntryIds: [] },
         expectedStage: "PAID",
       }),
     ).toEqual({ ok: false, code: "INVALID_STAGE" });
@@ -468,7 +602,7 @@ describe("guest admin use cases", () => {
         reservationId: paid.id,
         actorAdminId: adminId,
         sendMessage: false,
-        expectedPromotedEntryIds: [],
+        replacement: { mode: "auto", expectedPromotedEntryIds: [] },
         expectedStage: "PAID",
       }),
     ).toMatchObject({ ok: true, refundPending: true });
@@ -497,7 +631,10 @@ describe("guest admin use cases", () => {
           reservationId: review.id,
           actorAdminId: adminId,
           sendMessage: false,
-          expectedPromotedEntryIds: rejectPreview.oneSeat.map((entry) => entry.id),
+          replacement: {
+            mode: "auto",
+            expectedPromotedEntryIds: rejectPreview.oneSeat.map((entry) => entry.id),
+          },
         }),
       ).toMatchObject({ ok: true, promoted: [] });
 
@@ -512,7 +649,10 @@ describe("guest admin use cases", () => {
           reservationId: onList.id,
           actorAdminId: adminId,
           sendMessage: false,
-          expectedPromotedEntryIds: cancelPreview.oneSeat.map((entry) => entry.id),
+          replacement: {
+            mode: "auto",
+            expectedPromotedEntryIds: cancelPreview.oneSeat.map((entry) => entry.id),
+          },
           expectedStage: "ON_LIST",
         }),
       ).toMatchObject({ ok: true, promoted: [] });
@@ -924,7 +1064,7 @@ describe("guest admin use cases", () => {
         reservationId: onList.id,
         actorAdminId: adminId,
         sendMessage: false,
-        expectedPromotedEntryIds: [],
+        replacement: { mode: "auto", expectedPromotedEntryIds: [] },
       }),
     ).toEqual({ ok: false, code: "INVALID_STAGE" });
     expect(
@@ -932,7 +1072,7 @@ describe("guest admin use cases", () => {
         reservationId: review.id,
         actorAdminId: adminId,
         sendMessage: false,
-        expectedPromotedEntryIds: [],
+        replacement: { mode: "auto", expectedPromotedEntryIds: [] },
         expectedStage: "ON_LIST",
       }),
     ).toEqual({ ok: false, code: "INVALID_STAGE" });
@@ -951,7 +1091,7 @@ describe("guest admin use cases", () => {
       reservationId: onList.id,
       actorAdminId: adminId,
       sendMessage: true,
-      expectedPromotedEntryIds: [],
+      replacement: { mode: "auto", expectedPromotedEntryIds: [] },
       expectedStage: "ON_LIST",
     });
     expect(cancelled).toMatchObject({ ok: true, refundPending: false });
