@@ -109,8 +109,8 @@ describe("admin Server Action authorization", () => {
       const source = readFileSync(file, "utf8");
       const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
       const allowedGuards = isUserManagementFile(file)
-        ? ["requireSuperAdmin"]
-        : ["requireAdmin", "requireSuperAdmin"];
+        ? ["requirePermission"]
+        : ["requireAdmin", "requirePermission"];
 
       for (const action of exportedAsyncFunctions(sourceFile)) {
         if (unauthenticatedActions.includes(action.name)) continue;
@@ -125,7 +125,7 @@ describe("admin Server Action authorization", () => {
     expect(violations).toEqual([]);
   });
 
-  it("guards every user-management action with requireSuperAdmin", () => {
+  it("guards every user-management action with requirePermission", () => {
     const file = path.join(adminDirectory, "(protected)", "users", "actions.ts");
     const sourceFile = ts.createSourceFile(
       file,
@@ -139,14 +139,14 @@ describe("admin Server Action authorization", () => {
     ]);
 
     expect(guards).toEqual([
-      ["createAdminUserAction", "requireSuperAdmin"],
-      ["requestAdminUserDeletionCodeAction", "requireSuperAdmin"],
-      ["confirmAdminUserDeletionAction", "requireSuperAdmin"],
-      ["updateAdminUserAction", "requireSuperAdmin"],
-      ["deactivateAdminUserAction", "requireSuperAdmin"],
-      ["reactivateAdminUserAction", "requireSuperAdmin"],
-      ["resetAdminPasswordAction", "requireSuperAdmin"],
-      ["revokeAdminSessionsAction", "requireSuperAdmin"],
+      ["createAdminUserAction", "requirePermission"],
+      ["requestAdminUserDeletionCodeAction", "requirePermission"],
+      ["confirmAdminUserDeletionAction", "requirePermission"],
+      ["updateAdminUserAction", "requirePermission"],
+      ["deactivateAdminUserAction", "requirePermission"],
+      ["reactivateAdminUserAction", "requirePermission"],
+      ["resetAdminPasswordAction", "requirePermission"],
+      ["revokeAdminSessionsAction", "requirePermission"],
     ]);
   });
 

@@ -20,7 +20,7 @@ import {
   resetAdminPasswordSchema,
   updateAdminUserSchema,
 } from "@/contracts/admin-users";
-import { requireSuperAdmin } from "@/infrastructure/auth/require-admin";
+import { requirePermission } from "@/infrastructure/auth/require-admin";
 import { scheduleEmailDelivery } from "@/infrastructure/email/outbox/schedule-email-delivery";
 
 import {
@@ -35,7 +35,7 @@ export async function createAdminUserAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   if (!authorization.authorized) return deniedState(authorization.error);
 
   const parsed = createAdminUserSchema.safeParse({
@@ -67,7 +67,7 @@ export async function requestAdminUserDeletionCodeAction(
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   void _previousState;
   void _formData;
   if (!authorization.authorized) return deniedState(authorization.error);
@@ -93,7 +93,7 @@ export async function confirmAdminUserDeletionAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   if (!authorization.authorized) return deniedState(authorization.error);
 
   const parsed = adminDeletionCodeSchema.safeParse({ id, code: formData.get("code") });
@@ -116,7 +116,7 @@ export async function updateAdminUserAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   if (!authorization.authorized) return deniedState(authorization.error);
 
   const parsed = updateAdminUserSchema.safeParse({
@@ -144,7 +144,7 @@ export async function deactivateAdminUserAction(
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   void _previousState;
   void _formData;
   if (!authorization.authorized) return deniedState(authorization.error);
@@ -169,7 +169,7 @@ export async function reactivateAdminUserAction(
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   void _previousState;
   void _formData;
   if (!authorization.authorized) return deniedState(authorization.error);
@@ -194,7 +194,7 @@ export async function resetAdminPasswordAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   if (!authorization.authorized) return deniedState(authorization.error);
 
   const parsed = resetAdminPasswordSchema.safeParse({
@@ -221,7 +221,7 @@ export async function revokeAdminSessionsAction(
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireSuperAdmin("action");
+  const authorization = await requirePermission("users.manage", "action");
   void _previousState;
   void _formData;
   if (!authorization.authorized) return deniedState(authorization.error);

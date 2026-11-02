@@ -1,12 +1,12 @@
 import Link from "next/link";
 
 import { createAdminUserAction } from "@/app/admin/(protected)/users/actions";
-import { requireSuperAdmin } from "@/infrastructure/auth/require-admin";
+import { requirePermission } from "@/infrastructure/auth/require-admin";
 import { AdminUserCreateForm } from "@/ui/admin/admin-user-forms";
 import { Button } from "@/ui/primitives/button";
 
 export default async function NewAdminUserPage() {
-  await requireSuperAdmin("page");
+  await requirePermission("users.manage", "page");
 
   return (
     <main className="admin-page space-y-8">

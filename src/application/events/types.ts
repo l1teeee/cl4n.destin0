@@ -180,7 +180,9 @@ export interface AuditLogItem {
     | "WAITLIST_UPDATED"
     | "WAITLIST_REORDERED"
     | "MESSAGE_TEMPLATE_UPDATED"
-    | "MESSAGING_CONTACT_LINKED";
+    | "MESSAGING_CONTACT_LINKED"
+    | "INSTAGRAM_CONNECTED"
+    | "INSTAGRAM_DISCONNECTED";
   entityType:
     | "EVENT"
     | "RESERVATION"
@@ -188,7 +190,8 @@ export interface AuditLogItem {
     | "WAITLIST_ENTRY"
     | "DRINK"
     | "MESSAGE_TEMPLATE"
-    | "MESSAGING_CONTACT";
+    | "MESSAGING_CONTACT"
+    | "INSTAGRAM_CONNECTION";
   entityId: string;
   metadata: Record<string, unknown>;
 }

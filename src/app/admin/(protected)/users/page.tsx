@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { listAdminUsers } from "@/application/admin-users/admin-user-use-cases";
-import { requireSuperAdmin } from "@/infrastructure/auth/require-admin";
+import { requirePermission } from "@/infrastructure/auth/require-admin";
 import { postgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 import {
   adminRoleLabel,
@@ -27,7 +27,7 @@ export default async function AdminUsersPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 } = {}) {
-  const authorization = await requireSuperAdmin("page");
+  const authorization = await requirePermission("users.manage", "page");
   const deleted = (await searchParams).eliminado === "1";
   const users = await listAdminUsers(postgresAdminUserRepository);
 

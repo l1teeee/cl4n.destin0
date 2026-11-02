@@ -37,13 +37,27 @@ const serverEnvSchema = z
     CRON_SECRET: optionalString,
     EMAIL_MODE: z.enum(["brevo", "log"]),
     MESSAGING_MODE: z.enum(["instagram", "log"]),
-    META_APP_SECRET: optionalString,
     META_WEBHOOK_VERIFY_TOKEN: optionalString,
-    INSTAGRAM_ACCOUNT_ID: z.preprocess(
+    INSTAGRAM_APP_ID: z.preprocess(
       (value) => (value === "" ? undefined : value),
       z.string().regex(/^\d+$/).optional(),
     ),
-    INSTAGRAM_ACCESS_TOKEN: optionalString,
+    INSTAGRAM_APP_SECRET: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().min(16).optional(),
+    ),
+    INSTAGRAM_TOKEN_ENCRYPTION_KEY: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z
+        .string()
+        .refine(
+          (value) =>
+            /^(?:[A-Za-z0-9+/]{4}){10}[A-Za-z0-9+/]{3}=$/.test(value) &&
+            Buffer.from(value, "base64").length === 32,
+          "must be base64 for exactly 32 bytes",
+        )
+        .optional(),
+    ),
     META_GRAPH_API_BASE_URL: z
       .url()
       .refine((value) => new URL(value).protocol === "https:", "must use https")
@@ -217,9 +231,8 @@ const serverEnvSchema = z
 
     if (value.MESSAGING_MODE === "instagram") {
       const requiredSecrets = [
-        ["META_APP_SECRET", value.META_APP_SECRET, 16],
+        ["INSTAGRAM_APP_SECRET", value.INSTAGRAM_APP_SECRET, 16],
         ["META_WEBHOOK_VERIFY_TOKEN", value.META_WEBHOOK_VERIFY_TOKEN, 16],
-        ["INSTAGRAM_ACCESS_TOKEN", value.INSTAGRAM_ACCESS_TOKEN, 20],
       ] as const;
       for (const [field, secret, minimum] of requiredSecrets) {
         if (!secret || secret.length < minimum) {
@@ -230,11 +243,18 @@ const serverEnvSchema = z
           });
         }
       }
-      if (!value.INSTAGRAM_ACCOUNT_ID) {
+      if (!value.INSTAGRAM_APP_ID) {
         context.addIssue({
           code: "custom",
-          path: ["INSTAGRAM_ACCOUNT_ID"],
+          path: ["INSTAGRAM_APP_ID"],
           message: "is required when MESSAGING_MODE is instagram",
+        });
+      }
+      if (!value.INSTAGRAM_TOKEN_ENCRYPTION_KEY) {
+        context.addIssue({
+          code: "custom",
+          path: ["INSTAGRAM_TOKEN_ENCRYPTION_KEY"],
+          message: "must be base64 for exactly 32 bytes",
         });
       }
     }

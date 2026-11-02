@@ -131,19 +131,22 @@ async function linkWaitingEntryByCode(eventId: string, position = 0): Promise<Co
   const entry = waiting.rows[position]!;
   const senderId = randomUUID().replace(/\D/g, "");
   const repository = new PostgresMessageRepository(pool);
-  await repository.ingestEvents([
-    {
-      type: "inbound_message",
-      externalMessageId: randomUUID(),
-      senderId,
-      timestamp: new Date(),
-      text: entry.link_code,
-      attachmentUrls: [],
-      imageAttachmentUrls: [],
-      quickReplyPayload: null,
-      referralRef: null,
-    },
-  ]);
+  await repository.ingestEvents(
+    [
+      {
+        type: "inbound_message",
+        externalMessageId: randomUUID(),
+        senderId,
+        timestamp: new Date(),
+        text: entry.link_code,
+        attachmentUrls: [],
+        imageAttachmentUrls: [],
+        quickReplyPayload: null,
+        referralRef: null,
+      },
+    ],
+    null,
+  );
   const linked = await pool.query<{
     contact_id: string;
     contact_linked_by: string;

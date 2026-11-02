@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  canManageAdmins,
+  adminPermissions,
+  adminRoles,
+  hasPermission,
   checkAccessChange,
   isActiveSuperAdmin,
   type AdminAccess,
@@ -12,9 +14,16 @@ const targetId = "target-id";
 const activeSuperAdmin: AdminAccess = { role: "SUPER_ADMIN", isActive: true };
 
 describe("admin access policy", () => {
-  it("lets only super admins manage admins", () => {
-    expect(canManageAdmins("SUPER_ADMIN")).toBe(true);
-    expect(canManageAdmins("ADMIN")).toBe(false);
+  it.each(
+    adminRoles.flatMap((role) =>
+      adminPermissions.map((permission) => ({
+        role,
+        permission,
+        expected: role === "SUPER_ADMIN",
+      })),
+    ),
+  )("$role has $permission: $expected", ({ role, permission, expected }) => {
+    expect(hasPermission(role, permission)).toBe(expected);
   });
 
   it("counts only active super admins", () => {

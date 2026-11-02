@@ -19,7 +19,7 @@ import {
 import { signIn } from "@/application/auth/sign-in";
 import type { AdminRole } from "@/application/auth/types";
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "@/infrastructure/auth/password";
-import { authorizeSuperAdminSession } from "@/infrastructure/auth/require-admin";
+import { authorizePermission } from "@/infrastructure/auth/require-admin";
 import { PostgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
 import { hashAdminUserDeletionCode } from "@/infrastructure/crypto/admin-user-deletion-code";
 import { PostgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
@@ -303,7 +303,7 @@ describe("admin user updates", () => {
     const target = await insertAdmin("SUPER_ADMIN");
     const session = (await auth.createSession(target.id, initialHash, null))!;
 
-    await expect(authorizeSuperAdminSession(session.token, auth)).resolves.toMatchObject({
+    await expect(authorizePermission(session.token, auth, "users.manage")).resolves.toMatchObject({
       authorized: true,
     });
     await updateAdminUser(dependencies, actor, {
@@ -313,7 +313,7 @@ describe("admin user updates", () => {
       expectedRole: "SUPER_ADMIN",
     });
 
-    await expect(authorizeSuperAdminSession(session.token, auth)).resolves.toEqual({
+    await expect(authorizePermission(session.token, auth, "users.manage")).resolves.toEqual({
       authorized: false,
       error: "FORBIDDEN",
     });

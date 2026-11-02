@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 
-import { canManageAdmins } from "@/domain/admin/admin-access";
+import { hasPermission } from "@/domain/admin/admin-access";
 import { countUnreadConversations } from "@/application/messaging/conversation-queries";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
@@ -14,7 +14,7 @@ export default async function ProtectedAdminLayout({ children }: { children: Rea
   const authorization = await requireAdmin("page");
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get("sidebar_state")?.value === "true";
-  const showUsersLink = canManageAdmins(authorization.session.admin.role);
+  const showUsersLink = hasPermission(authorization.session.admin.role, "users.manage");
   const unreadMessageCount = await countUnreadConversations(postgresMessageRepository);
 
   return (

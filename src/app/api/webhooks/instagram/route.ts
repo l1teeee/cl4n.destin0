@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
 
 import { env } from "@/infrastructure/config/env";
+import { postgresInstagramConnectionRepository } from "@/infrastructure/db/repositories/postgres-instagram-connection-repository";
 import { parseInstagramWebhook } from "@/infrastructure/instagram/instagram-webhook-parser";
 import { isValidSignature } from "@/infrastructure/instagram/webhook-signature";
 import { ingestConfiguredInstagramEvents } from "@/infrastructure/messaging/ingest-instagram-events";
@@ -68,7 +69,11 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(null, { status: 413 });
   }
   if (
-    !isValidSignature(rawBody, request.headers.get("x-hub-signature-256"), env.META_APP_SECRET!)
+    !isValidSignature(
+      rawBody,
+      request.headers.get("x-hub-signature-256"),
+      env.INSTAGRAM_APP_SECRET!,
+    )
   ) {
     log("info", "instagram_webhook_received", { events: 0, skipped: 1, foreignEntries: 0 });
     return new Response(null, { status: 401 });
@@ -82,13 +87,19 @@ export async function POST(request: Request): Promise<Response> {
     log("info", "instagram_webhook_received", { events: 0, skipped: 1, foreignEntries: 0 });
     return new Response("EVENT_RECEIVED", { status: 200 });
   }
-  const parsed = parseInstagramWebhook(payload, env.INSTAGRAM_ACCOUNT_ID!);
+  const connection = await postgresInstagramConnectionRepository.find();
+  if (!connection) {
+    log("warn", "instagram_webhook_not_connected");
+    return new Response("EVENT_RECEIVED", { status: 200 });
+  }
+  const parsed = parseInstagramWebhook(payload, connection.accountId);
   log("info", "instagram_webhook_received", {
     events: parsed.events.length,
     skipped: parsed.skipped,
     foreignEntries: parsed.foreignEntries,
   });
   const result = await ingestConfiguredInstagramEvents(parsed.events, {
+    ownAccountId: connection.accountId,
     deadline: followupDeadline,
   });
   after(async () => {

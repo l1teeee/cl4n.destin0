@@ -19,7 +19,7 @@ import {
 } from "@/application/messaging/admin-message-use-cases";
 import type { MessageSubject } from "@/application/messaging/admin-message-repository";
 import { isLinkCode } from "@/domain/messaging/link-code";
-import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { requireAdmin, requirePermission } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { postgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
 import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
@@ -39,10 +39,13 @@ const simulatorSchema = z.object({
   linkCode: z.string().trim().toUpperCase().optional(),
 });
 
-function unauthorized(): AdminActionState {
+function unauthorized(error: "UNAUTHORIZED" | "FORBIDDEN" = "UNAUTHORIZED"): AdminActionState {
   return {
     ok: false,
-    message: "Tu sesión no es válida. Inicia sesión nuevamente.",
+    message:
+      error === "FORBIDDEN"
+        ? "Solo un superadministrador puede enviar o cambiar mensajes."
+        : "Tu sesión no es válida. Inicia sesión nuevamente.",
   };
 }
 
@@ -98,9 +101,9 @@ export async function sendFreeTextAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("messages.send", "action");
   void _previousState;
-  if (!authorization.authorized) return unauthorized();
+  if (!authorization.authorized) return unauthorized(authorization.error);
   const contactId = idSchema.safeParse(id);
   if (!contactId.success) return { ok: false, message: contactId.error.issues[0]!.message };
 
@@ -137,10 +140,10 @@ export async function retryMessageAction(
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("messages.send", "action");
   void _previousState;
   void _formData;
-  if (!authorization.authorized) return unauthorized();
+  if (!authorization.authorized) return unauthorized(authorization.error);
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]!.message };
   const retried = await retryMessageUseCase(postgresMessageRepository, parsed.data);
@@ -170,10 +173,10 @@ export async function markSentManuallyAction(
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("messages.send", "action");
   void _previousState;
   void _formData;
-  if (!authorization.authorized) return unauthorized();
+  if (!authorization.authorized) return unauthorized(authorization.error);
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]!.message };
   const updated = await markSentManuallyUseCase(
@@ -202,10 +205,10 @@ export async function discardMessageAction(
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("messages.send", "action");
   void _previousState;
   void _formData;
-  if (!authorization.authorized) return unauthorized();
+  if (!authorization.authorized) return unauthorized(authorization.error);
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]!.message };
   const updated = await discardMessageUseCase(
@@ -231,9 +234,9 @@ export async function linkContactAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("messages.send", "action");
   void _previousState;
-  if (!authorization.authorized) return unauthorized();
+  if (!authorization.authorized) return unauthorized(authorization.error);
   const contactId = idSchema.safeParse(id);
   const subject = subjectFrom(formData);
   if (!contactId.success || !subject) return { ok: false, message: "La vinculación no es válida." };
@@ -267,9 +270,9 @@ export async function linkContactByCodeAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("messages.send", "action");
   void _previousState;
-  if (!authorization.authorized) return unauthorized();
+  if (!authorization.authorized) return unauthorized(authorization.error);
   const contactId = idSchema.safeParse(id);
   const code = String(formData.get("code") ?? "")
     .trim()
@@ -311,9 +314,9 @@ export async function unlinkContactAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("messages.send", "action");
   void _previousState;
-  if (!authorization.authorized) return unauthorized();
+  if (!authorization.authorized) return unauthorized(authorization.error);
   const contactId = idSchema.safeParse(id);
   const subject = subjectFrom(formData);
   if (!contactId.success || !subject)
@@ -363,8 +366,8 @@ export async function simulateInboundMessageAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
-  if (!authorization.authorized) return unauthorized();
+  const authorization = await requirePermission("messages.send", "action");
+  if (!authorization.authorized) return unauthorized(authorization.error);
   if (env.MESSAGING_MODE !== "log" || !["local", "test"].includes(env.APP_ENV)) {
     return {
       ok: false,
@@ -404,6 +407,7 @@ export async function simulateInboundMessageAction(
     referralRef: null,
   });
   const result = await ingestConfiguredInstagramEvents(events, {
+    ownAccountId: null,
     knownUsernames: { [senderId]: parsed.data.username },
   });
   after(() => result.after());

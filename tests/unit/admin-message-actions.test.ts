@@ -8,6 +8,15 @@ const mocks = vi.hoisted(() => ({
   scheduleMessageDelivery: vi.fn(),
   consume: vi.fn(),
   revalidatePath: vi.fn(),
+  requirePermission: vi.fn(),
+  retryMessage: vi.fn(),
+  markSentManually: vi.fn(),
+  discardMessage: vi.fn(),
+  unlinkContact: vi.fn(),
+  markConversationRead: vi.fn(),
+  drainMessagesNow: vi.fn(),
+  ingestConfiguredInstagramEvents: vi.fn(),
+  updateTemplate: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
@@ -20,9 +29,15 @@ vi.mock("@/application/messaging/admin-message-use-cases", async (importOriginal
     linkContact: mocks.linkContact,
     linkContactByCode: mocks.linkContactByCode,
     sendFreeText: mocks.sendFreeText,
+    retryMessage: mocks.retryMessage,
+    markSentManually: mocks.markSentManually,
+    discardMessage: mocks.discardMessage,
+    unlinkContact: mocks.unlinkContact,
+    markConversationRead: mocks.markConversationRead,
   };
 });
 vi.mock("@/infrastructure/auth/require-admin", () => ({
+  requirePermission: mocks.requirePermission,
   requireAdmin: vi.fn(async () => ({
     authorized: true,
     session: { admin: { id: "00000000-0000-4000-8000-000000000099" } },
@@ -40,21 +55,50 @@ vi.mock("@/infrastructure/rate-limit/postgres-rate-limiter", () => ({
   consume: mocks.consume,
 }));
 vi.mock("@/infrastructure/messaging/drain-message-outbox", () => ({
-  drainMessagesNow: vi.fn(),
+  drainMessagesNow: mocks.drainMessagesNow,
 }));
 vi.mock("@/infrastructure/messaging/ingest-instagram-events", () => ({
-  ingestConfiguredInstagramEvents: vi.fn(),
+  ingestConfiguredInstagramEvents: mocks.ingestConfiguredInstagramEvents,
 }));
 vi.mock("@/infrastructure/messaging/schedule-message-delivery", () => ({
   scheduleMessageDelivery: mocks.scheduleMessageDelivery,
 }));
 
-const { linkContactAction, linkContactByCodeAction, sendFreeTextAction } =
-  await import("@/app/admin/(protected)/mensajes/actions");
+vi.mock("@/application/messaging/message-templates", () => ({
+  updateTemplate: mocks.updateTemplate,
+}));
+vi.mock("@/infrastructure/db/repositories/postgres-message-template-repository", () => ({
+  postgresMessageTemplateRepository: {},
+}));
+
+const { updateTemplateAction } = await import("@/app/admin/(protected)/mensajes/page-actions");
+const {
+  linkContactAction,
+  linkContactByCodeAction,
+  sendFreeTextAction,
+  retryMessageAction,
+  markSentManuallyAction,
+  discardMessageAction,
+  unlinkContactAction,
+  markConversationReadAction,
+  simulateInboundMessageAction,
+} = await import("@/app/admin/(protected)/mensajes/actions");
 
 const contactId = "00000000-0000-4000-8000-000000000010";
 
 beforeEach(() => {
+  mocks.requirePermission.mockReset().mockResolvedValue({
+    authorized: true,
+    session: { admin: { id: "00000000-0000-4000-8000-000000000099", role: "SUPER_ADMIN" } },
+  });
+  mocks.retryMessage.mockReset();
+  mocks.markSentManually.mockReset();
+  mocks.discardMessage.mockReset();
+  mocks.unlinkContact.mockReset();
+  mocks.markConversationRead.mockReset();
+  mocks.drainMessagesNow.mockReset();
+  mocks.ingestConfiguredInstagramEvents.mockReset();
+  mocks.updateTemplate.mockReset();
   mocks.linkContact.mockReset();
   mocks.linkContactByCode.mockReset();
   mocks.sendFreeText.mockReset();
@@ -62,6 +106,84 @@ beforeEach(() => {
   mocks.scheduleMessageDelivery.mockReset();
   mocks.consume.mockReset().mockResolvedValue({ allowed: true });
   mocks.revalidatePath.mockClear();
+});
+
+describe("message mutation authorization", () => {
+  const state = { ok: false, message: "" };
+  const forbidden = {
+    ok: false,
+    message: "Solo un superadministrador puede enviar o cambiar mensajes.",
+  };
+  const mutations = [
+    sendFreeTextAction,
+    retryMessageAction,
+    markSentManuallyAction,
+    discardMessageAction,
+    linkContactAction,
+    linkContactByCodeAction,
+    unlinkContactAction,
+  ];
+
+  function expectNoMutation() {
+    for (const operation of [
+      mocks.sendFreeText,
+      mocks.retryMessage,
+      mocks.markSentManually,
+      mocks.discardMessage,
+      mocks.linkContact,
+      mocks.linkContactByCode,
+      mocks.unlinkContact,
+      mocks.ingestConfiguredInstagramEvents,
+      mocks.updateTemplate,
+      mocks.drainMessagesNow,
+      mocks.scheduleMessageDelivery,
+      mocks.consume,
+      mocks.revalidatePath,
+    ]) {
+      expect(operation).not.toHaveBeenCalled();
+    }
+  }
+
+  it.each(mutations)("rejects ADMIN for %s before writing or sending", async (action) => {
+    mocks.requirePermission.mockResolvedValue({ authorized: false, error: "FORBIDDEN" });
+    await expect(action(contactId, state, new FormData())).resolves.toEqual(forbidden);
+    expect(mocks.requirePermission).toHaveBeenCalledWith("messages.send", "action");
+    expectNoMutation();
+  });
+
+  it("rejects ADMIN for simulateInboundMessageAction before ingestion", async () => {
+    mocks.requirePermission.mockResolvedValue({ authorized: false, error: "FORBIDDEN" });
+    await expect(simulateInboundMessageAction(state, new FormData())).resolves.toEqual(forbidden);
+    expectNoMutation();
+  });
+
+  it("rejects ADMIN for updateTemplateAction before writing", async () => {
+    mocks.requirePermission.mockResolvedValue({ authorized: false, error: "FORBIDDEN" });
+    await expect(updateTemplateAction("ON_LIST", state, new FormData())).resolves.toEqual(
+      forbidden,
+    );
+    expectNoMutation();
+  });
+
+  it("keeps the existing response for an unauthenticated sender", async () => {
+    mocks.requirePermission.mockResolvedValue({ authorized: false, error: "UNAUTHORIZED" });
+    await expect(sendFreeTextAction(contactId, state, new FormData())).resolves.toEqual({
+      ok: false,
+      message: "Tu sesión no es válida. Inicia sesión nuevamente.",
+    });
+    expectNoMutation();
+  });
+
+  it("allows ADMIN to mark a conversation read", async () => {
+    mocks.requirePermission.mockResolvedValue({ authorized: false, error: "FORBIDDEN" });
+    mocks.markConversationRead.mockResolvedValue(true);
+    await expect(markConversationReadAction(contactId, state, new FormData())).resolves.toEqual({
+      ok: true,
+      message: "Conversación marcada como leída.",
+    });
+    expect(mocks.markConversationRead).toHaveBeenCalledOnce();
+    expect(mocks.requirePermission).not.toHaveBeenCalled();
+  });
 });
 
 describe("sendFreeTextAction", () => {

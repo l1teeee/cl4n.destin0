@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { updateTemplate } from "@/application/messaging/message-templates";
 import { TEMPLATE_KEYS, type TemplateKey } from "@/domain/messaging/message-types";
-import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { requirePermission } from "@/infrastructure/auth/require-admin";
 import { postgresMessageTemplateRepository } from "@/infrastructure/db/repositories/postgres-message-template-repository";
 
 function isTemplateKey(value: string): value is TemplateKey {
@@ -17,10 +17,16 @@ export async function updateTemplateAction(
   _previousState: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  const authorization = await requireAdmin("action");
+  const authorization = await requirePermission("templates.edit", "action");
   void _previousState;
   if (!authorization.authorized) {
-    return { ok: false, message: "Tu sesión no es válida. Inicia sesión nuevamente." };
+    return {
+      ok: false,
+      message:
+        authorization.error === "FORBIDDEN"
+          ? "Solo un superadministrador puede enviar o cambiar mensajes."
+          : "Tu sesión no es válida. Inicia sesión nuevamente.",
+    };
   }
   if (!isTemplateKey(key)) {
     return { ok: false, message: "La plantilla no es válida." };

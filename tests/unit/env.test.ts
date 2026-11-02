@@ -32,10 +32,10 @@ const validProductionEnvironment: Record<string, string | undefined> = {
   EMAIL_FROM_ADDRESS: "reservations@clandestino.example.com",
   EMAIL_FROM_NAME: "Clandestino",
   MESSAGING_MODE: "instagram",
-  META_APP_SECRET: "meta-app-secret-123456",
+  INSTAGRAM_APP_SECRET: "instagram-app-secret-123456",
   META_WEBHOOK_VERIFY_TOKEN: "meta-verify-token-123456",
-  INSTAGRAM_ACCOUNT_ID: "1234567890",
-  INSTAGRAM_ACCESS_TOKEN: "instagram-access-token-1234567890",
+  INSTAGRAM_APP_ID: "1234567890",
+  INSTAGRAM_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
   NEXT_PUBLIC_INSTAGRAM_USERNAME: "clandestino.sv",
   APP_BASE_URL: "https://clandestino.example.com",
   TURNSTILE_SECRET_KEY: "0x4AAAAAA-valid-production-secret",
@@ -124,9 +124,18 @@ describe("parseServerEnv", () => {
 
   it("requires Instagram credentials in instagram mode", () => {
     expect(() => parseServerEnv({ ...validEnvironment, MESSAGING_MODE: "instagram" })).toThrow(
-      /META_APP_SECRET[\s\S]*META_WEBHOOK_VERIFY_TOKEN[\s\S]*INSTAGRAM_ACCESS_TOKEN[\s\S]*INSTAGRAM_ACCOUNT_ID/,
+      /INSTAGRAM_APP_SECRET[\s\S]*META_WEBHOOK_VERIFY_TOKEN[\s\S]*INSTAGRAM_APP_ID[\s\S]*INSTAGRAM_TOKEN_ENCRYPTION_KEY/,
     );
   });
+
+  it.each(["invalid", Buffer.alloc(31).toString("base64"), Buffer.alloc(33).toString("base64")])(
+    "rejects invalid Instagram encryption key %s",
+    (key) => {
+      expect(() =>
+        parseServerEnv({ ...validEnvironment, INSTAGRAM_TOKEN_ENCRYPTION_KEY: key }),
+      ).toThrow(/INSTAGRAM_TOKEN_ENCRYPTION_KEY: must be base64 for exactly 32 bytes/);
+    },
+  );
 
   it("validates the public Instagram username", () => {
     expect(() =>

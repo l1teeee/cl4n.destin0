@@ -74,7 +74,7 @@ async function ingest(
       logFailure: vi.fn(),
     },
     events,
-    { knownUsernames },
+    { ownAccountId: null, knownUsernames },
   );
 }
 
@@ -194,11 +194,12 @@ describe("Instagram webhook ingestion", () => {
 
   it("never creates a contact for the configured account id", async () => {
     const accountId = `11${Date.now()}`;
-    const guardedRepository = new PostgresMessageRepository(pool, accountId);
+    const guardedRepository = new PostgresMessageRepository(pool);
 
-    const result = await guardedRepository.ingestEvents([
-      inbound(`self-${randomUUID()}`, accountId),
-    ]);
+    const result = await guardedRepository.ingestEvents(
+      [inbound(`self-${randomUUID()}`, accountId)],
+      accountId,
+    );
 
     expect(result.contacts).toEqual([]);
     expect(

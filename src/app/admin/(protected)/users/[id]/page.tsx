@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { getAdminUser } from "@/application/admin-users/admin-user-use-cases";
 import { getAdminAuditLog } from "@/application/events/event-use-cases";
 import { adminUserIdSchema } from "@/contracts/admin-users";
-import { requireSuperAdmin } from "@/infrastructure/auth/require-admin";
+import { requirePermission } from "@/infrastructure/auth/require-admin";
 import { postgresAdminUserRepository } from "@/infrastructure/db/repositories/postgres-admin-user-repository";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import {
@@ -29,7 +29,7 @@ import {
 } from "../actions";
 
 export default async function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const authorization = await requireSuperAdmin("page");
+  const authorization = await requirePermission("users.manage", "page");
   const parsed = adminUserIdSchema.safeParse({ id: (await params).id });
   if (!parsed.success) notFound();
 

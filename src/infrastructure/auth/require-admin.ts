@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import type { AdminSession } from "@/application/auth/types";
 import type { AdminAuthRepository } from "@/application/auth/admin-auth-repository";
-import { canManageAdmins } from "@/domain/admin/admin-access";
+import { hasPermission, type AdminPermission } from "@/domain/admin/admin-access";
 
 import { env } from "../config/env";
 import { sessionCookieName } from "./cookie";
@@ -13,7 +13,7 @@ export type AdminAuthorizationResult =
   | { authorized: true; session: AdminSession; token: string }
   | { authorized: false; error: "UNAUTHORIZED" };
 
-export type SuperAdminAuthorizationResult =
+export type PermissionAuthorizationResult =
   | { authorized: true; session: AdminSession; token: string }
   | { authorized: false; error: "UNAUTHORIZED" | "FORBIDDEN" };
 
@@ -27,15 +27,16 @@ export async function authorizeAdminSession(
     : { authorized: false, error: "UNAUTHORIZED" };
 }
 
-export async function authorizeSuperAdminSession(
+export async function authorizePermission(
   token: string | undefined,
   repository: AdminAuthRepository,
-): Promise<SuperAdminAuthorizationResult> {
+  permission: AdminPermission,
+): Promise<PermissionAuthorizationResult> {
   const authorization = await authorizeAdminSession(token, repository);
   if (!authorization.authorized) {
     return authorization;
   }
-  return canManageAdmins(authorization.session.admin.role)
+  return hasPermission(authorization.session.admin.role, permission)
     ? authorization
     : { authorized: false, error: "FORBIDDEN" };
 }
@@ -68,16 +69,22 @@ export async function requireAdmin(
   return authorization;
 }
 
-export async function requireSuperAdmin(
+export async function requirePermission(
+  permission: AdminPermission,
   mode: "page",
-): Promise<SuperAdminAuthorizationResult & { authorized: true }>;
-export async function requireSuperAdmin(mode: "action"): Promise<SuperAdminAuthorizationResult>;
-export async function requireSuperAdmin(
+): Promise<PermissionAuthorizationResult & { authorized: true }>;
+export async function requirePermission(
+  permission: AdminPermission,
+  mode: "action",
+): Promise<PermissionAuthorizationResult>;
+export async function requirePermission(
+  permission: AdminPermission,
   mode: "page" | "action" = "page",
-): Promise<SuperAdminAuthorizationResult> {
-  const authorization = await authorizeSuperAdminSession(
+): Promise<PermissionAuthorizationResult> {
+  const authorization = await authorizePermission(
     await sessionToken(),
     postgresAdminAuthRepository,
+    permission,
   );
 
   if (!authorization.authorized && mode === "page") {
