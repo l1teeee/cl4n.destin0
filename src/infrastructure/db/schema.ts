@@ -257,6 +257,7 @@ export const events = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    personalDataPurgedAt: timestamp("personal_data_purged_at", { withTimezone: true }),
   },
   (table) => [
     primaryKey({ name: "events_pkey", columns: [table.id] }),
@@ -332,6 +333,9 @@ export const events = pgTable(
       sql`${table.paymentInstructions} IS NULL OR char_length(${table.paymentInstructions}) BETWEEN 1 AND 600`,
     ),
     index("events_status_opens_at_idx").on(table.status, table.opensAt),
+    index("events_personal_data_retention_idx")
+      .on(table.startsAt, table.id)
+      .where(sql`${table.personalDataPurgedAt} IS NULL`),
   ],
 );
 
