@@ -120,6 +120,13 @@
       "when": 1793664000000,
       "tag": "0016_personal_data_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793750400000,
+      "tag": "0017_extras_and_guest_tabs",
+      "breakpoints": true
     }
   ]
 }

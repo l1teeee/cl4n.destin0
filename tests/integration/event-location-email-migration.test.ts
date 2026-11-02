@@ -158,7 +158,7 @@ describe("migration 0007 event location email", () => {
       const applied = await pool.query(
         "SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(applied.rows[0]!.count).toBe(17);
+      expect(applied.rows[0]!.count).toBe(18);
     } finally {
       await pool.end();
       await maintenance(async (client) => {

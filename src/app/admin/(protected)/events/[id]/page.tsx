@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import {
+  listActiveDrinksForEconomy,
+  loadEventEconomy,
+} from "@/application/economy/economy-use-cases";
 import { getAdminAuditLog, getAdminEventDetail } from "@/application/events/event-use-cases";
+import { listActiveExtras } from "@/application/extras/extra-use-cases";
 import type { EventGuestView } from "@/application/guests/guest-views";
 import { areCluesVisible } from "@/domain/event/event-clues";
 import { auditPageSizeFor } from "@/ui/admin/view-model";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
+import { postgresEconomyRepository } from "@/infrastructure/db/repositories/postgres-economy-repository";
+import { postgresExtraRepository } from "@/infrastructure/db/repositories/postgres-extra-repository";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
 import {
   countEventGuests,
@@ -23,6 +30,7 @@ import {
 } from "@/app/admin/(protected)/mensajes/actions";
 import { AuditLogTable } from "@/ui/admin/audit-log-table";
 import { EventCluesSection } from "@/ui/admin/event-clues-section";
+import { EventEconomySection } from "@/ui/admin/economy/event-economy-section";
 import { EventGuestsSection } from "@/ui/admin/guests/event-guests-section";
 import { parseGuestView } from "@/ui/admin/guests/guest-list-view";
 import { LinkPendingIndicator } from "@/ui/admin/link-pending";
@@ -57,6 +65,12 @@ import {
   setEventLocationStatusAction,
 } from "../actions";
 import {
+  addConsumptionAction,
+  reopenTabAction,
+  settleTabAction,
+  voidConsumptionAction,
+} from "../economy-actions";
+import {
   acceptRequestAction,
   addRequestAction,
   cancelRequestAction,
@@ -86,6 +100,15 @@ async function loadEventGuests(eventId: string, view: EventGuestView) {
   return { guests, counts, preview };
 }
 
+async function loadEconomy(eventId: string) {
+  const [economy, drinks, extras] = await Promise.all([
+    loadEventEconomy(postgresEconomyRepository, eventId),
+    listActiveDrinksForEconomy(postgresEconomyRepository),
+    listActiveExtras(postgresExtraRepository),
+  ]);
+  return { economy, drinks, extras };
+}
+
 export default async function EventDetailPage({ params, searchParams }: EventDetailPageProps) {
   await requireAdmin("page");
   const { id } = await params;
@@ -100,18 +123,21 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const cluesVisible = areCluesVisible(event.phase);
   const section = parseEventSection(query.seccion, cluesVisible);
   const sections = eventSections(cluesVisible);
-  const [guests, audit, images, locationDelivery, clues, clueDelivery] = await Promise.all([
-    section === "invitados" ? loadEventGuests(id, guestView) : Promise.resolve(null),
-    getAdminAuditLog(postgresEventRepository, {
-      eventId: id,
-      page: auditPage,
-      pageSize: auditPageSizeFor("desktop"),
-    }),
-    postgresEventImageRepository.list(id),
-    postgresLocationMessageRepository.getLocationDeliverySummary(id),
-    cluesVisible ? postgresEventClueRepository.listForEvent(id) : Promise.resolve([]),
-    cluesVisible ? postgresEventClueRepository.getDeliveryForEvent(id) : Promise.resolve({}),
-  ]);
+  const [guests, economy, audit, images, locationDelivery, clues, clueDelivery] = await Promise.all(
+    [
+      section === "invitados" ? loadEventGuests(id, guestView) : Promise.resolve(null),
+      section === "economia" ? loadEconomy(id) : Promise.resolve(null),
+      getAdminAuditLog(postgresEventRepository, {
+        eventId: id,
+        page: auditPage,
+        pageSize: auditPageSizeFor("desktop"),
+      }),
+      postgresEventImageRepository.list(id),
+      postgresLocationMessageRepository.getLocationDeliverySummary(id),
+      cluesVisible ? postgresEventClueRepository.listForEvent(id) : Promise.resolve([]),
+      cluesVisible ? postgresEventClueRepository.getDeliveryForEvent(id) : Promise.resolve({}),
+    ],
+  );
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
   const controls = lifecycleActions(event, eventResult.databaseTime);
   const map = locationMap(event.location);
@@ -182,6 +208,21 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           eventId={id}
           phase={event.phase}
           slug={event.slug}
+        />
+      ) : null}
+
+      {section === "economia" && economy ? (
+        <EventEconomySection
+          eventId={id}
+          economy={economy.economy}
+          drinks={economy.drinks}
+          extras={economy.extras}
+          handlers={{
+            add: addConsumptionAction,
+            voidLine: voidConsumptionAction,
+            settle: settleTabAction,
+            reopen: reopenTabAction,
+          }}
         />
       ) : null}
 
