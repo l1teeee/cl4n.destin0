@@ -1,8 +1,9 @@
-type Section = "experiences" | "drinks" | "audit" | "emails" | "users" | "account";
+type Section = "experiences" | "drinks" | "extras" | "audit" | "emails" | "users" | "account";
 
 const sectionDetails: Record<Section, { title: string; description: string }> = {
   experiences: { title: "Experiencias", description: "Control de eventos y reservaciones." },
   drinks: { title: "Bebidas", description: "Menú de bebidas que ven los comensales." },
+  extras: { title: "Extras", description: "Catálogo de extras que se cobran durante la cena." },
   audit: { title: "Auditoría", description: "Actividad reciente de administración." },
   emails: { title: "Correos", description: "Mensajes y envíos transaccionales." },
   users: { title: "Usuarios", description: "Administración de cuentas y accesos." },
@@ -39,7 +40,7 @@ export function AdminSectionSkeleton({ section }: { section: Section }) {
           <SkeletonBlock className="h-28 w-full" />
         </div>
       )}
-      {section === "drinks" && (
+      {(section === "drinks" || section === "extras") && (
         <div className="grid gap-4 sm:grid-cols-2">
           <SkeletonBlock className="h-48" />
           <SkeletonBlock className="h-48" />

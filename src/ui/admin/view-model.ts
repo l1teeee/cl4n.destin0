@@ -276,7 +276,8 @@ export function auditPageSizeFor(deviceType: string | undefined): number {
   return deviceType === "mobile" ? AUDIT_PAGE_SIZE_MOBILE : AUDIT_PAGE_SIZE_DESKTOP;
 }
 
-export type EventSection = "invitados" | "pistas" | "ubicacion" | "gestion" | "auditoria";
+export type EventSection =
+  "invitados" | "pistas" | "economia" | "ubicacion" | "gestion" | "auditoria";
 
 export function parseEventSection(
   value: string | string[] | undefined,
@@ -285,7 +286,9 @@ export function parseEventSection(
   const raw = first(value);
   // "reservaciones" is the id this section had before the guest list replaced it.
   if (raw === "reservaciones") return "invitados";
-  if (raw === "ubicacion" || raw === "gestion" || raw === "auditoria") return raw;
+  if (raw === "economia" || raw === "ubicacion" || raw === "gestion" || raw === "auditoria") {
+    return raw;
+  }
   if (raw === "pistas" && cluesVisible) return "pistas";
   return "invitados";
 }
@@ -294,6 +297,7 @@ export function eventSections(cluesVisible: boolean): { id: EventSection; label:
   return [
     { id: "invitados", label: "Invitados" },
     ...(cluesVisible ? [{ id: "pistas" as const, label: "Pistas" }] : []),
+    { id: "economia", label: "Economía" },
     { id: "ubicacion", label: "Ubicación" },
     { id: "gestion", label: "Gestión" },
     { id: "auditoria", label: "Auditoría" },

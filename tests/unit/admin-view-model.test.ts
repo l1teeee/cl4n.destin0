@@ -180,9 +180,12 @@ describe("event detail sections", () => {
     expect(parseEventSection("invitados", false)).toBe("invitados");
   });
 
-  it.each(["ubicacion", "gestion", "auditoria"] as const)("opens the %s section", (section) => {
-    expect(parseEventSection(section, false)).toBe(section);
-  });
+  it.each(["economia", "ubicacion", "gestion", "auditoria"] as const)(
+    "opens the %s section",
+    (section) => {
+      expect(parseEventSection(section, false)).toBe(section);
+    },
+  );
 
   it("opens the clues section only while the clues are visible", () => {
     expect(parseEventSection("pistas", true)).toBe("pistas");
@@ -197,6 +200,7 @@ describe("event detail sections", () => {
   it("lists Invitados first and adds Pistas only while the clues are visible", () => {
     expect(eventSections(false).map((section) => section.label)).toEqual([
       "Invitados",
+      "Economía",
       "Ubicación",
       "Gestión",
       "Auditoría",
@@ -204,6 +208,7 @@ describe("event detail sections", () => {
     expect(eventSections(true).map((section) => [section.id, section.label])).toEqual([
       ["invitados", "Invitados"],
       ["pistas", "Pistas"],
+      ["economia", "Economía"],
       ["ubicacion", "Ubicación"],
       ["gestion", "Gestión"],
       ["auditoria", "Auditoría"],
