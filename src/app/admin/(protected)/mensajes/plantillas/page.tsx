@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { updateTemplateAction } from "@/app/admin/(protected)/mensajes/page-actions";
 import { listTemplates } from "@/application/messaging/message-templates";
+import { hasPermission } from "@/domain/admin/admin-access";
 import { TEMPLATE_VARIABLES, type TemplateKey } from "@/domain/messaging/message-types";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresMessageTemplateRepository } from "@/infrastructure/db/repositories/postgres-message-template-repository";
@@ -38,7 +39,8 @@ const templateCopy: Record<TemplateKey, { title: string; timing: string }> = {
 };
 
 export default async function MessageTemplatesPage() {
-  await requireAdmin("page");
+  const authorization = await requireAdmin("page");
+  const canSend = hasPermission(authorization.session.admin.role, "templates.edit");
   const templates = await listTemplates(postgresMessageTemplateRepository);
 
   return (
@@ -53,6 +55,11 @@ export default async function MessageTemplatesPage() {
           <Link href="/admin/mensajes">Volver a mensajes</Link>
         </Button>
       </div>
+      {!canSend ? (
+        <p className="admin-muted">
+          Solo lectura: solo un superadministrador puede editar las plantillas.
+        </p>
+      ) : null}
       <div className="grid gap-6 xl:grid-cols-2">
         {templates.map((template) => {
           const copy = templateCopy[template.key];
@@ -65,6 +72,7 @@ export default async function MessageTemplatesPage() {
               initialBody={template.body}
               variables={TEMPLATE_VARIABLES[template.key]}
               updatedLabel={`Última edición: ${formatAdminDate(template.updatedAt)} por ${template.updatedBy ?? "Sistema"}`}
+              readOnly={!canSend}
               action={updateTemplateAction}
             />
           );

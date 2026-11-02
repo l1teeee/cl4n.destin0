@@ -17,7 +17,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderEditor() {
+function renderEditor(readOnly = false) {
   return render(
     <TemplateEditor
       templateKey="WAITLISTED"
@@ -26,6 +26,7 @@ function renderEditor() {
       initialBody="Hola {nombre}"
       variables={["nombre", "posicion"]}
       updatedLabel="Última edición: 14/11/2026 10:00 por Ana"
+      readOnly={readOnly}
       action={vi.fn(async () => ({ ok: true, message: "Guardada." }))}
     />,
   );
@@ -57,5 +58,15 @@ describe("TemplateEditor", () => {
     expect((screen.getByRole("button", { name: "Guardar" }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+  });
+
+  it("renders read-only inputs and no save control when readOnly is true", () => {
+    renderEditor(true);
+    const textarea = screen.getByRole("textbox", {
+      name: "Texto de En la cola",
+    }) as HTMLTextAreaElement;
+
+    expect(textarea.readOnly).toBe(true);
+    expect(screen.queryByRole("button", { name: "Guardar" })).toBeNull();
   });
 });

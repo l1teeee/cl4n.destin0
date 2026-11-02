@@ -34,6 +34,7 @@ interface MessageActions {
 interface MessageThreadProps extends MessageActions {
   messages: readonly ThreadMessageView[];
   username: string | null;
+  canAct: boolean;
   // The chat panel follows the newest message; a thread inside a sheet must not scroll the sheet.
   scrollToNewest?: boolean;
 }
@@ -41,6 +42,7 @@ interface MessageThreadProps extends MessageActions {
 interface MessageItemProps extends MessageActions {
   message: ThreadMessageView;
   username: string | null;
+  canAct: boolean;
 }
 
 function MessageImages({ srcs }: { srcs: readonly string[] }) {
@@ -77,7 +79,7 @@ function ManualFallbackActions({
   retryAction,
   markSentAction,
   discardAction,
-}: MessageItemProps) {
+}: Omit<MessageItemProps, "canAct">) {
   return (
     <div className={cn("flex flex-wrap items-start gap-2", compactMutationButtons)}>
       {retryableStatuses.has(message.status) ? (
@@ -99,13 +101,14 @@ function ManualFallbackActions({
 function MessageBubble({
   message,
   username,
+  canAct,
   retryAction,
   markSentAction,
   discardAction,
 }: MessageItemProps) {
   const outbound = message.direction === "OUTBOUND";
   const status = messageStatusCopy(message.status);
-  const needsManualFallback = outbound && manualFallbackStatuses.has(message.status);
+  const needsManualFallback = canAct && outbound && manualFallbackStatuses.has(message.status);
 
   return (
     <li className={cn("flex", outbound ? "justify-end" : "justify-start")}>
@@ -150,6 +153,7 @@ function MessageBubble({
 export function MessageThread({
   messages,
   username,
+  canAct,
   retryAction,
   markSentAction,
   discardAction,
@@ -174,6 +178,7 @@ export function MessageThread({
               key={message.id}
               message={message}
               username={username}
+              canAct={canAct}
               retryAction={retryAction}
               markSentAction={markSentAction}
               discardAction={discardAction}

@@ -33,6 +33,7 @@ export interface TemplateEditorProps {
   initialBody: string;
   variables: readonly string[];
   updatedLabel: string;
+  readOnly: boolean;
   action: TemplateAction;
 }
 
@@ -43,6 +44,7 @@ export function TemplateEditor({
   initialBody,
   variables,
   updatedLabel,
+  readOnly,
   action,
 }: TemplateEditorProps) {
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -81,6 +83,7 @@ export function TemplateEditor({
           onChange={(event) => setBody(event.currentTarget.value)}
           maxLength={1000}
           rows={7}
+          readOnly={readOnly}
           required
         />
         <div className="flex flex-wrap gap-2" aria-label={`Variables de ${title}`}>
@@ -108,9 +111,11 @@ export function TemplateEditor({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="admin-muted text-xs">{updatedLabel}</p>
-          <Button type="submit" disabled={pending || unknownVariables.length > 0}>
-            {pending ? "Guardando..." : "Guardar"}
-          </Button>
+          {readOnly ? null : (
+            <Button type="submit" disabled={pending || unknownVariables.length > 0}>
+              {pending ? "Guardando..." : "Guardar"}
+            </Button>
+          )}
         </div>
         {state.message ? (
           <Alert variant={state.ok ? "success" : "destructive"} role="status">

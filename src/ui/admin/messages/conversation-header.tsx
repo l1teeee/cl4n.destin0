@@ -8,7 +8,7 @@ import { instagramProfileHref, windowCopy, type ConversationHeaderView } from ".
 
 interface ConversationHeaderProps {
   header: ConversationHeaderView;
-  controls: ReactNode;
+  controls?: ReactNode;
 }
 
 function LinkedRequests({ linked }: Pick<ConversationHeaderView, "linked">) {
