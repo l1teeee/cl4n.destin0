@@ -10,10 +10,11 @@ import type {
 } from "@/application/messaging/conversation-queries";
 import { isMessagingWindowOpen } from "@/domain/messaging/messaging-window";
 
-import type {
-  ConversationHeaderView,
-  ConversationListItemView,
-  ThreadMessageView,
+import {
+  conversationPreviewText,
+  type ConversationHeaderView,
+  type ConversationListItemView,
+  type ThreadMessageView,
 } from "./message-copy";
 
 const TIME_ZONE = "America/El_Salvador";
@@ -88,7 +89,7 @@ export function conversationListItemView(
       conversation.displayName ??
       (conversation.username ? `@${conversation.username}` : "Contacto de Instagram"),
     username: conversation.username,
-    preview: conversation.lastMessagePreview,
+    preview: conversationPreviewText(conversation.lastMessagePreview),
     lastActivityLabel: conversationTimeLabel(conversation.lastActivityAt, now),
     unreadCount: conversation.unreadCount,
     linkedLabel: primaryRequest ? requestListLabel(primaryRequest) : null,

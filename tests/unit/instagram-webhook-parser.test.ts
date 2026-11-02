@@ -38,12 +38,65 @@ describe("Instagram webhook parser", () => {
           externalMessageId: "m1",
           senderId: "2000",
           text: "hello",
-          attachmentUrls: ["https://cdn.example/image.jpg", "https://cdn.example/video.mp4"],
+          attachmentUrls: ["https://cdn.example/image.jpg"],
           imageAttachmentUrls: ["https://cdn.example/image.jpg"],
           quickReplyPayload: "ABC234",
           referralRef: "DEF235",
         }),
       ],
+    });
+  });
+
+  it.each(["ig_reel", "share", "story_mention", "video", "audio", "file", "sticker"])(
+    "drops %s attachments from inbound messages and echoes",
+    (type) => {
+      const attachments = [{ type, payload: { url: `https://cdn.example/${type}` } }];
+      const result = parseInstagramWebhook(
+        payload(
+          { ...base, message: { mid: "inbound", attachments } },
+          { ...base, message: { mid: "echo", is_echo: true, attachments } },
+        ),
+        accountId,
+      );
+
+      expect(result.events[0]).toMatchObject({
+        type: "inbound_message",
+        attachmentUrls: [],
+        imageAttachmentUrls: [],
+      });
+      expect(result.events[1]).toMatchObject({ type: "echo", attachmentUrls: [] });
+    },
+  );
+
+  it("keeps only the image of a mixed echo and accepts is_unsupported messages", () => {
+    const result = parseInstagramWebhook(
+      payload(
+        {
+          ...base,
+          message: {
+            mid: "echo",
+            is_echo: true,
+            attachments: [
+              { type: "ig_reel", payload: { url: "https://cdn.example/reel" } },
+              { type: "image", payload: { url: "https://cdn.example/image.jpg" } },
+            ],
+          },
+        },
+        { ...base, message: { mid: "unsupported", is_unsupported: true } },
+      ),
+      accountId,
+    );
+
+    expect(result.skipped).toBe(0);
+    expect(result.events[0]).toMatchObject({
+      type: "echo",
+      attachmentUrls: ["https://cdn.example/image.jpg"],
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "inbound_message",
+      externalMessageId: "unsupported",
+      text: null,
+      attachmentUrls: [],
     });
   });
 

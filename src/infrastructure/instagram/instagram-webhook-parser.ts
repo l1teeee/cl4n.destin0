@@ -24,6 +24,7 @@ const messagingItemSchema = z
         attachments: z.array(z.unknown()).optional(),
         is_echo: z.boolean().optional(),
         is_deleted: z.boolean().optional(),
+        is_unsupported: z.boolean().optional(),
         quick_reply: z.object({ payload: z.string() }).passthrough().optional(),
         referral: z.object({ ref: z.string().optional() }).passthrough().optional(),
       })
@@ -76,27 +77,21 @@ function eventDate(value: number): Date {
   return new Date(value < 1_000_000_000_000 ? value * 1000 : value);
 }
 
-function attachments(message: z.infer<typeof messagingItemSchema>["message"]) {
-  const supported = (message?.attachments ?? [])
+// Only images are shown in the admin chat; reels, shares, videos, audio, files and stickers are
+// dropped so the message falls back to the unsupported-content placeholder.
+function imageAttachmentUrls(message: z.infer<typeof messagingItemSchema>["message"]): string[] {
+  return (message?.attachments ?? [])
     .flatMap((candidate) => {
       const parsed = attachmentSchema.safeParse(candidate);
-      if (!parsed.success || !parsed.data.payload?.url) return [];
+      if (!parsed.success || parsed.data.type !== "image" || !parsed.data.payload?.url) return [];
       try {
         const url = new URL(parsed.data.payload.url);
-        return url.protocol === "https:"
-          ? [{ type: parsed.data.type, url: parsed.data.payload.url }]
-          : [];
+        return url.protocol === "https:" ? [parsed.data.payload.url] : [];
       } catch {
         return [];
       }
     })
     .slice(0, 10);
-  return {
-    urls: supported.map((attachment) => attachment.url),
-    imageUrls: supported
-      .filter((attachment) => attachment.type === "image")
-      .map((attachment) => attachment.url),
-  };
 }
 
 function normalizeItem(
@@ -125,7 +120,7 @@ function normalizeItem(
         externalMessageId: item.message.mid,
       };
     }
-    const media = attachments(item.message);
+    const imageUrls = imageAttachmentUrls(item.message);
     if (item.message.is_echo) {
       return {
         type: "echo",
@@ -133,7 +128,7 @@ function normalizeItem(
         externalMessageId: item.message.mid,
         recipientId: item.recipient.id,
         text: item.message.text ?? null,
-        attachmentUrls: media.urls,
+        attachmentUrls: imageUrls,
       };
     }
     return {
@@ -142,8 +137,8 @@ function normalizeItem(
       externalMessageId: item.message.mid,
       senderId: item.sender.id,
       text: item.message.text ? [...item.message.text].slice(0, 2000).join("") : null,
-      attachmentUrls: media.urls,
-      imageAttachmentUrls: media.imageUrls,
+      attachmentUrls: imageUrls,
+      imageAttachmentUrls: imageUrls,
       quickReplyPayload: item.message.quick_reply?.payload ?? null,
       referralRef: item.message.referral?.ref ?? null,
     };

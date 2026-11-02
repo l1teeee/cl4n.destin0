@@ -4,6 +4,7 @@ import type {
   ConversationDetail,
   ConversationSummary,
 } from "@/application/messaging/conversation-queries";
+import { isUnsupportedMessage } from "@/ui/admin/messages/message-copy";
 import {
   conversationHeaderView,
   conversationHref,
@@ -131,6 +132,48 @@ describe("message page view models", () => {
         ],
       }),
     ).toBe(true);
+  });
+
+  it("shows a placeholder preview when the last message has nothing supported", () => {
+    const listView = (lastMessagePreview: string) =>
+      conversationListItemView(
+        { ...summary, lastMessagePreview },
+        { search: "", unlinkedOnly: false, page: 1 },
+        now,
+      ).preview;
+    expect(listView("[contenido no compatible]")).toBe("Mensaje no soportado");
+    expect(listView("   ")).toBe("Mensaje no soportado");
+    expect(listView("[imagen]")).toBe("[imagen]");
+    expect(listView("🙂")).toBe("🙂");
+  });
+
+  it("marks a message unsupported only when it has no text and no image", () => {
+    expect(isUnsupportedMessage({ body: null, imageSrcs: [] })).toBe(true);
+    expect(isUnsupportedMessage({ body: "  ", imageSrcs: [] })).toBe(true);
+    expect(isUnsupportedMessage({ body: "[contenido no compatible]", imageSrcs: [] })).toBe(true);
+    expect(isUnsupportedMessage({ body: "Hola", imageSrcs: [] })).toBe(false);
+    expect(isUnsupportedMessage({ body: "🙂", imageSrcs: [] })).toBe(false);
+    expect(isUnsupportedMessage({ body: null, imageSrcs: ["https://example.test/a.jpg"] })).toBe(
+      false,
+    );
+  });
+
+  it("treats an old inbound row that only stored a reel URL as unsupported", () => {
+    const view = threadMessageView({
+      id: "message-1",
+      direction: "INBOUND",
+      kind: "INBOUND",
+      source: "GUEST",
+      status: "RECEIVED",
+      body: null,
+      attachmentIds: [],
+      attachmentUrls: [],
+      lastError: null,
+      sentAt: null,
+      readAt: null,
+      createdAt: now,
+    });
+    expect(isUnsupportedMessage(view)).toBe(true);
   });
 
   it("maps inbound stored attachments and outbound URLs", () => {

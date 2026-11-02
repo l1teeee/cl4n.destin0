@@ -86,6 +86,30 @@ describe("MessageThread empty state", () => {
   });
 });
 
+describe("MessageThread unsupported content", () => {
+  it("renders a muted italic placeholder for messages with no text and no image", () => {
+    renderThread({
+      messages: [
+        message({
+          id: "m1",
+          direction: "INBOUND",
+          kind: "INBOUND",
+          status: "RECEIVED",
+          body: null,
+        }),
+        message({ id: "m2", source: "INSTAGRAM_APP", body: "[contenido no compatible]" }),
+        message({ id: "m3", body: "Hola" }),
+      ],
+    });
+
+    const placeholders = screen.getAllByText("Este mensaje no es soportado.");
+    expect(placeholders).toHaveLength(2);
+    expect(placeholders[0]!.className).toContain("italic");
+    expect(screen.queryByText("[contenido no compatible]")).toBeNull();
+    expect(screen.getByText("Hola")).toBeDefined();
+  });
+});
+
 describe("MessageThread bubbles", () => {
   it("keeps the given order and puts inbound on the left and outbound on the right", () => {
     renderThread({

@@ -6,12 +6,14 @@ import { cn } from "@/ui/cn";
 import { MessageImages } from "./image-lightbox";
 import { CopyTextButton, OpenInstagramChatLink } from "./manual-send-buttons";
 import {
+  isUnsupportedMessage,
   messageDeliveryIndicator,
   messageKindLabel,
   type DeliveryIcon,
   type MessageAction,
   type MessageStatus,
   type ThreadMessageView,
+  UNSUPPORTED_MESSAGE_COPY,
 } from "./message-copy";
 import type { MessageGroup as MessageGroupView } from "./thread-grouping";
 
@@ -110,6 +112,7 @@ function MessageItem({
   const outbound = message.direction === "OUTBOUND";
   const automatic = outbound && message.source === "SYSTEM";
   const needsAttention = outbound && manualFallbackStatuses.has(message.status);
+  const unsupported = isUnsupportedMessage(message);
 
   return (
     <li
@@ -132,8 +135,16 @@ function MessageItem({
           lastInGroup && (outbound ? "rounded-br-[6px]" : "rounded-bl-[6px]"),
         )}
       >
-        {message.body ? <p className="break-words whitespace-pre-line">{message.body}</p> : null}
-        <MessageImages srcs={message.imageSrcs} username={username} />
+        {unsupported ? (
+          <p className="break-words italic opacity-70">{UNSUPPORTED_MESSAGE_COPY}</p>
+        ) : (
+          <>
+            {message.body ? (
+              <p className="break-words whitespace-pre-line">{message.body}</p>
+            ) : null}
+            <MessageImages srcs={message.imageSrcs} username={username} />
+          </>
+        )}
       </div>
       {message.source === "INSTAGRAM_APP" ? (
         <p className="px-1 text-[0.7rem] text-[#8d8b85]">Desde Instagram</p>

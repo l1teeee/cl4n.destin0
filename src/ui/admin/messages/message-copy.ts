@@ -43,6 +43,25 @@ export interface ThreadMessageView {
   lastError: string | null;
 }
 
+export const UNSUPPORTED_MESSAGE_COPY = "Este mensaje no es soportado.";
+export const UNSUPPORTED_PREVIEW_COPY = "Mensaje no soportado";
+
+// Ingestion stores this text when a guest message arrives with no text and nothing we can show.
+const UNSUPPORTED_BODY_PLACEHOLDER = "[contenido no compatible]";
+
+function hasVisibleText(text: string | null): boolean {
+  const trimmed = text?.trim() ?? "";
+  return trimmed !== "" && trimmed !== UNSUPPORTED_BODY_PLACEHOLDER;
+}
+
+export function isUnsupportedMessage(message: Pick<ThreadMessageView, "body" | "imageSrcs">) {
+  return !hasVisibleText(message.body) && message.imageSrcs.length === 0;
+}
+
+export function conversationPreviewText(preview: string): string {
+  return hasVisibleText(preview) ? preview : UNSUPPORTED_PREVIEW_COPY;
+}
+
 export interface ConversationHeaderView {
   contactId: string;
   title: string;
