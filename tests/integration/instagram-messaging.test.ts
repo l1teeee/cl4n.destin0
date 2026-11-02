@@ -1248,6 +1248,42 @@ describe("PostgreSQL message delivery", () => {
     expect(read.items.find((item) => item.contactId === contactId)!.unreadCount).toBe(0);
   });
 
+  it("previews the last message by what the admin can actually see", async () => {
+    const insertInbound = async (contactId: string, body: string | null): Promise<string> => {
+      const inserted = await pool.query<{ id: string }>(
+        `INSERT INTO messages (
+           contact_id, direction, kind, source, status, body, attachment_urls,
+           received_at, created_at
+         ) VALUES ($1, 'INBOUND', 'INBOUND', 'GUEST', 'RECEIVED', $2, $3,
+                   '2097-01-01T00:00:00Z', '2097-01-01T00:00:00Z')
+         RETURNING id`,
+        [contactId, body, body === null ? ["https://lookaside.fbsbx.com/unsupported"] : null],
+      );
+      return inserted.rows[0]!.id;
+    };
+    const previewOf = async (contactId: string): Promise<string | undefined> => {
+      const listed = await repository.listConversations({ page: 1, pageSize: 1000 });
+      return listed.items.find((item) => item.contactId === contactId)?.lastMessagePreview;
+    };
+
+    const unsupported = await createContact(`903${Date.now()}`);
+    await insertInbound(unsupported, null);
+    expect(await previewOf(unsupported)).toBe("");
+
+    const withImage = await createContact(`904${Date.now()}`);
+    const imageMessageId = await insertInbound(withImage, null);
+    await pool.query(
+      `INSERT INTO message_attachments (message_id, position, content_type, byte_size, data)
+       VALUES ($1, 0, 'image/jpeg', 3, $2)`,
+      [imageMessageId, Buffer.from([1, 2, 3])],
+    );
+    expect(await previewOf(withImage)).toBe("[imagen]");
+
+    const withText = await createContact(`905${Date.now()}`);
+    await insertInbound(withText, "hola clan");
+    expect(await previewOf(withText)).toBe("hola clan");
+  });
+
   it("exposes outbound attachment URLs and linked request identifiers", async () => {
     const contactId = await createContact(`901${Date.now()}`);
     const eventId = await createEvent();

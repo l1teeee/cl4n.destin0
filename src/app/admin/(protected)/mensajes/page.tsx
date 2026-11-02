@@ -162,7 +162,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
           linkByCodeAction={canSend ? linkContactByCodeAction : undefined}
         />
         <MessageThread
-          key={selectedConversation.contact.id}
+          key={`thread-${selectedConversation.contact.id}`}
           messages={threadMessages}
           username={selectedConversation.contact.username}
           canAct={canSend}
@@ -184,7 +184,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
           </p>
         )}
         <ConversationAutoRefresh
-          key={selectedConversation.contact.id}
+          key={`refresh-${selectedConversation.contact.id}`}
           newestInboundMessageId={newestInboundMessageId}
         />
       </>

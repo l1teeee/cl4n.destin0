@@ -1376,14 +1376,23 @@ export class PostgresMessageRepository
         unread_count: number;
       }>(
         `SELECT contact.id, contact.username, contact.display_name,
-                LEFT(COALESCE(last_message.body, '[imagen]'), 80) AS preview,
+                CASE
+                  WHEN btrim(COALESCE(last_message.body, '')) <> '' THEN LEFT(last_message.body, 80)
+                  WHEN last_message.direction = 'INBOUND'
+                    AND EXISTS (SELECT 1 FROM message_attachments a WHERE a.message_id = last_message.id)
+                    THEN '[imagen]'
+                  WHEN last_message.direction = 'OUTBOUND'
+                    AND cardinality(last_message.attachment_urls) > 0
+                    THEN '[imagen]'
+                  ELSE ''
+                END AS preview,
                 COALESCE(last_message.created_at, contact.updated_at) AS last_activity_at,
                 (SELECT count(*)::int FROM messages unread
                   WHERE unread.contact_id = contact.id AND unread.direction = 'INBOUND'
                     AND unread.received_at > COALESCE(contact.admin_read_at, '-infinity')) AS unread_count
            FROM messaging_contacts contact
            LEFT JOIN LATERAL (
-             SELECT body, created_at FROM messages
+             SELECT id, direction, body, attachment_urls, created_at FROM messages
               WHERE contact_id = contact.id ORDER BY created_at DESC, id DESC LIMIT 1
            ) last_message ON true
           WHERE ${where}
