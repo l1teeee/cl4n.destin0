@@ -131,14 +131,14 @@ Admins can retry FAILED rows, discard pending rows, and for any pending or faile
 `/api/webhooks/instagram`:
 
 - GET answers the verification handshake when `hub.mode = subscribe` and `hub.verify_token` equals `META_WEBHOOK_VERIFY_TOKEN` (constant-time compare).
-- POST reads the raw body (1 MB cap) and verifies `X-Hub-Signature-256` (HMAC-SHA256 with `META_APP_SECRET`, constant-time) before parsing. It handles `messages` (inbound, `is_echo` outbound typed in the Instagram app, deduplicated by Meta message id), `messaging_seen` (READ), `messaging_referral` (link and open the window) and reactions (open the window). Database work runs before the 200; network work (profile fetch, image download, delivery) runs in `after()`. Logs carry no message text, usernames or ids beyond the internal row id.
+- POST reads the raw body (1 MB cap) and verifies `X-Hub-Signature-256` (HMAC-SHA256 with `INSTAGRAM_APP_SECRET`, constant-time) before parsing. It handles `messages` (inbound, `is_echo` outbound typed in the Instagram app, deduplicated by Meta message id), `messaging_seen` (READ), `messaging_referral` (link and open the window) and reactions (open the window). Database work runs before the 200; network work (profile fetch, image download, delivery) runs in `after()`. Logs carry no message text, usernames or ids beyond the internal row id.
 - Contacts are upserted in scoped-id order before event processing. Each event runs behind a SAVEPOINT, so SQLSTATE class 22/23 drops only that item while other errors return 500 for Meta to retry.
 - Echo deduplication takes the same transaction-scoped advisory lock as the part recorder and matches both `external_message_id` and `external_part_ids`. Unsend events keep or insert an inbound tombstone with `[mensaje eliminado]`, so later redelivery cannot resurrect content.
 - Missing inbound image bytes are retried by webhook follow-up and the cron for three days. Non-images, oversized responses and unsafe hosts are marked permanent and skipped on later retries.
 
 ### Modes
 
-`MESSAGING_MODE=instagram` uses the Graph API (`META_GRAPH_API_BASE_URL`, `INSTAGRAM_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`). `MESSAGING_MODE=log` is allowed only in local and test: sends are logged and succeed, and an admin-only simulator injects inbound messages through the same ingestion code so the full flow can be reviewed without Meta.
+`MESSAGING_MODE=instagram` uses the Graph API (`META_GRAPH_API_BASE_URL`, with the account id and token from the account linked in Mi cuenta, stored encrypted). `MESSAGING_MODE=log` is allowed only in local and test: sends are logged and succeed, and an admin-only simulator injects inbound messages through the same ingestion code so the full flow can be reviewed without Meta.
 
 ## 9. Location and clues
 
