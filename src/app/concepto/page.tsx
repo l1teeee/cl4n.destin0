@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import { conceptMessages } from "@/ui/public/i18n/pages";
+import { configuredInstagramUsername, instagramProfileUrl } from "@/ui/public/instagram-profile";
 import { PublicHeader } from "@/ui/public/public-header";
 import { PublicFooter } from "@/ui/public/public-footer";
 
@@ -17,9 +18,10 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ConceptPage() {
   const locale = await getPublicLocale();
   const messages = conceptMessages[locale];
+  const instagramUsername = configuredInstagramUsername();
 
   return (
-    <div className="public-page">
+    <div className="public-page public-page-landing">
       <PublicHeader aboutHref="/" />
       <main className="concept-page">
         <div className="concept-visual">
@@ -38,13 +40,15 @@ export default async function ConceptPage() {
           <p>{messages.paragraph}</p>
           <div className="concept-links">
             <Link href="/">{messages.backHome}</Link>
-            <a
-              href="https://www.instagram.com/cl4n.destin0/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {messages.instagram}
-            </a>
+            {instagramUsername ? (
+              <a
+                href={instagramProfileUrl(instagramUsername)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {messages.instagram}
+              </a>
+            ) : null}
           </div>
         </div>
       </main>

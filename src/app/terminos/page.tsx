@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import { legalMessages } from "@/ui/public/i18n/pages";
+import { configuredInstagramUsername, instagramProfileUrl } from "@/ui/public/instagram-profile";
 import { LegalDocument } from "@/ui/public/legal-document";
 
 import "../legal.css";
@@ -16,6 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function TermsPage() {
   const locale = await getPublicLocale();
+  const instagramUsername = configuredInstagramUsername();
 
   if (locale === "en") {
     return (
@@ -30,11 +32,22 @@ export default async function TermsPage() {
 
         <h2>Who organizes</h2>
         <p>
-          Clandestino Supper Clan, El Salvador. Contact: direct message to{" "}
-          <a href="https://instagram.com/cl4n.destin0" target="_blank" rel="noopener noreferrer">
-            @cl4n.destin0
-          </a>{" "}
-          on Instagram.
+          Clandestino Supper Clan, El Salvador. Contact: direct message on{" "}
+          {instagramUsername ? (
+            <>
+              Instagram to{" "}
+              <a
+                href={instagramProfileUrl(instagramUsername)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                @{instagramUsername}
+              </a>
+              .
+            </>
+          ) : (
+            "Instagram."
+          )}
         </p>
 
         <h2>How a request works</h2>
@@ -111,11 +124,22 @@ export default async function TermsPage() {
 
       <h2>Quién organiza</h2>
       <p>
-        Clandestino Supper Clan, El Salvador. Contacto: mensaje directo a{" "}
-        <a href="https://instagram.com/cl4n.destin0" target="_blank" rel="noopener noreferrer">
-          @cl4n.destin0
-        </a>{" "}
-        en Instagram.
+        Clandestino Supper Clan, El Salvador. Contacto: mensaje directo por{" "}
+        {instagramUsername ? (
+          <>
+            Instagram a{" "}
+            <a
+              href={instagramProfileUrl(instagramUsername)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              @{instagramUsername}
+            </a>
+            .
+          </>
+        ) : (
+          "Instagram."
+        )}
       </p>
 
       <h2>Cómo funciona una solicitud</h2>

@@ -1129,6 +1129,31 @@ textarea.reservation-input {
     padding-block: clamp(0.25rem, 1svh, 1rem);
   }
 
+  .concept-page {
+    flex: 1;
+    min-height: 0;
+    padding-block: clamp(1rem, 4svh, 3rem);
+    gap: clamp(2rem, 5vw, 6rem);
+  }
+
+  .concept-image {
+    width: auto;
+    max-width: 100%;
+    max-height: min(62svh, 32rem);
+  }
+
+  .concept-copy {
+    gap: clamp(0.75rem, 2.2svh, 1.5rem);
+  }
+
+  .concept-copy h1 {
+    font-size: clamp(2.5rem, min(5vw, 8svh), 5rem);
+  }
+
+  .concept-copy > p:nth-child(3) {
+    font-size: clamp(1rem, min(1.7vw, 2.4svh), 1.3rem);
+  }
+
   /* Spacing is explicit margins so each gap can follow the viewport height on its own. */
   .public-home {
     min-height: 0;

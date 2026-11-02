@@ -11,6 +11,7 @@ import { Button } from "@/ui/primitives/button";
 import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmented-control";
 import SlideCommit from "@/ui/primitives/slide-commit";
 import type { PublicLocale, PublicMessages } from "./i18n/messages";
+import { configuredInstagramUsername } from "./instagram-profile";
 
 import {
   getOrCreateAttemptKey,
@@ -66,12 +67,6 @@ function submittedGuestNames(fields: ReservationFormValues): string[] {
 
 function formatGuestNames(names: string[], messages: PublicMessages["reservation"]): string {
   return names.join(` ${messages.nameConjunction} `);
-}
-
-// Blank means not configured. A leading @ is dropped so the chat link stays valid.
-function configuredInstagramUsername(): string | undefined {
-  const username = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME?.trim().replace(/^@/, "");
-  return username ? username : undefined;
 }
 
 function allergiesDescription(isCouple: boolean, hasError: boolean): string | undefined {

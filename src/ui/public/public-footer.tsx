@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { publicMessages, type PublicLocale } from "./i18n/messages";
+import { configuredInstagramUsername, instagramProfileUrl } from "./instagram-profile";
 import { LanguageSwitch } from "./language-switch";
-
-// Blank means not configured. A leading @ is dropped so the profile link stays valid.
-function configuredInstagramUsername(): string | undefined {
-  const username = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME?.trim().replace(/^@/, "");
-  return username ? username : undefined;
-}
 
 export function PublicFooter({ locale }: { locale: PublicLocale }) {
   const instagramUsername = configuredInstagramUsername();
@@ -18,7 +13,7 @@ export function PublicFooter({ locale }: { locale: PublicLocale }) {
       <nav className="public-footer-links" aria-label={messages.navigation}>
         {instagramUsername ? (
           <a
-            href={`https://instagram.com/${encodeURIComponent(instagramUsername)}`}
+            href={instagramProfileUrl(instagramUsername)}
             target="_blank"
             rel="noopener noreferrer"
           >
