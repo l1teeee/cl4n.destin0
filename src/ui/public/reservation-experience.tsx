@@ -1,6 +1,7 @@
 import { LightPage } from "./light-page-transition";
 import type { PublicLocale, PublicMessages } from "./i18n/messages";
 import { PublicHeader } from "./public-header";
+import { PublicFooter } from "./public-footer";
 import { ReservationForm } from "./reservation-form";
 
 interface ReservationExperienceProps {
@@ -25,6 +26,7 @@ export function ReservationExperience(props: ReservationExperienceProps) {
         </div>
         <ReservationForm {...props} />
       </main>
+      <PublicFooter />
     </LightPage>
   );
 }

@@ -8,6 +8,7 @@ import { DrinkImage } from "@/ui/public/drink-image";
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import { drinksMessages } from "@/ui/public/i18n/pages";
 import { PublicHeader } from "@/ui/public/public-header";
+import { PublicFooter } from "@/ui/public/public-footer";
 
 import "./bebidas.css";
 
@@ -64,6 +65,7 @@ export default async function DrinksMenuPage() {
           </ul>
         )}
       </main>
+      <PublicFooter />
     </div>
   );
 }

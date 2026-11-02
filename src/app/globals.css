@@ -268,20 +268,13 @@ body:has(.public-page--light) {
   opacity: 0.6;
 }
 
-.public-language-switch {
-  display: inline-flex;
-  align-items: center;
+.public-page {
+  transition: opacity 250ms ease-out;
 }
 
-.public-language-switch button {
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  transition: opacity 400ms ease;
-}
-
-.public-language-switch button:not([aria-pressed="true"]):hover {
-  opacity: 0.6;
+html[data-lang-switching] .public-page {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
 }
 
 .public-event-helper {
@@ -460,14 +453,21 @@ body:has(.public-page--light) {
   line-height: 1.6;
 }
 
-.public-footer-links a {
+.public-footer-links a,
+.public-language-switch {
   display: inline-flex;
   align-items: center;
   min-height: 2.75rem;
   transition: opacity 400ms ease;
 }
 
-.public-footer-links a:focus-visible {
+.public-language-switch {
+  min-width: 2.75rem;
+  cursor: pointer;
+}
+
+.public-footer-links a:focus-visible,
+.public-language-switch:focus-visible {
   opacity: 0.6;
 }
 
@@ -1027,7 +1027,8 @@ textarea.reservation-input {
     opacity: 0.6;
   }
 
-  .public-footer-links a:hover {
+  .public-footer-links a:hover,
+  .public-language-switch:hover {
     opacity: 0.6;
   }
 
@@ -1227,6 +1228,11 @@ textarea.reservation-input {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .public-page,
+  html[data-lang-switching] .public-page {
+    transition: none;
+  }
+
   html {
     scroll-behavior: auto;
   }

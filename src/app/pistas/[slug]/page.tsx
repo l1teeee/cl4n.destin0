@@ -10,6 +10,7 @@ import { CluesAutoRefresh } from "@/ui/public/clues-auto-refresh";
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import { cluesMessages } from "@/ui/public/i18n/pages";
 import { PublicHeader } from "@/ui/public/public-header";
+import { PublicFooter } from "@/ui/public/public-footer";
 
 import "../pistas.css";
 
@@ -81,6 +82,7 @@ export default async function CluesPage({ params }: { params: Promise<{ slug: st
         )}
         {event.phase === "CLOSED" ? <CluesAutoRefresh /> : null}
       </main>
+      <PublicFooter />
     </div>
   );
 }

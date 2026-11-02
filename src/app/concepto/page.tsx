@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import { conceptMessages } from "@/ui/public/i18n/pages";
 import { PublicHeader } from "@/ui/public/public-header";
+import { PublicFooter } from "@/ui/public/public-footer";
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getPublicLocale();
@@ -47,6 +48,7 @@ export default async function ConceptPage() {
           </div>
         </div>
       </main>
+      <PublicFooter />
     </div>
   );
 }

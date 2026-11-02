@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getPublicLocale } from "./i18n/locale";
 import { publicMessages } from "./i18n/messages";
+import { LanguageSwitch } from "./language-switch";
 
 // Blank means not configured. A leading @ is dropped so the profile link stays valid.
 function configuredInstagramUsername(): string | undefined {
@@ -10,7 +11,8 @@ function configuredInstagramUsername(): string | undefined {
 
 export async function PublicFooter() {
   const instagramUsername = configuredInstagramUsername();
-  const messages = publicMessages[await getPublicLocale()].footer;
+  const locale = await getPublicLocale();
+  const messages = publicMessages[locale].footer;
 
   return (
     <footer className="public-footer">
@@ -27,6 +29,7 @@ export async function PublicFooter() {
         ) : null}
         <Link href="/privacidad">{messages.privacy}</Link>
         <Link href="/terminos">{messages.terms}</Link>
+        <LanguageSwitch locale={locale} />
       </nav>
     </footer>
   );

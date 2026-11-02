@@ -157,27 +157,28 @@ describe("public branding", () => {
     expect(await getPublicLocale()).toBe("en");
   });
 
-  it("writes the language cookie and refreshes with accessible button states", () => {
+  it("shows only the other language and writes the cookie before refreshing", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const writeCookie = vi.spyOn(document, "cookie", "set");
-    const view = render(<LanguageSwitch locale="es" label="Idioma" />);
-    const english = screen.getByRole("button", { name: "EN" });
-    expect(screen.getByRole("group", { name: "Idioma" })).toBeDefined();
+    const view = render(<LanguageSwitch locale="es" />);
+    const english = screen.getByRole("button", { name: "Cambiar idioma a inglés" });
     expect(english.getAttribute("lang")).toBe("en");
-    expect(english.getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByRole("button", { name: "ES" }).getAttribute("aria-pressed")).toBe("true");
+    expect(english.textContent).toBe("English");
+    expect(screen.queryByText("Español")).toBeNull();
     fireEvent.click(english);
+    vi.advanceTimersByTime(200);
     expect(writeCookie).toHaveBeenLastCalledWith(
       "cl4n_lang=en; Path=/; SameSite=Lax; Max-Age=31536000",
     );
     expect(document.cookie).toContain("cl4n_lang=en");
     expect(request.refresh).toHaveBeenCalledOnce();
-    view.rerender(<LanguageSwitch locale="en" label="Language" />);
-    expect(screen.getByRole("group", { name: "Language" })).toBeDefined();
-    expect(english.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "ES" }));
-    expect(writeCookie).toHaveBeenLastCalledWith(
-      "cl4n_lang=es; Path=/; SameSite=Lax; Max-Age=31536000",
-    );
-    expect(request.refresh).toHaveBeenCalledTimes(2);
+    view.rerender(<LanguageSwitch locale="en" />);
+    const spanish = screen.getByRole("button", { name: "Change language to Spanish" });
+    expect(spanish.getAttribute("lang")).toBe("es");
+    expect(spanish.textContent).toBe("Español");
+    expect(screen.queryByText("English")).toBeNull();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 });
