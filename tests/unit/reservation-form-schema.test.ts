@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { guestRequestBaseSchema, guestRequestSchema } from "@/contracts/guest-request";
+import { guestRequestSchema } from "@/contracts/guest-request";
+import { publicMessages } from "@/ui/public/i18n/messages";
 import { reservationFormSchema } from "@/ui/public/reservation-form-schema";
 
 const singleGuest = {
@@ -26,26 +27,46 @@ function fieldErrorsOf(maxPartySize: number, input: Record<string, unknown>) {
 }
 
 describe("reservationFormSchema", () => {
-  it("omits server-composed fields", () => {
+  it("accepts the form without server-composed fields and rejects them as input", () => {
     const schema = reservationFormSchema(2);
-    expect(schema.keyof().options).not.toContain("eventSlug");
-    expect(schema.keyof().options).not.toContain("turnstileToken");
+    expect(schema.parse(singleGuest)).toEqual(singleGuest);
+    expect(schema.safeParse({ ...singleGuest, eventSlug: "cena" }).success).toBe(false);
+    expect(schema.safeParse({ ...singleGuest, turnstileToken: "token" }).success).toBe(false);
   });
 
   it("does not ask for email or phone", () => {
-    const fields = reservationFormSchema(2).keyof().options;
-    expect(fields).not.toContain("email");
-    expect(fields).not.toContain("phone");
+    const schema = reservationFormSchema(2);
+    expect(schema.safeParse({ ...singleGuest, email: "ana@example.com" }).success).toBe(false);
+    expect(schema.safeParse({ ...singleGuest, phone: "12345678" }).success).toBe(false);
   });
 
-  it("reuses the shared contract field schemas except the party choice", () => {
-    const schema = reservationFormSchema(2);
-    const reusedFields = schema.keyof().options.filter((field) => field !== "partySize");
+  it("translates contract validation messages into English", () => {
+    const result = reservationFormSchema(2, publicMessages.en.reservation).safeParse({
+      ...singleGuest,
+      guest1Name: "",
+      guest1Instagram: "invalid user!",
+      hasAllergies: true,
+      acceptTerms: false,
+    });
+    expect(result.error?.flatten().fieldErrors).toMatchObject({
+      guest1Name: ["Full name is required."],
+      guest1Instagram: ["Enter a valid Instagram username."],
+      acceptTerms: ["You must accept the terms and privacy policy."],
+    });
+  });
 
-    expect(reusedFields).toContain("guest1Name");
-    for (const field of reusedFields) {
-      expect(schema.shape[field]).toBe(guestRequestBaseSchema.shape[field]);
-    }
+  it("translates cross-field and maximum party size errors", () => {
+    const schema = reservationFormSchema(1, publicMessages.en.reservation);
+    const result = schema.safeParse({
+      ...couple,
+      guest2Instagram: "ana.lopez",
+      hasAllergies: true,
+    });
+    expect(result.error?.flatten().fieldErrors).toMatchObject({
+      guest2Instagram: ["Each guest needs their own Instagram username."],
+      allergies: ["Tell us who is allergic, and to what."],
+      partySize: ["The number of people exceeds the allowed maximum."],
+    });
   });
 
   it.each([

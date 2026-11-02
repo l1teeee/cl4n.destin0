@@ -1,10 +1,28 @@
+import { enUS, es } from "date-fns/locale";
+import type { PublicLocale } from "./i18n/messages";
+
 import type { PublicEvent } from "@/application/events/types";
-import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
+import {
+  formatPublicEventDate,
+  formatUtcForElSalvador,
+} from "@/infrastructure/time/el-salvador-time";
+
+export interface PublicEventDateParts {
+  weekday: string;
+  day: string;
+  month: string;
+  time: string;
+}
 
 export type HomeViewModel =
   | {
       state: "OPEN";
-      events: Array<{ slug: string; formattedDate: string; waitlistOnly?: true }>;
+      events: Array<{
+        slug: string;
+        formattedDate: string;
+        dateParts: PublicEventDateParts;
+        waitlistOnly?: true;
+      }>;
     }
   | { state: "FULL" }
   | { state: "SCHEDULED"; opensAt: Date }
@@ -18,7 +36,30 @@ export type RequestAccessViewModel =
   | { state: "NOT_FOUND" }
   | { state: "CLOSED"; variant: ClosedStateVariant };
 
-export function buildHomeViewModel(readModel: readonly PublicEvent[]): HomeViewModel {
+// Same locale and time zone as formatPublicEventDate, split so the home can lay the date out.
+function buildDateParts(startsAt: Date, locale: PublicLocale): PublicEventDateParts {
+  const dateLocale = locale === "en" ? enUS : es;
+  if (locale === "en") {
+    return {
+      weekday: formatUtcForElSalvador(startsAt, "EEEE", dateLocale),
+      day: formatUtcForElSalvador(startsAt, "d", dateLocale),
+      month: formatUtcForElSalvador(startsAt, "MMMM", dateLocale),
+      time: formatUtcForElSalvador(startsAt, "h:mm a", dateLocale),
+    };
+  }
+  const period = Number(formatUtcForElSalvador(startsAt, "H")) < 12 ? "a. m." : "p. m.";
+  return {
+    weekday: formatUtcForElSalvador(startsAt, "EEEE", es),
+    day: formatUtcForElSalvador(startsAt, "d", es),
+    month: formatUtcForElSalvador(startsAt, "MMMM", es),
+    time: `${formatUtcForElSalvador(startsAt, "h:mm", es)} ${period}`,
+  };
+}
+
+export function buildHomeViewModel(
+  readModel: readonly PublicEvent[],
+  locale: PublicLocale = "es",
+): HomeViewModel {
   const reservableEvents = readModel.filter(
     (event) => event.phase === "OPEN" || event.phase === "WAITLIST",
   );
@@ -27,7 +68,8 @@ export function buildHomeViewModel(readModel: readonly PublicEvent[]): HomeViewM
       state: "OPEN",
       events: reservableEvents.map((event) => ({
         slug: event.slug,
-        formattedDate: formatPublicEventDate(event.startsAt),
+        formattedDate: formatPublicEventDate(event.startsAt, locale),
+        dateParts: buildDateParts(event.startsAt, locale),
         ...(event.phase === "WAITLIST" ? { waitlistOnly: true as const } : {}),
       })),
     };

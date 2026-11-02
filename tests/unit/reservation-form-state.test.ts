@@ -47,6 +47,61 @@ describe("reservationFormFields", () => {
 });
 
 describe("toFormState", () => {
+  it.each([
+    [409, "DUPLICATE_RESERVATION", "A request already exists for this Instagram username."],
+    [404, "EVENT_NOT_FOUND", "The clan is currently closed."],
+    [422, "VALIDATION_FAILED", "Check the information you submitted and try again."],
+    [422, "PARTY_SIZE_NOT_ALLOWED", "The number of people exceeds the allowed maximum."],
+    [
+      422,
+      "IDEMPOTENCY_KEY_REUSED",
+      "The request changed. Check the information and submit it again.",
+    ],
+    [429, "RATE_LIMITED", "Too many attempts. Try again in 12 seconds."],
+    [403, "BOT_CHECK_FAILED", "We could not verify the request. Please try again."],
+    [503, "TRY_AGAIN", "We could not process the request. Please try again."],
+    [500, "INTERNAL_ERROR", "An error occurred. Please try again."],
+  ])("uses English copy for %s %s regardless of server language", (status, code, message) => {
+    expect(
+      toFormState({ status, body: errorBody(code), retryAfterSeconds: 12 }, "en"),
+    ).toMatchObject({
+      kind: "error",
+      code,
+      message,
+      automaticRetry: code === "TRY_AGAIN",
+    });
+  });
+
+  it("translates server field errors while ignoring unknown fields", () => {
+    expect(
+      toFormState(
+        {
+          status: 422,
+          body: errorBody("VALIDATION_FAILED", "Mensaje del servidor", {
+            guest1Instagram: ["Ingresa un usuario de Instagram válido."],
+            guest2Name: ["El nombre del invitado 2 es obligatorio."],
+            allergies: ["Cuéntanos quién y a qué es alérgico."],
+            notes: ["Mensaje futuro del servidor"],
+            email: ["No debe mostrarse"],
+          }),
+        },
+        "en",
+      ),
+    ).toMatchObject({
+      fieldErrors: {
+        guest1Instagram: ["Enter a valid Instagram username."],
+        guest2Name: ["Guest 2's name is required."],
+        allergies: ["Tell us who is allergic, and to what."],
+        notes: ["Check the information you submitted and try again."],
+      },
+    });
+    const state = toFormState(
+      { status: 422, body: errorBody("VALIDATION_FAILED", "", { email: ["No"] }) },
+      "en",
+    );
+    expect(state.kind === "error" && state.fieldErrors).toEqual({});
+  });
+
   it("maps a 201 response and an idempotent replay to the same received state", () => {
     const response = { status: 201, body: receivedBody() };
 

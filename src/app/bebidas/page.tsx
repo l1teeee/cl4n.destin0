@@ -1,40 +1,47 @@
+import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 
 import { formatDrinkPrice } from "@/domain/drink/drink-price";
 import { postgresDrinkRepository } from "@/infrastructure/db/repositories/postgres-drink-repository";
 import { DrinkDetailsDialog } from "@/ui/drink-details-dialog";
+import { DrinkImage } from "@/ui/public/drink-image";
+import { getPublicLocale } from "@/ui/public/i18n/locale";
+import { drinksMessages } from "@/ui/public/i18n/pages";
 import { PublicHeader } from "@/ui/public/public-header";
+import { PublicFooter } from "@/ui/public/public-footer";
 
 import "./bebidas.css";
 
-export const metadata: Metadata = { title: "Bebidas · Clandestino" };
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getPublicLocale();
+  return { title: drinksMessages[locale].metaTitle };
+}
 
 export default async function DrinksMenuPage() {
+  const locale = await getPublicLocale();
+  const messages = drinksMessages[locale];
   const drinks = await postgresDrinkRepository.listVisible();
 
   return (
     <div className="public-page">
-      <PublicHeader aboutHref="/" aboutLabel="Inicio" />
+      <PublicHeader aboutHref="/" />
       <main className="drinks-page">
         <header className="drinks-intro">
-          <p className="public-eyebrow">CLANDESTINO SUPPER CLAN</p>
-          <h1>Bebidas</h1>
+          <p className="public-eyebrow">{messages.eyebrow}</p>
+          <h1>{messages.title}</h1>
         </header>
         {drinks.length === 0 ? (
-          <p>El menú de bebidas estará disponible pronto.</p>
+          <p>{messages.empty}</p>
         ) : (
           <ul className="drinks-list">
-            {drinks.map((drink) => (
-              <li key={drink.id} className="drink-item">
+            {drinks.map((drink, index) => (
+              <li
+                key={drink.id}
+                className="drink-item"
+                style={{ "--drink-index": index } as CSSProperties}
+              >
                 {drink.imageId ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    className="drink-image"
-                    src={`/bebidas/imagen/${drink.imageId}`}
-                    alt={drink.name}
-                    loading="lazy"
-                    decoding="async"
-                  />
+                  <DrinkImage src={`/bebidas/imagen/${drink.imageId}`} alt={drink.name} />
                 ) : null}
                 <div className="drink-copy">
                   <h2>
@@ -46,7 +53,7 @@ export default async function DrinksMenuPage() {
                     >
                       <button type="button" className="drink-name-trigger">
                         {drink.name}
-                        <span className="sr-only">: ver detalles</span>
+                        <span className="sr-only">{messages.viewDetailsSr}</span>
                       </button>
                     </DrinkDetailsDialog>
                   </h2>
@@ -58,6 +65,7 @@ export default async function DrinksMenuPage() {
           </ul>
         )}
       </main>
+      <PublicFooter />
     </div>
   );
 }

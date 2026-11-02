@@ -1,27 +1,32 @@
 import Link from "next/link";
 
 import { BrandMark } from "./brand-mark";
+import { getPublicLocale } from "./i18n/locale";
+import { publicMessages } from "./i18n/messages";
+import { ReservationLink } from "./light-page-transition";
 
 interface PublicHeaderProps {
-  showReservationLink?: boolean;
+  reservationHref?: string;
   aboutHref?: string;
   aboutLabel?: string;
 }
 
-export function PublicHeader({
-  showReservationLink = false,
+export async function PublicHeader({
+  reservationHref,
   aboutHref = "/concepto",
-  aboutLabel = "Qué es un supper clan",
+  aboutLabel,
 }: PublicHeaderProps) {
+  const locale = await getPublicLocale();
+  const messages = publicMessages[locale].header;
   return (
     <header className="public-header">
-      <Link href="/" className="public-header-brand" aria-label="Clandestino, inicio">
+      <Link href="/" className="public-header-brand" aria-label={messages.brandHome}>
         <BrandMark className="public-header-mark" />
         <span>CLANDESTINO</span>
       </Link>
-      <nav className="public-nav" aria-label="Navegación principal">
-        {showReservationLink ? <a href="#reservar">RSVP</a> : null}
-        <a href={aboutHref}>{aboutLabel}</a>
+      <nav className="public-nav" aria-label={messages.navigation}>
+        {reservationHref ? <ReservationLink href={reservationHref}>RSVP</ReservationLink> : null}
+        <a href={aboutHref}>{aboutHref === "/" ? messages.home : (aboutLabel ?? messages.about)}</a>
       </nav>
     </header>
   );

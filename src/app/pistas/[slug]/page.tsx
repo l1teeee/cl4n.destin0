@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { getPublicEventBySlug } from "@/application/events/event-use-cases";
@@ -6,7 +7,10 @@ import { postgresEventClueRepository } from "@/infrastructure/db/repositories/po
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import { CluesAutoRefresh } from "@/ui/public/clues-auto-refresh";
+import { getPublicLocale } from "@/ui/public/i18n/locale";
+import { cluesMessages } from "@/ui/public/i18n/pages";
 import { PublicHeader } from "@/ui/public/public-header";
+import { PublicFooter } from "@/ui/public/public-footer";
 
 import "../pistas.css";
 
@@ -17,7 +21,17 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getPublicLocale();
+  return {
+    title: cluesMessages[locale].metaTitle,
+    robots: { index: false, follow: false },
+  };
+}
+
 export default async function CluesPage({ params }: { params: Promise<{ slug: string }> }) {
+  const locale = await getPublicLocale();
+  const messages = cluesMessages[locale];
   const { slug } = await params;
   const event = (await getPublicEventBySlug(postgresEventRepository, slug)).value;
 
@@ -32,29 +46,29 @@ export default async function CluesPage({ params }: { params: Promise<{ slug: st
 
   return (
     <div className="public-page">
-      <PublicHeader aboutHref="/" aboutLabel="Inicio" />
+      <PublicHeader aboutHref="/" />
       <main className="clues-page">
         <header className="clues-intro">
-          <p className="public-eyebrow">CLANDESTINO SUPPER CLAN</p>
-          <h1>Pistas</h1>
-          <p className="clues-date">{formatPublicEventDate(event.startsAt)}</p>
+          <p className="public-eyebrow">{messages.eyebrow}</p>
+          <h1>{messages.title}</h1>
+          <p className="clues-date">{formatPublicEventDate(event.startsAt, locale)}</p>
         </header>
         {!cluesVisible ? (
-          <p className="clues-empty">Las pistas aparecerán aquí cuando comience la experiencia.</p>
+          <p className="clues-empty">{messages.notStarted}</p>
         ) : clues.length > 0 ? (
           <ol className="clues-list">
             {clues.map((clue) => (
               <li className="clue-item" key={clue.id}>
-                <p className="clue-label">PISTA {clue.number}</p>
+                <p className="clue-label">{messages.clueLabel(clue.number)}</p>
                 <p className="clue-body">{clue.body}</p>
                 {clue.images.length > 0 ? (
-                  <ul className="clue-images" aria-label={`Imágenes de la pista ${clue.number}`}>
+                  <ul className="clue-images" aria-label={messages.imagesAriaLabel(clue.number)}>
                     {clue.images.map((image, index) => (
                       <li key={image.id}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={`/pistas/${encodeURIComponent(slug)}/imagenes/${encodeURIComponent(image.id)}`}
-                          alt={`Imagen ${index + 1} adjunta a la pista ${clue.number}`}
+                          alt={messages.imageAlt(index + 1, clue.number)}
                         />
                       </li>
                     ))}
@@ -64,10 +78,11 @@ export default async function CluesPage({ params }: { params: Promise<{ slug: st
             ))}
           </ol>
         ) : (
-          <p className="clues-empty">Todavía no hay pistas. Mantente atento.</p>
+          <p className="clues-empty">{messages.empty}</p>
         )}
         {event.phase === "CLOSED" ? <CluesAutoRefresh /> : null}
       </main>
+      <PublicFooter />
     </div>
   );
 }

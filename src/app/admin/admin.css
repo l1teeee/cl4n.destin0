@@ -170,6 +170,7 @@
 
 ::view-transition-group(admin-sidebar),
 ::view-transition-group(admin-mobile-bar) {
+  z-index: 50;
   animation: none;
 }
 

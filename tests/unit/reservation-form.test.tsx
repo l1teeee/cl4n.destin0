@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FieldError, ReservationForm } from "@/ui/public/reservation-form";
+import { publicMessages, type PublicLocale } from "@/ui/public/i18n/messages";
 
 const turnstileMethods = vi.hoisted(() => ({
   reset: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@marsidev/react-turnstile", async () => {
   interface MockTurnstileProps {
     onSuccess(token: string): void;
     onError(): void;
+    options: { language: string };
   }
 
   return {
@@ -43,7 +45,7 @@ vi.mock("@marsidev/react-turnstile", async () => {
       }, [onSuccess]);
       turnstileCallbacks.onError = props.onError;
 
-      return <div data-testid="turnstile" />;
+      return <div data-testid="turnstile" lang={props.options.language} />;
     }),
   };
 });
@@ -56,9 +58,15 @@ const receivedLinkCode = "K7M2QX";
 const waitlistedLinkCode = "R4T9HB";
 const instagramUsername = "clandestino.sv";
 
-function renderForm(maxPartySize = 2) {
+function renderForm(maxPartySize = 2, locale: PublicLocale = "es") {
   return render(
-    <ReservationForm eventSlug="cena-demo" maxPartySize={maxPartySize} formattedDate="Sabado" />,
+    <ReservationForm
+      eventSlug="cena-demo"
+      maxPartySize={maxPartySize}
+      formattedDate="Sabado"
+      locale={locale}
+      messages={publicMessages[locale].reservation}
+    />,
   );
 }
 
@@ -290,16 +298,32 @@ describe("ReservationForm", () => {
     expect(errorLine?.classList.contains("min-h-5")).toBe(true);
   });
 
-  it("asks whether the guest comes alone or as a couple with nothing selected", () => {
+  it("selects Solo by default on the first render", () => {
     renderForm();
 
     const question = screen.getByRole("radiogroup", { name: "¿Cuántas personas?" });
     const solo = within(question).getByRole("radio", { name: "Solo" });
     const couple = within(question).getByRole("radio", { name: "En pareja" });
     expect(question.getAttribute("aria-required")).toBe("true");
-    expect(solo.getAttribute("aria-checked")).toBe("false");
+    expect(solo.getAttribute("aria-checked")).toBe("true");
     expect(couple.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("group", { name: "Tus datos" })).toBeDefined();
     expect(screen.queryByRole("group", { name: "Invitado 2" })).toBeNull();
+  });
+
+  it("sends a solo request without touching the party control", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(receivedResponse(1));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderForm();
+
+    await screen.findByTestId("turnstile");
+    fillGuest(screen.getByRole("group", { name: "Tus datos" }), "Ana Martinez", "ana.martinez");
+    answerAllergiesAndAcceptTerms();
+    fireEvent.keyDown(await waitForSliderReady(), { key: "End" });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentBody(fetchMock)).toMatchObject({ partySize: 1, guest1Name: "Ana Martinez" });
   });
 
   it("asks for one person under Tus datos", async () => {
@@ -720,6 +744,11 @@ describe("ReservationForm", () => {
     expect(
       screen.getByText("Si escribes desde la computadora, envíanos este código en el mensaje."),
     ).toBeDefined();
+    expect(
+      screen.getByText(
+        "Revisa también tus solicitudes de mensajes en Instagram (Mensajes > Solicitudes): si no nos sigues, nuestra respuesta puede llegar ahí.",
+      ),
+    ).toBeDefined();
   });
 
   it("uses the singular for one person", async () => {
@@ -738,6 +767,9 @@ describe("ReservationForm", () => {
       ),
     ).toBeDefined();
     expect(screen.getByText("Si se libera un lugar te escribiremos por Instagram.")).toBeDefined();
+    expect(
+      screen.getByText("Revisa también tus solicitudes de mensajes en Instagram."),
+    ).toBeDefined();
     expect(screen.getByText("2 personas · Sabado")).toBeDefined();
     expect(screen.getByRole("heading", { name: "Último paso" })).toBeDefined();
     expect(screen.getByRole("link", { name: "Abrir chat en Instagram" }).getAttribute("href")).toBe(
@@ -868,7 +900,7 @@ describe("ReservationForm", () => {
     });
   });
 
-  it("shows every field error and focuses the party question first when disabled", async () => {
+  it("shows every field error and focuses the name first when disabled", async () => {
     renderForm();
 
     await screen.findByTestId("turnstile");
@@ -877,13 +909,73 @@ describe("ReservationForm", () => {
     expect(wrapper).not.toBeNull();
     fireEvent.click(wrapper as HTMLElement);
 
-    expect(await screen.findByText("Elige si vienes solo o en pareja.")).toBeDefined();
-    expect(screen.getByText("El nombre completo es obligatorio.")).toBeDefined();
+    expect(await screen.findByText("El nombre completo es obligatorio.")).toBeDefined();
     expect(screen.getByText("El usuario de Instagram es obligatorio.")).toBeDefined();
+    expect(screen.queryByText("Elige si vienes solo o en pareja.")).toBeNull();
     await waitFor(() => {
-      const question = screen.getByRole("radiogroup", { name: "¿Cuántas personas?" });
-      expect(question.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(screen.getByLabelText("Nombre completo"));
     });
+  });
+
+  it("renders English labels, verification and client validation", async () => {
+    renderForm(2, "en");
+    expect((await screen.findByTestId("turnstile")).getAttribute("lang")).toBe("en");
+    expect(screen.getByRole("radio", { name: "As a pair" })).toBeDefined();
+    expect(screen.getByLabelText("Instagram username")).toBeDefined();
+    expect(screen.getByRole("link", { name: "privacy policy" })).toBeDefined();
+    const slider = screen.getByRole("slider", { name: "COMPLETE THE FORM" });
+    fireEvent.click(slider.closest(".reservation-slide") as HTMLElement);
+    expect(await screen.findByText("Full name is required.")).toBeDefined();
+    expect(screen.getByText("Instagram username is required.")).toBeDefined();
+    expect(screen.queryByText("El nombre completo es obligatorio.")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Full name")));
+  });
+
+  it.each([
+    ["received", "CONGRATULATIONS!"],
+    ["waitlisted", "YOU ARE ON THE WAITLIST"],
+    ["closed", "THE CLAN HAS CLOSED"],
+    ["full", "NO SEATS AVAILABLE"],
+  ])("renders the English %s screen after submission", async (outcome, heading) => {
+    vi.stubEnv("NEXT_PUBLIC_INSTAGRAM_USERNAME", instagramUsername);
+    const response =
+      outcome === "received"
+        ? receivedResponse(1)
+        : outcome === "waitlisted"
+          ? waitlistedResponse()
+          : jsonResponse(409, {
+              error: { code: outcome === "closed" ? "EVENT_NOT_OPEN" : "EVENT_FULL" },
+            });
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchMock);
+    renderForm(2, "en");
+    await screen.findByTestId("turnstile");
+    fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Ana Martinez" } });
+    fireEvent.change(screen.getByLabelText("Instagram username"), {
+      target: { value: "ana.martinez" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    const slider = await screen.findByRole("slider", { name: "SLIDE TO REQUEST ACCESS" });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+    fireEvent.keyDown(slider, { key: "End" });
+    expect(await screen.findByRole("heading", { name: heading }, { timeout: 2500 })).toBeDefined();
+    expect(sentBody(fetchMock)).toMatchObject({
+      partySize: 1,
+      guest1Name: "Ana Martinez",
+      eventSlug: "cena-demo",
+    });
+    expect(sentBody(fetchMock)).not.toHaveProperty("locale");
+    if (outcome === "received" || outcome === "waitlisted") {
+      expect(screen.getByRole("heading", { name: "Last step" })).toBeDefined();
+      expect(
+        screen.getByRole("link", { name: "Open Instagram chat" }).getAttribute("href"),
+      ).toContain("https://ig.me/m/clandestino.sv?ref=");
+      expect(screen.getByText(/^Your code:/)).toBeDefined();
+    }
+    if (outcome === "waitlisted") {
+      expect(screen.getByText(/position #3 on the waitlist/)).toBeDefined();
+    }
   });
 
   it("focuses the name when the event allows one person and the form is disabled", async () => {

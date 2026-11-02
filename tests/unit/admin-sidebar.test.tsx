@@ -211,7 +211,7 @@ describe("AdminSidebar hover peek", () => {
     vi.useRealTimers();
   });
 
-  it("expands visually after the intent delay without shifting the content gap", () => {
+  it("expands the content gap after the intent delay", () => {
     renderSidebar();
 
     enter();
@@ -220,8 +220,8 @@ describe("AdminSidebar hover peek", () => {
 
     act(() => vi.advanceTimersByTime(1));
     expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");
-    expect(sidebarGap().className).toContain("w-(--sidebar-width-icon)");
-    expect(sidebarGap().className).not.toContain("w-(--sidebar-width) ");
+    expect(sidebarGap().className).toContain("w-(--sidebar-width)");
+    expect(sidebarRoot().getAttribute("data-collapsible")).toBe("");
   });
 
   it("closes after the responsive delay and cancels it on re-entry", () => {

@@ -1,19 +1,67 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { Children, cloneElement, isValidElement, type ComponentProps, type ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ConceptPage from "@/app/concepto/page";
 import { PublicLanding } from "@/ui/public/public-landing";
+import { PublicHeader } from "@/ui/public/public-header";
+import { PublicFooter } from "@/ui/public/public-footer";
+import { HomeExperience } from "@/ui/public/home-experience";
+import { ClosedState } from "@/ui/public/closed-state";
+import { publicMessages } from "@/ui/public/i18n/messages";
+import { getPublicLocale } from "@/ui/public/i18n/locale";
+import { LanguageSwitch } from "@/ui/public/language-switch";
 
-afterEach(cleanup);
+const request = vi.hoisted(() => ({ language: undefined as string | undefined, refresh: vi.fn() }));
+
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      name === "cl4n_lang" && request.language !== undefined
+        ? { value: request.language }
+        : undefined,
+  }),
+}));
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: request.refresh }) }));
+
+// Resolve the server components before passing their client children to the DOM renderer.
+async function resolvePublicShell(node: ReactNode): Promise<ReactNode> {
+  if (!isValidElement<{ children?: ReactNode }>(node)) return node;
+  if (node.type === PublicHeader) {
+    return resolvePublicShell(
+      await PublicHeader(node.props as ComponentProps<typeof PublicHeader>),
+    );
+  }
+  if (node.type === PublicFooter) return resolvePublicShell(await PublicFooter());
+  if (node.type === PublicLanding) {
+    return resolvePublicShell(PublicLanding(node.props as ComponentProps<typeof PublicLanding>));
+  }
+  const children = await Promise.all(Children.toArray(node.props.children).map(resolvePublicShell));
+  return children.length ? cloneElement(node, undefined, ...children) : node;
+}
+
+beforeEach(() => {
+  request.language = undefined;
+  request.refresh.mockClear();
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  document.cookie = "cl4n_lang=; Path=/; Max-Age=0";
+});
 
 describe("public branding", () => {
-  it("uses the vector mark in the header and landing page", () => {
+  it("uses the vector mark in the header and landing page", async () => {
     const { container } = render(
-      <PublicLanding status="Acceso cerrado">
-        <p>Pronto anunciaremos una nueva fecha.</p>
-      </PublicLanding>,
+      await resolvePublicShell(
+        <PublicLanding status="Acceso cerrado">
+          <p>Pronto anunciaremos una nueva fecha.</p>
+        </PublicLanding>,
+      ),
     );
 
     const headerMark = container.querySelector("svg.public-header-mark");
@@ -27,8 +75,8 @@ describe("public branding", () => {
     expect(screen.getByText("Pronto anunciaremos una nueva fecha.")).toBeDefined();
   });
 
-  it("keeps the concept on its own route", () => {
-    render(<PublicLanding status="Acceso cerrado">Pronto</PublicLanding>);
+  it("keeps the concept on its own route", async () => {
+    render(await resolvePublicShell(<PublicLanding status="Acceso cerrado">Pronto</PublicLanding>));
 
     expect(screen.getByRole("link", { name: "Qué es un supper clan" }).getAttribute("href")).toBe(
       "/concepto",
@@ -36,23 +84,101 @@ describe("public branding", () => {
     expect(screen.queryByRole("link", { name: "RSVP" })).toBeNull();
   });
 
-  it("keeps the reservation anchor available for open events", () => {
+  it("points the RSVP link at the supplied reservation href", async () => {
     const { container } = render(
-      <PublicLanding status="Acceso abierto" showReservationLink>
-        Próxima fecha
-      </PublicLanding>,
+      await resolvePublicShell(
+        <PublicLanding status="Acceso abierto" reservationHref="/solicitar/cena-demo">
+          Próxima fecha
+        </PublicLanding>,
+      ),
     );
 
-    expect(screen.getByRole("link", { name: "RSVP" }).getAttribute("href")).toBe("#reservar");
-    expect(container.querySelector("main#reservar")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "RSVP" }).getAttribute("href")).toBe(
+      "/solicitar/cena-demo",
+    );
+    expect(container.querySelector("#reservar")).toBeNull();
   });
 
-  it("preserves the supplied wordmark and return link on the concept page", () => {
-    render(<ConceptPage />);
+  it("preserves the supplied wordmark and return link on the concept page", async () => {
+    render(await resolvePublicShell(await ConceptPage()));
 
     expect(
       screen.getByRole("img", { name: "Logotipo de Clandestino" }).getAttribute("src"),
     ).toContain("clandestino-wordmark.png");
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+  });
+
+  it("renders the English invitation cards and exact waitlist helper", async () => {
+    request.language = "en";
+    const dateParts = { weekday: "Saturday", day: "21", month: "November", time: "7:30 PM" };
+    render(
+      await resolvePublicShell(
+        HomeExperience({
+          messages: publicMessages.en.home,
+          viewModel: {
+            state: "OPEN",
+            events: [
+              { slug: "seats", formattedDate: "Available dinner", dateParts },
+              { slug: "waitlist", formattedDate: "Full dinner", dateParts, waitlistOnly: true },
+            ],
+          },
+        }),
+      ),
+    );
+    const available = within(screen.getByRole("article", { name: "Available dinner" }));
+    expect(available.getByText("Limited seats")).toBeDefined();
+    expect(available.getByRole("link", { name: "Request access" }).getAttribute("href")).toBe(
+      "/solicitar/seats",
+    );
+    const full = within(screen.getByRole("article", { name: "Full dinner" }));
+    expect(full.getByText("Table full")).toBeDefined();
+    expect(full.getByText("Join the waitlist in case a seat opens up.")).toBeDefined();
+    expect(full.getByRole("link", { name: "Join the waitlist" }).getAttribute("href")).toBe(
+      "/solicitar/waitlist",
+    );
+    expect(screen.getByRole("heading", { name: "How it works" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "Privacy" })).toBeDefined();
+  });
+
+  it("renders the closed reservation variant in English", async () => {
+    request.language = "en";
+    render(await resolvePublicShell(await ClosedState({ variant: { state: "FULL" } })));
+    expect(screen.getByRole("heading", { name: "THE CLAN IS CLOSED" })).toBeDefined();
+    expect(screen.getByText("The seats for this experience are full.")).toBeDefined();
+  });
+
+  it.each([undefined, "", "fr", "EN", "es"])("defaults cookie %s to Spanish", async (language) => {
+    request.language = language;
+    expect(await getPublicLocale()).toBe("es");
+  });
+
+  it("reads the English cookie", async () => {
+    request.language = "en";
+    expect(await getPublicLocale()).toBe("en");
+  });
+
+  it("shows only the other language and writes the cookie before refreshing", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const writeCookie = vi.spyOn(document, "cookie", "set");
+    const view = render(<LanguageSwitch locale="es" />);
+    const english = screen.getByRole("button", { name: "Cambiar idioma a inglés" });
+    expect(english.getAttribute("lang")).toBe("en");
+    expect(english.textContent).toBe("English");
+    expect(screen.queryByText("Español")).toBeNull();
+    fireEvent.click(english);
+    vi.advanceTimersByTime(200);
+    expect(writeCookie).toHaveBeenLastCalledWith(
+      "cl4n_lang=en; Path=/; SameSite=Lax; Max-Age=31536000",
+    );
+    expect(document.cookie).toContain("cl4n_lang=en");
+    expect(request.refresh).toHaveBeenCalledOnce();
+    view.rerender(<LanguageSwitch locale="en" />);
+    const spanish = screen.getByRole("button", { name: "Change language to Spanish" });
+    expect(spanish.getAttribute("lang")).toBe("es");
+    expect(spanish.textContent).toBe("Español");
+    expect(screen.queryByText("English")).toBeNull();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 });

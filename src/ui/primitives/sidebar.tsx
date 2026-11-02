@@ -306,12 +306,8 @@ function Sidebar({
     );
   }
 
-  // While peeking, the sidebar looks expanded but the page content keeps the icon-width gap.
+  // While peeking, the sidebar expands and the page content moves with it.
   const visualState = peeking ? "expanded" : state;
-  const iconWidthGap =
-    variant === "floating" || variant === "inset"
-      ? "w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
-      : "w-(--sidebar-width-icon)";
 
   return (
     <div
@@ -332,7 +328,6 @@ function Sidebar({
           variant === "floating" || variant === "inset"
             ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
-          peeking && iconWidthGap,
         )}
       />
       <div

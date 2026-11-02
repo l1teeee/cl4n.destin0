@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { PublicEvent } from "@/application/events/types";
 import { buildHomeViewModel, buildRequestAccessViewModel } from "@/ui/public/home-view-model";
+import { publicMessages, type PublicMessages } from "@/ui/public/i18n/messages";
+import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
 function event(
   slug: string,
@@ -17,7 +19,31 @@ function event(
   };
 }
 
+const eventDateParts = {
+  weekday: "sábado",
+  day: "21",
+  month: "noviembre",
+  time: "7:30 p. m.",
+};
+
 describe("buildHomeViewModel", () => {
+  it("keeps both dictionaries typed to the Spanish message shape", () => {
+    expectTypeOf(publicMessages.en).toEqualTypeOf<PublicMessages>();
+    expectTypeOf(publicMessages.es).toEqualTypeOf<PublicMessages>();
+  });
+
+  it("uses English dates in El Salvador while keeping Spanish output unchanged", () => {
+    const date = new Date("2026-11-22T01:30:00.000Z");
+    expect(formatPublicEventDate(date)).toBe("Sábado 21 de noviembre, 7:30 p. m.");
+    expect(formatPublicEventDate(date, "es")).toBe("Sábado 21 de noviembre, 7:30 p. m.");
+    expect(formatPublicEventDate(date, "en")).toBe("Saturday, November 21, 7:30 PM");
+    expect(buildHomeViewModel([event("cena", "OPEN")], "en")).toMatchObject({
+      events: [
+        { dateParts: { weekday: "Saturday", day: "21", month: "November", time: "7:30 PM" } },
+      ],
+    });
+  });
+
   it("builds every open event and excludes full events", () => {
     expect(
       buildHomeViewModel([
@@ -31,10 +57,12 @@ describe("buildHomeViewModel", () => {
         {
           slug: "primera-cena",
           formattedDate: "Sábado 21 de noviembre, 7:30 p. m.",
+          dateParts: eventDateParts,
         },
         {
           slug: "segunda-cena",
           formattedDate: "Sábado 21 de noviembre, 7:30 p. m.",
+          dateParts: eventDateParts,
         },
       ],
     });
@@ -75,6 +103,7 @@ describe("buildHomeViewModel", () => {
         {
           slug: "cola",
           formattedDate: "Sábado 21 de noviembre, 7:30 p. m.",
+          dateParts: eventDateParts,
           waitlistOnly: true,
         },
       ],
