@@ -41,7 +41,9 @@ export function completeConfiguredInstagramConnection(code: string, adminId: str
   return completeInstagramConnection(dependencies(), {
     code,
     adminId,
-    requiredUsername: env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? null,
+    requiredUsername: env.INSTAGRAM_ALLOW_ANY_ACCOUNT
+      ? null
+      : (env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? null),
   });
 }
 

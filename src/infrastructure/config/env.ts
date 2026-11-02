@@ -37,6 +37,10 @@ const serverEnvSchema = z
     CRON_SECRET: optionalString,
     EMAIL_MODE: z.enum(["brevo", "log"]),
     MESSAGING_MODE: z.enum(["instagram", "log"]),
+    INSTAGRAM_ALLOW_ANY_ACCOUNT: z
+      .string()
+      .optional()
+      .transform((value) => value === "true"),
     META_WEBHOOK_VERIFY_TOKEN: optionalString,
     INSTAGRAM_APP_ID: z.preprocess(
       (value) => (value === "" ? undefined : value),

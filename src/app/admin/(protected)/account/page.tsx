@@ -54,6 +54,7 @@ export default async function AccountPage({
       <InstagramConnectionPanel
         mode={status.mode}
         connection={connection}
+        allowAnyAccount={env.INSTAGRAM_ALLOW_ANY_ACCOUNT}
         requiredUsername={requiredUsername}
         notice={notice}
         disconnectAction={disconnectInstagramAction}

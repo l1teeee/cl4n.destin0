@@ -15,6 +15,45 @@ const now = new Date("2026-11-01T12:00:00Z");
 const day = 24 * 60 * 60 * 1000;
 const input = { code: "private-code", adminId: "admin-id", requiredUsername: "Clandestino.SV" };
 
+describe("configured Instagram connection", () => {
+  it.each([
+    [true, null],
+    [false, "clandestino.sv"],
+  ])("passes the username when allow-any is %s", async (allowAny, requiredUsername) => {
+    const complete = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/application/messaging/instagram-connection-use-cases", () => ({
+      completeInstagramConnection: complete,
+    }));
+    vi.doMock("@/infrastructure/config/env", () => ({
+      env: {
+        MESSAGING_MODE: "instagram",
+        INSTAGRAM_ALLOW_ANY_ACCOUNT: allowAny,
+        NEXT_PUBLIC_INSTAGRAM_USERNAME: "clandestino.sv",
+        APP_BASE_URL: "https://example.com",
+      },
+    }));
+    vi.doMock("@/infrastructure/db/repositories/postgres-instagram-connection-repository", () => ({
+      postgresInstagramConnectionRepository: {},
+    }));
+    try {
+      const { completeConfiguredInstagramConnection } =
+        await import("@/infrastructure/instagram/instagram-connection-runtime");
+      completeConfiguredInstagramConnection("code", "admin");
+      expect(complete).toHaveBeenCalledWith(expect.anything(), {
+        code: "code",
+        adminId: "admin",
+        requiredUsername,
+      });
+    } finally {
+      vi.doUnmock("@/application/messaging/instagram-connection-use-cases");
+      vi.doUnmock("@/infrastructure/config/env");
+      vi.doUnmock("@/infrastructure/db/repositories/postgres-instagram-connection-repository");
+      vi.resetModules();
+    }
+  });
+});
+
 function dependencies() {
   return {
     oauth: {
