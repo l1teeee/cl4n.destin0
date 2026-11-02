@@ -238,6 +238,18 @@ async function insertAudit(
   );
 }
 
+// The ON_LIST message still goes out without them, so this only lets the admin know.
+// The event row is locked by the caller, so the price cannot change under this read.
+async function isPaymentMissing(client: PoolClient, eventId: string): Promise<boolean> {
+  const result = await client.query<{ missing: boolean }>(
+    `SELECT NOT EXISTS (SELECT 1 FROM payment_settings WHERE id = 1)
+            OR COALESCE((SELECT price_cents IS NULL FROM events WHERE id = $1), true)
+            AS missing`,
+    [eventId],
+  );
+  return result.rows[0]!.missing;
+}
+
 async function enqueueStatusMessage(
   client: PoolClient,
   input: {
@@ -395,7 +407,9 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
     private readonly generateLinkCode: () => string = defaultGenerateLinkCode,
   ) {}
 
-  async accept(command: ReservationCommand): Promise<GuestMutationResult> {
+  async accept(
+    command: ReservationCommand,
+  ): Promise<GuestMutationResult<{ paymentMissing: boolean }>> {
     return runTransaction(this.pool, async (client) => {
       const event = await lockEventForReservation(client, command.reservationId);
       if (!event) return failed("INVALID_STAGE");
@@ -404,6 +418,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       if (!reservation || reservation.status !== "CONFIRMED" || reservation.stage !== "IN_REVIEW") {
         return failed("INVALID_STAGE");
       }
+      const paymentMissing = await isPaymentMissing(client, event.id);
       await client.query(
         `UPDATE reservations
             SET stage = 'ON_LIST', on_list_at = clock_timestamp(), updated_at = clock_timestamp()
@@ -429,8 +444,9 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         guests: guestsOf(reservation),
         messageIds: [messageId],
         promoted: [],
+        paymentMissing,
       };
-    }) as Promise<GuestMutationResult>;
+    }) as Promise<GuestMutationResult<{ paymentMissing: boolean }>>;
   }
 
   async verifyPayment(command: VerifyPaymentCommand): Promise<GuestMutationResult> {

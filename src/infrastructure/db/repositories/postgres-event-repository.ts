@@ -48,6 +48,7 @@ interface EventRow extends QueryResultRow {
   waitlist_capacity: number;
   waitlisted_count: number;
   payment_instructions: string | null;
+  price_cents: number | null;
   status: EventLifecycleStatus;
   location_name: string | null;
   location_address: string | null;
@@ -134,7 +135,8 @@ const eventColumns = `
   location_released_revision,
   location_latitude,
   location_longitude,
-  payment_instructions`;
+  payment_instructions,
+  price_cents`;
 
 function eventRecord(row: EventRow): EventRecord {
   return {
@@ -151,6 +153,7 @@ function eventRecord(row: EventRow): EventRecord {
     waitlistCapacity: row.waitlist_capacity,
     waitlistedCount: row.waitlisted_count,
     paymentInstructions: row.payment_instructions,
+    priceCents: row.price_cents,
     status: row.status,
     location: {
       name: row.location_name,
@@ -246,6 +249,7 @@ function comparableEvent(record: EventRecord): Record<string, unknown> {
     autoCloseOnFull: record.autoCloseOnFull,
     waitlistCapacity: record.waitlistCapacity,
     paymentInstructions: record.paymentInstructions,
+    priceCents: record.priceCents,
     status: record.status,
     locationName: record.location.name,
     locationAddress: record.location.address,
@@ -332,12 +336,13 @@ export class PostgresEventRepository implements EventRepository {
              location_confirmed_at,
              location_latitude,
              location_longitude,
-             payment_instructions
+             payment_instructions,
+             price_cents
            )
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                    $15::event_location_status,
                    CASE WHEN $15::event_location_status = 'CONFIRMED' THEN clock_timestamp() ELSE NULL END,
-                   $16, $17, $18)
+                   $16, $17, $18, $19)
            RETURNING ${eventColumns}`,
           [
             command.internalName,
@@ -358,6 +363,7 @@ export class PostgresEventRepository implements EventRepository {
             command.coordinates?.latitude ?? null,
             command.coordinates?.longitude ?? null,
             command.paymentInstructions ?? null,
+            command.priceCents ?? null,
           ],
         );
         const created = eventRecord(inserted.rows[0]!);
@@ -442,6 +448,7 @@ export class PostgresEventRepository implements EventRepository {
                   location_latitude = $14,
                   location_longitude = $15,
                   payment_instructions = $16,
+                  price_cents = COALESCE($17, price_cents),
                   location_status = $13::event_location_status,
                   location_confirmed_at = CASE
                     WHEN $13::event_location_status = 'PENDING' THEN NULL
@@ -480,6 +487,7 @@ export class PostgresEventRepository implements EventRepository {
             command.paymentInstructions === undefined
               ? locked.payment_instructions
               : command.paymentInstructions,
+            command.priceCents ?? null,
           ],
         );
         const after = eventRecord(updated.rows[0]!);
@@ -936,7 +944,7 @@ export class PostgresEventRepository implements EventRepository {
     };
   }
 
-  private async databaseTime(): Promise<Date> {
+  async databaseTime(): Promise<Date> {
     const result = await this.pool.query<{ db_now: Date }>("SELECT clock_timestamp() AS db_now");
     return result.rows[0]!.db_now;
   }

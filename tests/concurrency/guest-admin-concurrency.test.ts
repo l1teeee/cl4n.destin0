@@ -21,6 +21,7 @@ import { generateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 import { PostgresGuestAdminRepository } from "@/infrastructure/db/repositories/postgres-guest-admin-repository";
 import { PostgresReservationAllocationRepository } from "@/infrastructure/db/repositories/reservation-allocation-repository";
 
+import { configurePaymentSettings } from "../helpers/guest-flow-test-data";
 import { resetTestDatabase } from "../helpers/test-db";
 import {
   allowAllBotVerifier,
@@ -49,6 +50,7 @@ beforeAll(async () => {
   await resetTestDatabase();
   const database = await import("@/infrastructure/db/client");
   pool = database.pool;
+  await configurePaymentSettings(pool);
   repository = new PostgresGuestAdminRepository(pool);
   submitReservation = createSubmitReservation({
     repository: new PostgresReservationAllocationRepository(pool),

@@ -150,9 +150,16 @@ export function enteredFromQueueSentence(promoted: readonly string[]): string {
   return ` Entró ${promoted.join(" y ")} desde la cola.`;
 }
 
-export function acceptedResult({ guests, outcome }: MessageResultInput): string {
+export const PAYMENT_MISSING_SENTENCE = " Faltan datos de pago: el mensaje salió sin ellos.";
+
+export function acceptedResult({
+  guests,
+  outcome,
+  paymentMissing,
+}: MessageResultInput & { paymentMissing: boolean }): string {
   const verb = isCouple(guests) ? "están" : "está";
-  return withOutcome(`Aceptaste a ${guestsLabel(guests)}. Ya ${verb} en la lista.`, outcome);
+  const text = withOutcome(`Aceptaste a ${guestsLabel(guests)}. Ya ${verb} en la lista.`, outcome);
+  return paymentMissing ? `${text}${PAYMENT_MISSING_SENTENCE}` : text;
 }
 
 export function paymentVerifiedResult({ guests, outcome }: MessageResultInput): string {

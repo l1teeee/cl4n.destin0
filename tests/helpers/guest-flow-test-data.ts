@@ -60,6 +60,14 @@ export async function insertAdminUser(
   return result.rows[0]!.id;
 }
 
+export async function configurePaymentSettings(db: Queryable): Promise<void> {
+  await db.query(
+    `INSERT INTO payment_settings (id, bank_name, account_type, account_number, account_holder)
+     VALUES (1, 'Banco Demo', 'Ahorro', '0123456789', 'Clandestino')
+     ON CONFLICT (id) DO NOTHING`,
+  );
+}
+
 export async function insertLocationEvent(
   db: Queryable,
   options: LocationEventOptions = {},

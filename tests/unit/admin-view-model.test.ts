@@ -78,6 +78,7 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
     waitlistCapacity: 0,
     waitlistedCount: 0,
     paymentInstructions: null,
+    priceCents: null,
     status: "DRAFT",
     location: {
       name: null,

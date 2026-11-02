@@ -62,6 +62,12 @@ export function formatUtcForElSalvador(
   return format(TZDate.tz(EL_SALVADOR_TIME_ZONE, date), pattern, { locale });
 }
 
+export function formatElSalvadorClock(date: Date): string {
+  const zonedDate = TZDate.tz(EL_SALVADOR_TIME_ZONE, date);
+  const period = zonedDate.getHours() < 12 ? "a. m." : "p. m.";
+  return `${format(zonedDate, "h:mm")} ${period}`;
+}
+
 export function formatPublicEventDate(date: Date, locale: "es" | "en" = "es"): string {
   const zonedDate = TZDate.tz(EL_SALVADOR_TIME_ZONE, date);
   if (locale === "en") {

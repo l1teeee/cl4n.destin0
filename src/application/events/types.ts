@@ -53,6 +53,7 @@ export interface EventRecord {
   waitlistCapacity: number;
   waitlistedCount: number;
   paymentInstructions: string | null;
+  priceCents: number | null;
   status: EventLifecycleStatus;
   location: EventLocationRecord;
   locationRevision: number;
@@ -70,6 +71,7 @@ export interface CreateEventCommand {
   autoCloseOnFull: boolean;
   waitlistCapacity: number;
   paymentInstructions?: string | null;
+  priceCents?: number | null;
   status: "DRAFT" | "SCHEDULED";
   location: EventLocation;
   coordinates: MapsCoordinates | null;
@@ -85,6 +87,8 @@ export interface UpdateEventCommand {
   closesAt: Date;
   autoCloseOnFull: boolean;
   paymentInstructions?: string | null;
+  // Undefined keeps the stored price: an event that has one cannot go back to having none.
+  priceCents?: number;
   location: EventLocation;
   keepMapsUrl: boolean;
   // Null for an unchanged link keeps the stored point, so a failed lookup never erases it.
@@ -182,7 +186,8 @@ export interface AuditLogItem {
     | "MESSAGE_TEMPLATE_UPDATED"
     | "MESSAGING_CONTACT_LINKED"
     | "INSTAGRAM_CONNECTED"
-    | "INSTAGRAM_DISCONNECTED";
+    | "INSTAGRAM_DISCONNECTED"
+    | "PAYMENT_SETTINGS_UPDATED";
   entityType:
     | "EVENT"
     | "RESERVATION"
@@ -191,7 +196,8 @@ export interface AuditLogItem {
     | "DRINK"
     | "MESSAGE_TEMPLATE"
     | "MESSAGING_CONTACT"
-    | "INSTAGRAM_CONNECTION";
+    | "INSTAGRAM_CONNECTION"
+    | "PAYMENT_SETTINGS";
   entityId: string;
   metadata: Record<string, unknown>;
 }

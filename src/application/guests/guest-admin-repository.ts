@@ -95,7 +95,7 @@ export interface AddRequestCommand {
 }
 
 export interface GuestAdminRepository {
-  accept(command: ReservationCommand): Promise<GuestMutationResult>;
+  accept(command: ReservationCommand): Promise<GuestMutationResult<{ paymentMissing: boolean }>>;
   verifyPayment(command: VerifyPaymentCommand): Promise<GuestMutationResult>;
   reject(command: ReleaseReservationCommand): Promise<GuestMutationResult>;
   cancel(

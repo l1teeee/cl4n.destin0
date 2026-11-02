@@ -19,11 +19,13 @@ const validCreate = {
   eventTime: "19:30",
   opensAt: "2026-11-01T08:00",
   closesAt: "2026-11-19T20:00",
+  openNow: false,
   capacity: 20,
   maxPartySize: 2,
   autoCloseOnFull: false,
   waitlistCapacity: 5,
   paymentInstructions: null,
+  price: "25.00",
   status: "DRAFT",
   locationName: null,
   locationAddress: null,
@@ -46,6 +48,8 @@ describe("admin event contracts", () => {
       maxPartySize: "",
       waitlistCapacity: "5",
       paymentInstructions: "",
+      price: "25.00",
+      openNow: "1",
       status: "DRAFT",
       locationName: "",
       locationAddress: "",
@@ -63,11 +67,20 @@ describe("admin event contracts", () => {
       waitlistCapacity: 5,
       autoCloseOnFull: true,
       paymentInstructions: "",
+      price: "25.00",
+      openNow: true,
     });
+    formData.delete("openNow");
+    expect(readCreateEventFormData(formData).openNow).toBe(false);
   });
 
   it("accepts strict create and update inputs", () => {
-    expect(createAdminEventSchema.parse(validCreate)).toEqual(validCreate);
+    const { price, ...createWithoutPrice } = validCreate;
+    void price;
+    expect(createAdminEventSchema.parse(validCreate)).toEqual({
+      ...createWithoutPrice,
+      priceCents: 2500,
+    });
     const update = {
       internalName: validCreate.internalName,
       slug: validCreate.slug,
@@ -75,6 +88,7 @@ describe("admin event contracts", () => {
       eventTime: validCreate.eventTime,
       opensAt: validCreate.opensAt,
       closesAt: validCreate.closesAt,
+      openNow: validCreate.openNow,
       maxPartySize: validCreate.maxPartySize,
       autoCloseOnFull: validCreate.autoCloseOnFull,
       paymentInstructions: validCreate.paymentInstructions,
@@ -88,6 +102,9 @@ describe("admin event contracts", () => {
       locationStatusLoaded: "PENDING",
     };
     expect(updateAdminEventSchema.parse(update)).toEqual({ ...update, locationRevision: 3 });
+    expect(updateAdminEventSchema.parse({ ...update, price: "30" })).toMatchObject({
+      priceCents: 3000,
+    });
     expect(updateAdminEventSchema.safeParse({ ...update, locationRevision: "-1" }).success).toBe(
       false,
     );
@@ -126,6 +143,44 @@ describe("admin event contracts", () => {
         "Máximo 2 personas por solicitud.",
       );
     }
+  });
+
+  it("requires a valid price per person on create and keeps it optional on update", () => {
+    const priceError = (price: unknown) => {
+      const result = createAdminEventSchema.safeParse({ ...validCreate, price });
+      return result.success
+        ? null
+        : result.error.issues.find((issue) => issue.path[0] === "price")?.message;
+    };
+
+    expect(priceError("")).toBe("El precio por persona es obligatorio.");
+    expect(priceError(undefined)).toBe("El precio por persona es obligatorio.");
+    expect(priceError("abc")).toBe("Escribe el precio con números, por ejemplo 25.00.");
+    expect(priceError("0")).toBeNull();
+    expect(createAdminEventSchema.parse({ ...validCreate, price: "12,5" }).priceCents).toBe(1250);
+
+    const update = {
+      internalName: validCreate.internalName,
+      slug: validCreate.slug,
+      eventDate: validCreate.eventDate,
+      eventTime: validCreate.eventTime,
+      opensAt: validCreate.opensAt,
+      closesAt: validCreate.closesAt,
+      openNow: false,
+      maxPartySize: validCreate.maxPartySize,
+      autoCloseOnFull: validCreate.autoCloseOnFull,
+      locationName: null,
+      locationAddress: null,
+      locationMapsUrl: null,
+      locationNotes: null,
+      locationStatus: "PENDING",
+      keepMapsUrl: false,
+      locationRevision: "0",
+      locationStatusLoaded: "PENDING",
+    };
+    expect(updateAdminEventSchema.parse({ ...update, price: "" }).priceCents).toBeUndefined();
+    expect(updateAdminEventSchema.parse({ ...update, price: null }).priceCents).toBeUndefined();
+    expect(updateAdminEventSchema.safeParse({ ...update, price: "abc" }).success).toBe(false);
   });
 
   it("trims optional payment instructions and enforces 600 characters", () => {

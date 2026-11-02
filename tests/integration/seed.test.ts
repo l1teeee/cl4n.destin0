@@ -82,6 +82,24 @@ describe("local seed", () => {
       waiting_entries: 3,
     });
 
+    const payment = await pool.query(
+      `SELECT bank_name, account_type, account_number, account_holder, payment_link
+         FROM payment_settings`,
+    );
+    expect(payment.rows).toEqual([
+      {
+        bank_name: "Banco Demo",
+        account_type: "Ahorro",
+        account_number: "000-000000-0",
+        account_holder: "Clandestino Demo",
+        payment_link: null,
+      },
+    ]);
+    const prices = await pool.query<{ price_cents: number | null }>(
+      "SELECT DISTINCT price_cents FROM events",
+    );
+    expect(prices.rows).toEqual([{ price_cents: 3500 }]);
+
     const stages = await pool.query<{ stage: string; status: string; requests: number }>(
       `SELECT r.stage, r.status, count(*)::int AS requests
        FROM reservations r

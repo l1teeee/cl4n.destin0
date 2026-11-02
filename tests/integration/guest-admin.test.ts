@@ -27,6 +27,7 @@ import {
 } from "@/infrastructure/db/repositories/event-guest-queries";
 import { PostgresGuestAdminRepository } from "@/infrastructure/db/repositories/postgres-guest-admin-repository";
 
+import { configurePaymentSettings } from "../helpers/guest-flow-test-data";
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 
 let pool: Pool;
@@ -39,6 +40,7 @@ beforeAll(async () => {
   await resetTestDatabase();
   pool = new Pool({ connectionString: testDatabaseUrl().toString() });
   repository = new PostgresGuestAdminRepository(pool);
+  await configurePaymentSettings(pool);
   const admin = await pool.query<{ id: string }>(
     `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
      VALUES ('guest-admin@example.com', 'guest-admin@example.com', 'hash', 'Guest Admin')
@@ -79,14 +81,14 @@ async function insertEvent(
   const result = await pool.query<{ id: string }>(
     `INSERT INTO events (
        internal_name, slug, starts_at, capacity, reserved_seats, max_party_size,
-       opens_at, closes_at, waitlist_capacity, status
+       opens_at, closes_at, waitlist_capacity, status, price_cents
      )
      VALUES ($1, $2,
              CASE WHEN $8 THEN clock_timestamp() - interval '1 hour'
                   ELSE clock_timestamp() + interval '7 days' END,
              $3, $4, $7,
              clock_timestamp() - interval '1 day', clock_timestamp() + interval '6 days',
-             $5, $6)
+             $5, $6, 2500)
      RETURNING id`,
     [
       `Evento ${sequence}`,

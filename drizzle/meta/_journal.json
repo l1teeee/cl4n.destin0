@@ -127,6 +127,13 @@
       "when": 1793750400000,
       "tag": "0017_extras_and_guest_tabs",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793836800000,
+      "tag": "0018_payments",
+      "breakpoints": true
     }
   ]
 }

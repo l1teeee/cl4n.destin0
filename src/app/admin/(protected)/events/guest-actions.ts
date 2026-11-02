@@ -191,7 +191,14 @@ export async function acceptRequestAction(
   if (!result.ok) return operationError(result);
   revalidateGuestPaths(result.eventId);
   const outcome = await deliver(result, true);
-  return { ok: true, message: acceptedResult({ guests: result.guests, outcome }) };
+  return {
+    ok: true,
+    message: acceptedResult({
+      guests: result.guests,
+      outcome,
+      paymentMissing: result.paymentMissing,
+    }),
+  };
 }
 
 export async function verifyPaymentAction(

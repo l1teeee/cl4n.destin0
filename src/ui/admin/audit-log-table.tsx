@@ -24,6 +24,7 @@ const entityLabels: Record<AuditLogItem["entityType"], string> = {
   MESSAGE_TEMPLATE: "Plantilla de mensaje",
   MESSAGING_CONTACT: "Contacto de Instagram",
   INSTAGRAM_CONNECTION: "Cuenta de Instagram",
+  PAYMENT_SETTINGS: "Datos de pago",
 };
 const actionLabels: Record<AuditLogItem["action"], string> = {
   EVENT_CREATED: "Experiencia creada",
@@ -63,6 +64,7 @@ const actionLabels: Record<AuditLogItem["action"], string> = {
   MESSAGING_CONTACT_LINKED: "Contacto de Instagram vinculado",
   INSTAGRAM_CONNECTED: "Instagram vinculado",
   INSTAGRAM_DISCONNECTED: "Instagram desvinculado",
+  PAYMENT_SETTINGS_UPDATED: "Datos de pago actualizados",
 };
 
 export function AuditLogTable({ items }: { items: AuditLogItem[] }) {

@@ -2,6 +2,8 @@ import type { PoolClient } from "pg";
 
 import { renderMessageTemplate } from "@/domain/messaging/message-template";
 import type { MessageKind, TemplateKey } from "@/domain/messaging/message-types";
+import { paymentMessageValues } from "@/domain/messaging/payment-message";
+import type { AccountType, PaymentSettings } from "@/domain/payment/payment-settings";
 import { firstName, guestFirstNames } from "@/domain/reservation/guest-names";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
@@ -19,7 +21,41 @@ interface GuestMessageValueRow {
   guest2_full_name: string | null;
   starts_at: Date;
   payment_instructions: string | null;
+  party_size: number;
+  price_cents: number | null;
+  bank_name: string | null;
+  account_type: AccountType | null;
+  account_number: string | null;
+  account_holder: string | null;
+  payment_link: string | null;
   queue_position: number | null;
+}
+
+function paymentSettingsOf(row: GuestMessageValueRow): PaymentSettings | null {
+  if (
+    row.bank_name === null ||
+    row.account_type === null ||
+    row.account_number === null ||
+    row.account_holder === null
+  ) {
+    return null;
+  }
+  return {
+    bankName: row.bank_name,
+    accountType: row.account_type,
+    accountNumber: row.account_number,
+    accountHolder: row.account_holder,
+    paymentLink: row.payment_link,
+  };
+}
+
+function paymentValues(row: GuestMessageValueRow): Record<string, string> {
+  return paymentMessageValues({
+    priceCents: row.price_cents,
+    partySize: row.party_size,
+    settings: paymentSettingsOf(row),
+    note: row.payment_instructions,
+  });
 }
 
 function subjectParameters(subject: GuestMessageSubject): [string, "reservation" | "waitlist"] {
@@ -108,13 +144,18 @@ export async function loadGuestMessageValues(
   const [subjectId, subjectKind] = subjectParameters(subject);
   const result = await client.query<GuestMessageValueRow>(
     `SELECT r.full_name, r.guest2_full_name, e.starts_at, e.payment_instructions,
+            r.party_size, e.price_cents, ps.bank_name, ps.account_type, ps.account_number,
+            ps.account_holder, ps.payment_link,
             NULL::integer AS queue_position
        FROM reservations r
        JOIN events e ON e.id = r.event_id
+       LEFT JOIN payment_settings ps ON ps.id = 1
       WHERE r.id = $1::uuid
         AND $2::text = 'reservation'
      UNION ALL
      SELECT w.full_name, w.guest2_full_name, e.starts_at, e.payment_instructions,
+            w.party_size, e.price_cents, ps.bank_name, ps.account_type, ps.account_number,
+            ps.account_holder, ps.payment_link,
             CASE WHEN w.status = 'WAITING' THEN (
               SELECT count(*)::integer
                 FROM waitlist_entries ranked
@@ -124,6 +165,7 @@ export async function loadGuestMessageValues(
             ) END AS queue_position
        FROM waitlist_entries w
        JOIN events e ON e.id = w.event_id
+       LEFT JOIN payment_settings ps ON ps.id = 1
       WHERE w.id = $1::uuid
         AND $2::text = 'waitlist'`,
     [subjectId, subjectKind],
@@ -138,7 +180,7 @@ export async function loadGuestMessageValues(
     nombre: firstName(row.full_name),
     nombres: guestFirstNames(row.full_name, row.guest2_full_name),
     fecha: formatPublicEventDate(row.starts_at),
-    pago: row.payment_instructions ?? "",
+    ...paymentValues(row),
   };
   if (row.queue_position !== null) {
     values.posicion = String(row.queue_position);

@@ -5,16 +5,30 @@ import { useActionState, useMemo, useRef, useState } from "react";
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { findUnknownVariables, renderMessageTemplate } from "@/domain/messaging/message-template";
 import type { TemplateKey } from "@/domain/messaging/message-types";
+import { paymentMessageValues } from "@/domain/messaging/payment-message";
 import { Alert } from "@/ui/primitives/alert";
 import { Button } from "@/ui/primitives/button";
 import { Textarea } from "@/ui/primitives/textarea";
+
+const samplePayment = paymentMessageValues({
+  priceCents: 2500,
+  partySize: 1,
+  settings: {
+    bankName: "Banco Ejemplo",
+    accountType: "Ahorro",
+    accountNumber: "0000 0000 00",
+    accountHolder: "Nombre Apellido",
+    paymentLink: "https://pago.ejemplo.com/clandestino",
+  },
+  note: "Paga antes del jueves",
+});
 
 const sampleValues = {
   nombre: "Ana",
   nombres: "Ana y Luis",
   fecha: "sábado 14 de noviembre, 7:00 p. m.",
   posicion: "2",
-  pago: "Transferencia a ... (ejemplo)",
+  ...samplePayment,
   ubicacion: "Casa Clandestina\nCalle ...\nhttps://maps.google.com/...",
 };
 

@@ -1,10 +1,18 @@
 "use client";
 
-import { startTransition, useActionState, useRef, useState, type FormEvent } from "react";
+import {
+  startTransition,
+  useActionState,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Check, Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { createAdminEventSchema, readCreateEventFormData } from "@/contracts/admin-event";
+import { drinkPriceInputValue } from "@/domain/drink/drink-price";
 import { reconcileMapsLink } from "@/domain/event/event-location";
 import { Alert } from "@/ui/primitives/alert";
 import { Button } from "@/ui/primitives/button";
@@ -26,6 +34,7 @@ import { Switch } from "@/ui/primitives/switch";
 import { Textarea } from "@/ui/primitives/textarea";
 import { TimePicker } from "@/ui/primitives/time-picker";
 
+import { ElSalvadorClock } from "./el-salvador-clock";
 import { useFocusFirstInvalid } from "./use-focus-first-invalid";
 
 const initialState: AdminActionState = { ok: false, message: "" };
@@ -41,10 +50,25 @@ const createStepOneFields = new Set([
   "closesAt",
   "status",
   "autoCloseOnFull",
+  "price",
   "paymentInstructions",
 ]);
-const paymentInstructionsHint =
-  "Se incluyen en el mensaje de 'estás en la lista'. Por ejemplo: monto, banco, cuenta y a nombre de quién.";
+const sectionHints = {
+  data: "Nombre y enlace público de la experiencia.",
+  date: "Día y hora de la cena, en hora de El Salvador.",
+  seats:
+    "Capacidad: lugares totales. Personas por solicitud: 1 solo individuales, 2 también parejas. Cola: cuántas personas pueden esperar si se llena.",
+  reservations: "Cuándo se abre y se cierra el formulario público para pedir lugar.",
+  payment:
+    "Precio por persona. Los datos bancarios se configuran una vez en Mi cuenta > Datos de pago.",
+  location: "Se envía por Instagram solo a las personas confirmadas.",
+};
+const opensAtHint = "Desde esta hora la gente puede enviar solicitudes.";
+const closesAtHint =
+  "Después de esta hora ya no se aceptan solicitudes. Debe ser antes de la cena.";
+const statusHint =
+  "Borrador: no se ve en el sitio. Programada: se publica y se abre sola a la hora de apertura.";
+const openNowActiveHint = "Se abrirá en cuanto guardes.";
 
 type FieldErrors = AdminActionState["fieldErrors"];
 
@@ -60,6 +84,7 @@ export interface EventFormValues {
   autoCloseOnFull: boolean;
   waitlistCapacity?: number;
   paymentInstructions?: string | null;
+  priceCents?: number | null;
   status?: "DRAFT" | "SCHEDULED";
   locationName: string | null;
   locationAddress: string | null;
@@ -74,22 +99,59 @@ interface EventFormProps {
   values?: EventFormValues;
   mode: "create" | "edit";
   slugEditable?: boolean;
+  // Current El Salvador time rounded up to the next minute; only used when creating.
+  suggestedOpensAt?: string;
 }
 
 interface ExperienceFieldsProps {
   errors: FieldErrors;
-  grouped: boolean;
   mode: "create" | "edit";
   slugEditable: boolean;
+  suggestedOpensAt?: string;
   values?: EventFormValues;
 }
 
-const sectionHeadingClass = "text-xs font-bold tracking-[0.2em] uppercase md:col-span-2";
+const sectionHeadingClass = "text-xs font-bold tracking-[0.2em] uppercase";
+const separatedSectionClass = "grid gap-2 border-t border-border pt-5 md:col-span-2";
 
-function ExperienceFields({ errors, grouped, mode, slugEditable, values }: ExperienceFieldsProps) {
+interface SectionHeadingProps {
+  title: string;
+  hint: string;
+  as?: "h2" | "h3";
+  separated?: boolean;
+  aside?: ReactNode;
+}
+
+function SectionHeading({
+  title,
+  hint,
+  as: Heading = "h3",
+  separated = true,
+  aside,
+}: SectionHeadingProps) {
+  return (
+    <div className={separated ? separatedSectionClass : "grid gap-2 md:col-span-2"}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <Heading className={sectionHeadingClass}>{title}</Heading>
+        {aside}
+      </div>
+      <p className="admin-muted">{hint}</p>
+    </div>
+  );
+}
+
+function ExperienceFields({
+  errors,
+  mode,
+  slugEditable,
+  suggestedOpensAt,
+  values,
+}: ExperienceFieldsProps) {
+  const [openNow, setOpenNow] = useState(false);
+
   return (
     <>
-      {grouped ? <h3 className={sectionHeadingClass}>Datos</h3> : null}
+      <SectionHeading title="Datos" hint={sectionHints.data} separated={false} />
       <Label className="grid gap-2">
         <span>Nombre interno</span>
         <Input
@@ -124,9 +186,7 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
         />
         <FieldError id="slug-error" message={errors?.slug} />
       </div>
-      {grouped ? (
-        <h3 className={`${sectionHeadingClass} border-t border-border pt-5`}>Fecha</h3>
-      ) : null}
+      <SectionHeading title="Fecha" hint={sectionHints.date} />
       <div className="grid gap-2">
         <Label htmlFor="eventDate">Fecha del evento</Label>
         <DatePicker
@@ -149,9 +209,7 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
         />
         <FieldError id="eventTime-error" message={errors?.eventTime} />
       </div>
-      {grouped ? (
-        <h3 className={`${sectionHeadingClass} border-t border-border pt-5`}>Cupos</h3>
-      ) : null}
+      <SectionHeading title="Cupos" hint={sectionHints.seats} />
       {mode === "create" ? (
         <Label className="grid gap-2">
           <span>Capacidad total</span>
@@ -202,20 +260,37 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
           <span className="admin-muted">0 desactiva la cola.</span>
         </Label>
       ) : null}
-      {grouped ? (
-        <h3 className={`${sectionHeadingClass} border-t border-border pt-5`}>Reservaciones</h3>
-      ) : null}
+      <SectionHeading
+        title="Reservaciones"
+        hint={sectionHints.reservations}
+        aside={<ElSalvadorClock />}
+      />
       <div className="grid gap-2">
-        <Label htmlFor="opensAt">Apertura</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="opensAt">Apertura</Label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-pressed={openNow}
+            onClick={() => setOpenNow((current) => !current)}
+          >
+            Abrir ahora
+          </Button>
+        </div>
         <DateTimePicker
           id="opensAt"
           name="opensAt"
-          defaultValue={values?.opensAt}
+          defaultValue={values?.opensAt ?? suggestedOpensAt}
           todayShortcut
           invalid={Boolean(errors?.opensAt)}
-          describedBy={errors?.opensAt ? "opensAt-error" : undefined}
+          describedBy={errors?.opensAt ? "opensAt-error opensAt-hint" : "opensAt-hint"}
         />
+        {openNow ? <input type="hidden" name="openNow" value="1" /> : null}
         <FieldError id="opensAt-error" message={errors?.opensAt} />
+        <p id="opensAt-hint" className="admin-muted">
+          {openNow ? openNowActiveHint : opensAtHint}
+        </p>
       </div>
       <div className="grid gap-2">
         <Label htmlFor="closesAt">Cierre</Label>
@@ -224,9 +299,12 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
           name="closesAt"
           defaultValue={values?.closesAt}
           invalid={Boolean(errors?.closesAt)}
-          describedBy={errors?.closesAt ? "closesAt-error" : undefined}
+          describedBy={errors?.closesAt ? "closesAt-error closesAt-hint" : "closesAt-hint"}
         />
         <FieldError id="closesAt-error" message={errors?.closesAt} />
+        <p id="closesAt-hint" className="admin-muted">
+          {closesAtHint}
+        </p>
       </div>
       {mode === "create" ? (
         <div className="grid gap-2">
@@ -235,7 +313,7 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
             <SelectTrigger
               id="status"
               aria-invalid={Boolean(errors?.status)}
-              aria-describedby={errors?.status ? "status-error" : undefined}
+              aria-describedby={errors?.status ? "status-error status-hint" : "status-hint"}
             >
               <SelectValue />
             </SelectTrigger>
@@ -245,6 +323,9 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
             </SelectContent>
           </Select>
           <FieldError id="status-error" message={errors?.status} />
+          <p id="status-hint" className="admin-muted">
+            {statusHint}
+          </p>
         </div>
       ) : null}
       <div className="flex items-center gap-2 md:col-span-2">
@@ -255,27 +336,42 @@ function ExperienceFields({ errors, grouped, mode, slugEditable, values }: Exper
         />
         <Label htmlFor="autoCloseOnFull">Cerrar automáticamente al alcanzar la capacidad</Label>
       </div>
-      {grouped ? (
-        <h3 className={`${sectionHeadingClass} border-t border-border pt-5`}>Pago</h3>
-      ) : null}
+      <SectionHeading title="Pago" hint={sectionHints.payment} />
+      <Label className="grid gap-2">
+        <span>Precio por persona (USD)</span>
+        <span className="relative block">
+          <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm">
+            $
+          </span>
+          <Input
+            className="pl-7"
+            name="price"
+            type="text"
+            inputMode="decimal"
+            placeholder="0.00"
+            defaultValue={
+              values?.priceCents == null ? undefined : drinkPriceInputValue(values.priceCents)
+            }
+            required={mode === "create" || values?.priceCents != null}
+            aria-invalid={Boolean(errors?.price)}
+            aria-describedby={errors?.price ? "price-error" : undefined}
+          />
+        </span>
+        <FieldError id="price-error" message={errors?.price} />
+      </Label>
       <div className="grid gap-2 md:col-span-2">
-        <Label htmlFor="paymentInstructions">Instrucciones de pago</Label>
+        <Label htmlFor="paymentInstructions">Nota de pago (opcional)</Label>
         <Textarea
           id="paymentInstructions"
           name="paymentInstructions"
           defaultValue={values?.paymentInstructions ?? ""}
           maxLength={600}
+          rows={2}
+          placeholder="Paga antes del jueves"
           aria-invalid={Boolean(errors?.paymentInstructions)}
-          aria-describedby={
-            errors?.paymentInstructions
-              ? "paymentInstructions-error paymentInstructions-hint"
-              : "paymentInstructions-hint"
-          }
+          aria-describedby={errors?.paymentInstructions ? "paymentInstructions-error" : undefined}
         />
         <FieldError id="paymentInstructions-error" message={errors?.paymentInstructions} />
-        <p id="paymentInstructions-hint" className="admin-muted">
-          {paymentInstructionsHint}
-        </p>
       </div>
     </>
   );
@@ -300,7 +396,7 @@ function LocationFields({
 }: LocationFieldsProps) {
   return (
     <>
-      <h2 className={sectionHeadingClass}>Ubicación</h2>
+      <SectionHeading title="Ubicación" hint={sectionHints.location} as="h2" separated={false} />
       <div className="grid gap-2">
         <Label htmlFor="locationName">Nombre del lugar</Label>
         <Input
@@ -410,7 +506,13 @@ function scrollToFormTop(form: HTMLFormElement | null) {
   form?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
 }
 
-export function EventForm({ action, values, mode, slugEditable = true }: EventFormProps) {
+export function EventForm({
+  action,
+  values,
+  mode,
+  slugEditable = true,
+  suggestedOpensAt,
+}: EventFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [state, formAction, pending] = useActionState(
@@ -553,9 +655,9 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
             </h2>
             <ExperienceFields
               errors={errors}
-              grouped
               mode="create"
               slugEditable={slugEditable}
+              suggestedOpensAt={suggestedOpensAt}
               values={values}
             />
             {clientErrors ? (
@@ -597,7 +699,6 @@ export function EventForm({ action, values, mode, slugEditable = true }: EventFo
         <>
           <ExperienceFields
             errors={errors}
-            grouped={false}
             mode="edit"
             slugEditable={slugEditable}
             values={values}

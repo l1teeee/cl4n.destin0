@@ -59,6 +59,7 @@ export default async function EditEventPage({ params, searchParams }: EditEventP
           maxPartySize: event.maxPartySize,
           autoCloseOnFull: event.autoCloseOnFull,
           paymentInstructions: event.paymentInstructions,
+          priceCents: event.priceCents,
           locationName: event.location.name,
           locationAddress: event.location.address,
           locationMapsUrl: event.location.mapsUrl,

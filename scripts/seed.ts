@@ -65,6 +65,8 @@ interface DemoMessage {
   lastError?: string;
 }
 
+const DEMO_EVENT_PRICE_CENTS = 3500;
+
 const PAYMENT_INSTRUCTIONS =
   "Transferencia de $60 por persona a Banco Agrícola, cuenta 000-000000-0, a nombre de Clandestino.";
 
@@ -664,6 +666,26 @@ async function insertDemoMessage(
   );
 }
 
+// Without payment data and a price per event, no guest can be accepted onto the list.
+async function seedPaymentSettings(
+  client: PoolClient,
+  adminId: string,
+  log: (message: string) => void,
+): Promise<void> {
+  const inserted = await client.query(
+    `INSERT INTO payment_settings
+       (id, bank_name, account_type, account_number, account_holder, updated_by)
+     VALUES (1, 'Banco Demo', 'Ahorro', '000-000000-0', 'Clandestino Demo', $1)
+     ON CONFLICT (id) DO NOTHING`,
+    [adminId],
+  );
+  log(
+    inserted.rowCount === 1
+      ? "Se crearon los datos de pago de demostración."
+      : "Los datos de pago ya existen; no se modificaron.",
+  );
+}
+
 async function seedDemoEvent(
   client: PoolClient,
   adminId: string,
@@ -701,7 +723,7 @@ async function seedDemoEvent(
        location_status,
        location_confirmed_at,
        location_revision,
-       payment_instructions,
+       price_cents,
        last_reservation_number,
        waitlist_capacity,
        waitlisted_count,
@@ -722,7 +744,7 @@ async function seedDemoEvent(
       new Date(now.getTime() - 3 * DAY_MS),
       new Date(now.getTime() + 7 * DAY_MS),
       now,
-      PAYMENT_INSTRUCTIONS,
+      DEMO_EVENT_PRICE_CENTS,
       lastReservationNumber,
       DEMO_WAITLIST.length,
     ],
@@ -781,15 +803,17 @@ async function seedPastEvent(
        opens_at,
        closes_at,
        auto_close_on_full,
-       status
+       status,
+       price_cents
      )
-     VALUES ('Experiencia pasada demo', $1, $2, 10, 2, $3, $4, false, 'COMPLETED')
+     VALUES ('Experiencia pasada demo', $1, $2, 10, 2, $3, $4, false, 'COMPLETED', $5)
      RETURNING id`,
     [
       PAST_EVENT_SLUG,
       new Date(now.getTime() - 20 * DAY_MS),
       new Date(now.getTime() - 40 * DAY_MS),
       new Date(now.getTime() - 30 * DAY_MS),
+      DEMO_EVENT_PRICE_CENTS,
     ],
   );
   const eventId = insertedEvent.rows[0]!.id;
@@ -831,6 +855,7 @@ export async function seedDatabase(
     const adminId = await ensureDevAdmin(client, log);
     const clock = await client.query<{ now: Date }>("SELECT clock_timestamp() AS now");
     const now = clock.rows[0]!.now;
+    await seedPaymentSettings(client, adminId, log);
     await seedDemoEvent(client, adminId, now, log);
     await seedPastEvent(client, adminId, now, log);
     await client.query("COMMIT");

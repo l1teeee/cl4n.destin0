@@ -90,6 +90,7 @@ export const auditAction = pgEnum("audit_action", [
   "CONSUMPTION_VOIDED",
   "GUEST_TAB_SETTLED",
   "GUEST_TAB_REOPENED",
+  "PAYMENT_SETTINGS_UPDATED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -146,6 +147,48 @@ export const instagramConnection = pgTable(
     }).onDelete("set null"),
     check("instagram_connection_singleton", sql`${table.id} = 1`),
     check("instagram_connection_account_id_digits", sql`${table.accountId} ~ '^[0-9]+$'`),
+  ],
+);
+
+export const paymentSettings = pgTable(
+  "payment_settings",
+  {
+    id: smallint("id").primaryKey().default(1).notNull(),
+    bankName: text("bank_name").notNull(),
+    accountType: text("account_type").notNull(),
+    accountNumber: text("account_number").notNull(),
+    accountHolder: text("account_holder").notNull(),
+    paymentLink: text("payment_link"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (table) => [
+    foreignKey({
+      name: "payment_settings_updated_by_admin_fk",
+      columns: [table.updatedBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("set null"),
+    check("payment_settings_singleton", sql`${table.id} = 1`),
+    check(
+      "payment_settings_bank_name_length_chk",
+      sql`char_length(${table.bankName}) BETWEEN 1 AND 80`,
+    ),
+    check(
+      "payment_settings_account_type_chk",
+      sql`${table.accountType} IN ('Ahorro', 'Corriente')`,
+    ),
+    check(
+      "payment_settings_account_number_length_chk",
+      sql`char_length(${table.accountNumber}) BETWEEN 1 AND 80`,
+    ),
+    check(
+      "payment_settings_account_holder_length_chk",
+      sql`char_length(${table.accountHolder}) BETWEEN 1 AND 80`,
+    ),
+    check(
+      "payment_settings_payment_link_chk",
+      sql`${table.paymentLink} IS NULL OR (char_length(${table.paymentLink}) BETWEEN 1 AND 300 AND (${table.paymentLink} !~* '^http' OR ${table.paymentLink} ~* '^https://'))`,
+    ),
   ],
 );
 
@@ -257,6 +300,7 @@ export const events = pgTable(
     locationLatitude: doublePrecision("location_latitude"),
     locationLongitude: doublePrecision("location_longitude"),
     paymentInstructions: text("payment_instructions"),
+    priceCents: integer("price_cents"),
     lastReservationNumber: integer("last_reservation_number").notNull().default(0),
     waitlistCapacity: integer("waitlist_capacity").notNull().default(5),
     waitlistedCount: integer("waitlisted_count").notNull().default(0),
@@ -339,6 +383,7 @@ export const events = pgTable(
       "events_payment_instructions_length_chk",
       sql`${table.paymentInstructions} IS NULL OR char_length(${table.paymentInstructions}) BETWEEN 1 AND 600`,
     ),
+    check("events_price_cents_chk", sql`${table.priceCents} IS NULL OR ${table.priceCents} >= 0`),
     index("events_status_opens_at_idx").on(table.status, table.opensAt),
     index("events_personal_data_retention_idx")
       .on(table.startsAt, table.id)
@@ -1108,7 +1153,7 @@ export const auditLogs = pgTable(
     ),
     check(
       "audit_logs_entity_type_chk",
-      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT', 'INSTAGRAM_CONNECTION', 'EXTRA', 'GUEST_CONSUMPTION', 'GUEST_TAB')`,
+      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT', 'INSTAGRAM_CONNECTION', 'EXTRA', 'GUEST_CONSUMPTION', 'GUEST_TAB', 'PAYMENT_SETTINGS')`,
     ),
     index("audit_logs_entity_occurred_at_idx").on(
       table.entityType,

@@ -27,6 +27,7 @@ interface EventGuestsSectionProps {
   guests: readonly GuestRequestDetail[];
   preview: PromotionPreview;
   handlers: GuestActionHandlers;
+  paymentMissing: boolean;
 }
 
 export function EventGuestsSection({
@@ -37,6 +38,7 @@ export function EventGuestsSection({
   guests,
   preview,
   handlers,
+  paymentMissing,
 }: EventGuestsSectionProps) {
   const allowCouple = maxPartySize >= 2;
   const freeSeats = counts.capacity - counts.occupiedSeats;
@@ -68,6 +70,11 @@ export function EventGuestsSection({
           <Link href={`/admin/events/${eventId}/export?vista=${view}`}>Exportar CSV</Link>
         </Button>
       </div>
+      {paymentMissing ? (
+        <p className="admin-muted">
+          Faltan datos de pago o precio. Complétalos en Mi cuenta y en la experiencia.
+        </p>
+      ) : null}
       <ActionFeedbackProvider>
         <GuestSummaryBar items={guestSummaryItems(counts)} />
         <GuestViewTabs views={guestViewTabs(eventId, counts)} activeId={view} />

@@ -41,6 +41,7 @@ import {
   updateEventAction,
 } from "@/app/admin/(protected)/events/actions";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 
 import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 
@@ -80,6 +81,7 @@ function createForm(slug = "cena-admin"): FormData {
   form.set("capacity", "20");
   form.set("maxPartySize", "2");
   form.set("waitlistCapacity", "5");
+  form.set("price", "25.00");
   form.set("status", "DRAFT");
   form.set("locationStatus", "PENDING");
   return form;
@@ -148,6 +150,214 @@ describe("admin event Server Actions", () => {
     const created = await pool.query<{ id: string }>("SELECT id FROM events");
     expect(created.rowCount).toBe(1);
     expect(redirect).toHaveBeenLastCalledWith(`/admin/events/${created.rows[0]!.id}`);
+  });
+
+  describe("schedule rules against the database clock", () => {
+    async function databaseNow(): Promise<Date> {
+      const result = await pool.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+      return result.rows[0]!.now;
+    }
+
+    function localMinute(date: Date): string {
+      return formatUtcForElSalvador(date, "yyyy-MM-dd'T'HH:mm");
+    }
+
+    async function createWith(fields: Record<string, string>) {
+      const form = createForm();
+      for (const [name, value] of Object.entries(fields)) form.set(name, value);
+      return createEventAction(initialState, form);
+    }
+
+    it("rejects an opening that already passed and creates nothing", async () => {
+      await authorize();
+
+      const result = await createWith({ opensAt: "2020-01-01T08:00" });
+
+      expect(result).toMatchObject({
+        ok: false,
+        fieldErrors: { opensAt: "La apertura ya pasó. Usa una hora actual o 'Abrir ahora'." },
+      });
+      expect((await pool.query("SELECT 1 FROM events")).rowCount).toBe(0);
+    });
+
+    it("requires the closing to be before the dinner", async () => {
+      await authorize();
+
+      const result = await createWith({ closesAt: "2098-11-21T08:00" });
+
+      expect(result).toMatchObject({
+        ok: false,
+        fieldErrors: { closesAt: "El cierre debe ser antes de la cena." },
+      });
+    });
+
+    it("judges the schedule by the database clock, not the application clock", async () => {
+      await authorize();
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2000-01-01T00:00:00Z"));
+      try {
+        const result = await createWith({ opensAt: "2020-01-01T08:00" });
+
+        expect(result).toMatchObject({
+          ok: false,
+          fieldErrors: { opensAt: expect.stringContaining("La apertura ya pasó") },
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("accepts an opening seconds in the past and rejects one five minutes in the past", async () => {
+      await authorize();
+      const now = await databaseNow();
+
+      const recent = createWith({ opensAt: localMinute(new Date(now.getTime() - 30_000)) });
+      await expect(recent).rejects.toThrow(/^REDIRECT:/);
+
+      const stale = await createWith({
+        slug: "cena-tardia",
+        opensAt: localMinute(new Date(now.getTime() - 5 * 60_000)),
+      });
+      expect(stale).toMatchObject({ ok: false, fieldErrors: { opensAt: expect.any(String) } });
+    });
+
+    it("requires the dinner to be in the future", async () => {
+      await authorize();
+
+      const result = await createWith({
+        eventDate: "2020-01-02",
+        opensAt: localMinute(await databaseNow()),
+        closesAt: "2020-01-02T09:00",
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        fieldErrors: { eventDate: "La fecha de la cena debe ser futura." },
+      });
+    });
+
+    it("opens at the database time and ignores the typed opening when asked to open now", async () => {
+      await authorize();
+      const before = await databaseNow();
+
+      await expect(createWith({ opensAt: "2020-01-01T08:00", openNow: "1" })).rejects.toThrow(
+        /^REDIRECT:/,
+      );
+
+      const after = await databaseNow();
+      const stored = await pool.query<{ opens_at: Date }>("SELECT opens_at FROM events");
+      expect(stored.rows[0]!.opens_at.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(stored.rows[0]!.opens_at.getTime()).toBeLessThanOrEqual(after.getTime());
+    });
+
+    it("requires the price on create and stores it in cents", async () => {
+      await authorize();
+
+      expect(await createWith({ price: "" })).toMatchObject({
+        ok: false,
+        fieldErrors: { price: "El precio por persona es obligatorio." },
+      });
+      await expect(
+        createWith({ price: "12.50", paymentInstructions: "Paga antes" }),
+      ).rejects.toThrow(/^REDIRECT:/);
+      const stored = await pool.query<{ price_cents: number; payment_instructions: string }>(
+        "SELECT price_cents, payment_instructions FROM events",
+      );
+      expect(stored.rows).toEqual([{ price_cents: 1250, payment_instructions: "Paga antes" }]);
+    });
+
+    it("does not recheck an unchanged opening on update, even when it is in the past", async () => {
+      await authorize();
+      const id = await insertEvent("DRAFT", "past-opening");
+      await pool.query(
+        "UPDATE events SET opens_at = '2020-01-01T14:00:00Z', starts_at = '2098-11-21T01:30:00Z' WHERE id = $1",
+        [id],
+      );
+      const form = updateForm("past-opening");
+      form.set("opensAt", "2020-01-01T08:00");
+
+      expect(await updateEventAction(id, initialState, form)).toMatchObject({ ok: true });
+    });
+
+    it("edits other fields of a closed event whose dinner already passed", async () => {
+      await authorize();
+      const id = await insertEvent("CLOSED", "past-dinner");
+      await pool.query(
+        `UPDATE events
+            SET starts_at = '2020-02-01T02:00:00Z', opens_at = '2020-01-01T14:00:00Z',
+                closes_at = '2020-02-01T01:00:00Z'
+          WHERE id = $1`,
+        [id],
+      );
+      const form = updateForm("past-dinner", "Nombre corregido");
+      form.set("eventDate", "2020-01-31");
+      form.set("eventTime", "20:00");
+      form.set("opensAt", "2020-01-01T08:00");
+      form.set("closesAt", "2020-01-31T19:00");
+
+      expect(await updateEventAction(id, initialState, form)).toMatchObject({ ok: true });
+
+      const moved = updateForm("past-dinner");
+      moved.set("eventDate", "2020-01-30");
+      moved.set("eventTime", "20:00");
+      moved.set("opensAt", "2020-01-01T08:00");
+      moved.set("closesAt", "2020-01-30T19:00");
+      expect(await updateEventAction(id, initialState, moved)).toMatchObject({
+        ok: false,
+        fieldErrors: { eventDate: "La fecha de la cena debe ser futura." },
+      });
+      const stored = await pool.query<{ internal_name: string }>(
+        "SELECT internal_name FROM events WHERE id = $1",
+        [id],
+      );
+      expect(stored.rows[0]!.internal_name).toBe("Nombre corregido");
+    });
+
+    it("rejects a changed opening in the past on update", async () => {
+      await authorize();
+      const id = await insertEvent("SCHEDULED", "changed-opening");
+      const form = updateForm("changed-opening");
+      form.set("opensAt", "2020-01-01T08:00");
+
+      expect(await updateEventAction(id, initialState, form)).toMatchObject({
+        ok: false,
+        fieldErrors: { opensAt: expect.stringContaining("La apertura ya pasó") },
+      });
+    });
+
+    it("sets the opening to the database time when updating with openNow", async () => {
+      await authorize();
+      const id = await insertEvent("DRAFT", "update-open-now");
+      const before = await databaseNow();
+      const form = updateForm("update-open-now");
+      form.set("openNow", "1");
+
+      expect(await updateEventAction(id, initialState, form)).toMatchObject({ ok: true });
+
+      const stored = await pool.query<{ opens_at: Date }>(
+        "SELECT opens_at FROM events WHERE id = $1",
+        [id],
+      );
+      expect(stored.rows[0]!.opens_at.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    });
+
+    it("sets the price on an event that had none and keeps it when the field is empty", async () => {
+      await authorize();
+      const id = await insertEvent("DRAFT", "update-price");
+      const priced = updateForm("update-price");
+      priced.set("price", "30");
+      expect(await updateEventAction(id, initialState, priced)).toMatchObject({ ok: true });
+
+      const keeping = updateForm("update-price");
+      keeping.set("price", "");
+      expect(await updateEventAction(id, initialState, keeping)).toMatchObject({ ok: true });
+
+      const stored = await pool.query<{ price_cents: number }>(
+        "SELECT price_cents FROM events WHERE id = $1",
+        [id],
+      );
+      expect(stored.rows[0]!.price_cents).toBe(3000);
+    });
   });
 
   it("protects and performs update", async () => {
