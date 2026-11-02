@@ -63,6 +63,7 @@ export function GuestRowDetail({ guest, data, allowCouple, handlers }: GuestRowD
         <MessageThread
           messages={threadMessageViews(guest.messages)}
           username={guest.contactUsername ?? guest.guest1Instagram}
+          canAct={true}
           retryAction={handlers.retryMessage}
           markSentAction={handlers.markMessageSent}
           discardAction={handlers.discardMessage}

@@ -80,9 +80,17 @@ function normalizedName(name: string | null): string | null {
 export async function ingestInstagramEvents(
   dependencies: InstagramIngestionDependencies,
   events: readonly InstagramWebhookEvent[],
-  options: { knownUsernames?: Readonly<Record<string, string>>; deadline?: number } = {},
+  options: {
+    ownAccountId: string | null;
+    knownUsernames?: Readonly<Record<string, string>>;
+    deadline?: number;
+  },
 ): Promise<InstagramIngestionResult> {
-  const transaction = await dependencies.repository.ingestEvents(events, options.knownUsernames);
+  const transaction = await dependencies.repository.ingestEvents(
+    events,
+    options.ownAccountId,
+    options.knownUsernames,
+  );
 
   return {
     contactIdsNeedingProfile: transaction.contacts

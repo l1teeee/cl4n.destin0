@@ -12,6 +12,7 @@ import {
   unlinkContactAction,
 } from "@/app/admin/(protected)/mensajes/actions";
 import { getConversation, listConversations } from "@/application/messaging/conversation-queries";
+import { hasPermission } from "@/domain/admin/admin-access";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { postgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
@@ -55,7 +56,8 @@ function contactId(value: string | string[] | undefined): string | null {
 }
 
 export default async function MessagesPage({ searchParams }: MessagesPageProps) {
-  await requireAdmin("page");
+  const authorization = await requireAdmin("page");
+  const canSend = hasPermission(authorization.session.admin.role, "messages.send");
   const query = await searchParams;
   const selectedContactId = contactId(query.c);
   const filters: ConversationFilters = {
@@ -91,11 +93,13 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
           <Link href="/admin/mensajes/plantillas">Plantillas</Link>
         </Button>
       </div>
-      <MessageSimulatorPanel
-        mode={env.MESSAGING_MODE}
-        appEnvironment={env.APP_ENV}
-        action={simulateInboundMessageAction}
-      />
+      {canSend ? (
+        <MessageSimulatorPanel
+          mode={env.MESSAGING_MODE}
+          appEnvironment={env.APP_ENV}
+          action={simulateInboundMessageAction}
+        />
+      ) : null}
       <ConversationList
         items={items}
         activeContactId={selectedContactId}
@@ -134,14 +138,14 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
   let conversation = null;
   if (selectedConversation) {
     const header = conversationHeaderView(selectedConversation, now);
-    const controls = (
+    const controls = canSend ? (
       <ConversationControls
         contactId={selectedConversation.contact.id}
         linkedRequests={selectedConversation.linkedRequests}
         linkByCodeAction={linkContactByCodeAction}
         unlinkAction={unlinkContactAction}
       />
-    );
+    ) : undefined;
     conversation = (
       <>
         {hasUnreadMessages(selectedConversation) ? (
@@ -154,17 +158,24 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
         <MessageThread
           messages={selectedConversation.messages.map(threadMessageView)}
           username={selectedConversation.contact.username}
+          canAct={canSend}
           retryAction={retryMessageAction}
           markSentAction={markSentManuallyAction}
           discardAction={discardMessageAction}
         />
-        <MessageComposer
-          contactId={selectedConversation.contact.id}
-          windowOpen={header.windowOpen}
-          windowClosesAt={header.windowClosesAt}
-          username={selectedConversation.contact.username}
-          sendAction={sendFreeTextAction}
-        />
+        {canSend ? (
+          <MessageComposer
+            contactId={selectedConversation.contact.id}
+            windowOpen={header.windowOpen}
+            windowClosesAt={header.windowClosesAt}
+            username={selectedConversation.contact.username}
+            sendAction={sendFreeTextAction}
+          />
+        ) : (
+          <p className="admin-muted">
+            Solo lectura: solo un superadministrador puede enviar mensajes.
+          </p>
+        )}
         <ConversationAutoRefresh />
       </>
     );

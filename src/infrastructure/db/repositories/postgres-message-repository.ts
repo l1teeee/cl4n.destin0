@@ -26,7 +26,6 @@ import type {
 import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
 import type { MessageKind, MessageStatus } from "@/domain/messaging/message-types";
 import { extractLinkCode, isLinkCode } from "@/domain/messaging/link-code";
-import { env } from "@/infrastructure/config/env";
 import { log } from "@/infrastructure/observability/logger";
 
 import { pool as applicationPool } from "../client";
@@ -172,10 +171,7 @@ export class PostgresMessageRepository
     AdminMessageRepository,
     ConversationQueryRepository
 {
-  constructor(
-    readonly pool: Pool = applicationPool,
-    private readonly accountId: string | null = null,
-  ) {}
+  constructor(readonly pool: Pool = applicationPool) {}
 
   async repairWaitingContacts(): Promise<number> {
     const reservationResult = await this.pool.query(
@@ -662,6 +658,7 @@ export class PostgresMessageRepository
 
   async ingestEvents(
     events: readonly InstagramWebhookEvent[],
+    ownAccountId: string | null,
     knownUsernames: Readonly<Record<string, string>> = {},
   ): Promise<InstagramIngestionTransactionResult> {
     return this.withTransaction(async (client) => {
@@ -671,7 +668,7 @@ export class PostgresMessageRepository
       const contactInputs = new Map<string, { inboundAt?: Date; username?: string }>();
       for (const event of events) {
         const scopedId = contactScopedId(event);
-        if (!scopedId || scopedId === this.accountId) continue;
+        if (!scopedId || scopedId === ownAccountId) continue;
         let inboundAt: Date | undefined;
         if (
           event.type === "inbound_message" ||
@@ -698,7 +695,7 @@ export class PostgresMessageRepository
       }
 
       for (const [index, event] of events.entries()) {
-        if (this.accountId !== null && contactScopedId(event) === this.accountId) continue;
+        if (ownAccountId !== null && contactScopedId(event) === ownAccountId) continue;
         await client.query("SAVEPOINT instagram_event");
         try {
           await this.ingestEvent(client, event, contactsByScopedId, images, state);
@@ -1534,7 +1531,4 @@ export class PostgresMessageRepository
   }
 }
 
-export const postgresMessageRepository = new PostgresMessageRepository(
-  applicationPool,
-  env.INSTAGRAM_ACCOUNT_ID ?? null,
-);
+export const postgresMessageRepository = new PostgresMessageRepository(applicationPool);

@@ -123,7 +123,7 @@ describe("Instagram ingestion follow-up", () => {
         logFailure: vi.fn(),
       },
       [],
-      { deadline: Date.now() - 1 },
+      { ownAccountId: null, deadline: Date.now() - 1 },
     );
 
     await result.after();

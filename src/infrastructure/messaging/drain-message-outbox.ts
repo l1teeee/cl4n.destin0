@@ -4,12 +4,11 @@ import {
   type MessageDeliverySummary,
 } from "@/application/messaging/deliver-messages";
 import { postgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
-import { instagramMessenger } from "@/infrastructure/instagram/instagram-messenger";
+import { loadInstagramMessenger } from "@/infrastructure/instagram/instagram-messenger";
 import { log } from "@/infrastructure/observability/logger";
 
 const dependencies = {
   repository: postgresMessageRepository,
-  messenger: instagramMessenger,
   now: Date.now,
   logFailure: (fields: {
     messageId: string;
@@ -20,16 +19,25 @@ const dependencies = {
     log("warn", "instagram_message_stale_lease", fields),
 };
 
-export function drainMessageOutbox(input: {
+function notConnected(): MessageDeliverySummary {
+  log("warn", "instagram_not_connected");
+  return { sent: 0, retried: 0, failed: 0, waitingWindow: 0, discarded: 0, outcomes: {} };
+}
+
+export async function drainMessageOutbox(input: {
   limit: number;
   timeBudgetMs: number;
 }): Promise<MessageDeliverySummary> {
-  return deliverPendingMessages(dependencies, input);
+  const messenger = await loadInstagramMessenger();
+  if (!messenger) return notConnected();
+  return deliverPendingMessages({ ...dependencies, messenger }, input);
 }
 
-export function drainMessagesNow(
+export async function drainMessagesNow(
   messageIds: readonly string[],
   input: { timeBudgetMs: number },
 ): Promise<MessageDeliverySummary> {
-  return deliverMessagesNow(dependencies, messageIds, input);
+  const messenger = await loadInstagramMessenger();
+  if (!messenger) return notConnected();
+  return deliverMessagesNow({ ...dependencies, messenger }, messageIds, input);
 }

@@ -2,6 +2,21 @@ export const adminRoles = ["SUPER_ADMIN", "ADMIN"] as const;
 
 export type AdminRole = (typeof adminRoles)[number];
 
+// Only capabilities that some role lacks. Everything else is open to every active admin.
+export const adminPermissions = [
+  "users.manage",
+  "messages.send",
+  "templates.edit",
+  "instagram.connect",
+] as const;
+
+export type AdminPermission = (typeof adminPermissions)[number];
+
+const rolePermissions: Record<AdminRole, ReadonlySet<AdminPermission>> = {
+  SUPER_ADMIN: new Set(adminPermissions),
+  ADMIN: new Set(),
+};
+
 export interface AdminAccess {
   role: AdminRole;
   isActive: boolean;
@@ -9,8 +24,8 @@ export interface AdminAccess {
 
 export type AdminAccessViolation = "SELF_ACTION" | "LAST_SUPER_ADMIN";
 
-export function canManageAdmins(role: AdminRole): boolean {
-  return role === "SUPER_ADMIN";
+export function hasPermission(role: AdminRole, permission: AdminPermission): boolean {
+  return rolePermissions[role].has(permission);
 }
 
 export function isActiveSuperAdmin(access: AdminAccess): boolean {

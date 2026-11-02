@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AdminAuthRepository } from "@/application/auth/admin-auth-repository";
 import type { AdminRole, AdminSession } from "@/application/auth/types";
-import { authorizeSuperAdminSession } from "@/infrastructure/auth/require-admin";
+import { authorizePermission } from "@/infrastructure/auth/require-admin";
 import { adminRoleLabel, adminStatusLabel } from "@/ui/admin/view-model";
 
 function session(role: AdminRole): AdminSession {
@@ -26,13 +26,15 @@ function repository(result: AdminSession | null): AdminAuthRepository {
   };
 }
 
-describe("authorizeSuperAdminSession", () => {
+describe("authorizePermission", () => {
   it("rejects missing and invalid sessions as unauthorized", async () => {
-    await expect(authorizeSuperAdminSession(undefined, repository(null))).resolves.toEqual({
-      authorized: false,
-      error: "UNAUTHORIZED",
-    });
-    await expect(authorizeSuperAdminSession("token", repository(null))).resolves.toEqual({
+    await expect(authorizePermission(undefined, repository(null), "users.manage")).resolves.toEqual(
+      {
+        authorized: false,
+        error: "UNAUTHORIZED",
+      },
+    );
+    await expect(authorizePermission("token", repository(null), "users.manage")).resolves.toEqual({
       authorized: false,
       error: "UNAUTHORIZED",
     });
@@ -40,7 +42,7 @@ describe("authorizeSuperAdminSession", () => {
 
   it("forbids regular admins", async () => {
     await expect(
-      authorizeSuperAdminSession("token", repository(session("ADMIN"))),
+      authorizePermission("token", repository(session("ADMIN")), "users.manage"),
     ).resolves.toEqual({
       authorized: false,
       error: "FORBIDDEN",
@@ -49,7 +51,9 @@ describe("authorizeSuperAdminSession", () => {
 
   it("authorizes super admins", async () => {
     const superAdmin = session("SUPER_ADMIN");
-    await expect(authorizeSuperAdminSession("token", repository(superAdmin))).resolves.toEqual({
+    await expect(
+      authorizePermission("token", repository(superAdmin), "users.manage"),
+    ).resolves.toEqual({
       authorized: true,
       session: superAdmin,
       token: "token",

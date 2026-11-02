@@ -62,7 +62,13 @@ function createActions() {
 function renderThread(props: Partial<ComponentProps<typeof MessageThread>> = {}) {
   const actions = createActions();
   const view = render(
-    <MessageThread messages={[message()]} username="ana.perez" {...actions} {...props} />,
+    <MessageThread
+      messages={[message()]}
+      username="ana.perez"
+      canAct={true}
+      {...actions}
+      {...props}
+    />,
   );
   return { ...view, actions };
 }
@@ -384,6 +390,7 @@ describe("MessageThread server actions", () => {
       <MessageThread
         messages={[message({ status: "FAILED" })]}
         username="ana.perez"
+        canAct={true}
         {...actions}
       />,
     );
@@ -392,6 +399,21 @@ describe("MessageThread server actions", () => {
 
     expect((await screen.findByRole("status")).textContent).toContain("No se pudo actualizar.");
     expect(screen.getByRole("button", { name: "Ya lo envié" })).toBeDefined();
+  });
+
+  it("renders no retry, mark-sent or discard controls when canAct is false", () => {
+    renderThread({
+      canAct: false,
+      messages: [message({ status: "FAILED", body: "Pendiente de envío" })],
+    });
+
+    expect(screen.getByText("Pendiente de envío")).toBeDefined();
+    expect(screen.getByText("No se pudo enviar")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Reintentar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ya lo envié" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Descartar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copiar texto" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Abrir chat en Instagram" })).toBeNull();
   });
 });
 
@@ -417,7 +439,12 @@ describe("MessageThread scrolling", () => {
   it("does not scroll again when a refresh brings the same newest message", () => {
     const actions = createActions();
     const view = render(
-      <MessageThread messages={messagesEnding("newest")} username="ana.perez" {...actions} />,
+      <MessageThread
+        messages={messagesEnding("newest")}
+        username="ana.perez"
+        canAct={true}
+        {...actions}
+      />,
     );
 
     view.rerender(
@@ -427,6 +454,7 @@ describe("MessageThread scrolling", () => {
           message({ id: "newest", status: "READ" }),
         ]}
         username="ana.perez"
+        canAct={true}
         {...actions}
       />,
     );
@@ -437,20 +465,31 @@ describe("MessageThread scrolling", () => {
   it("scrolls again when a new message arrives or another conversation opens", () => {
     const actions = createActions();
     const view = render(
-      <MessageThread messages={messagesEnding("m2")} username="ana.perez" {...actions} />,
+      <MessageThread
+        messages={messagesEnding("m2")}
+        username="ana.perez"
+        canAct={true}
+        {...actions}
+      />,
     );
 
     view.rerender(
       <MessageThread
         messages={[...messagesEnding("m2"), message({ id: "m3" })]}
         username="ana.perez"
+        canAct={true}
         {...actions}
       />,
     );
     expect(scrollIntoView).toHaveBeenCalledTimes(2);
 
     view.rerender(
-      <MessageThread messages={[message({ id: "other-chat" })]} username="luis" {...actions} />,
+      <MessageThread
+        messages={[message({ id: "other-chat" })]}
+        username="luis"
+        canAct={true}
+        {...actions}
+      />,
     );
     expect(scrollIntoView).toHaveBeenCalledTimes(3);
   });

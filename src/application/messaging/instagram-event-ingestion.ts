@@ -21,6 +21,7 @@ export interface InstagramIngestionTransactionResult {
 export interface InstagramEventRepository {
   ingestEvents(
     events: readonly InstagramWebhookEvent[],
+    ownAccountId: string | null,
     knownUsernames?: Readonly<Record<string, string>>,
   ): Promise<InstagramIngestionTransactionResult>;
   storeProfile(

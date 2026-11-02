@@ -81,6 +81,8 @@ export const auditAction = pgEnum("audit_action", [
   "MESSAGE_TEMPLATE_UPDATED",
   "MESSAGING_CONTACT_LINKED",
   "MESSAGING_CONTACT_UNLINKED",
+  "INSTAGRAM_CONNECTED",
+  "INSTAGRAM_DISCONNECTED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -111,6 +113,32 @@ export const adminUsers = pgTable(
       "admin_users_deleted_inactive_chk",
       sql`${table.deletedAt} IS NULL OR ${table.isActive} = false`,
     ),
+  ],
+);
+
+export const instagramConnection = pgTable(
+  "instagram_connection",
+  {
+    id: smallint("id").primaryKey().default(1).notNull(),
+    accountId: text("account_id").notNull(),
+    username: text("username").notNull(),
+    accessTokenCiphertext: text("access_token_ciphertext").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+    tokenVersion: integer("token_version").default(1).notNull(),
+    connectedByAdminId: uuid("connected_by_admin_id"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).defaultNow().notNull(),
+    tokenRefreshedAt: timestamp("token_refreshed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: "instagram_connection_connected_by_admin_fk",
+      columns: [table.connectedByAdminId],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("set null"),
+    check("instagram_connection_singleton", sql`${table.id} = 1`),
+    check("instagram_connection_account_id_digits", sql`${table.accountId} ~ '^[0-9]+$'`),
   ],
 );
 
@@ -229,6 +257,7 @@ export const events = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    personalDataPurgedAt: timestamp("personal_data_purged_at", { withTimezone: true }),
   },
   (table) => [
     primaryKey({ name: "events_pkey", columns: [table.id] }),
@@ -304,6 +333,9 @@ export const events = pgTable(
       sql`${table.paymentInstructions} IS NULL OR char_length(${table.paymentInstructions}) BETWEEN 1 AND 600`,
     ),
     index("events_status_opens_at_idx").on(table.status, table.opensAt),
+    index("events_personal_data_retention_idx")
+      .on(table.startsAt, table.id)
+      .where(sql`${table.personalDataPurgedAt} IS NULL`),
   ],
 );
 
@@ -1069,7 +1101,7 @@ export const auditLogs = pgTable(
     ),
     check(
       "audit_logs_entity_type_chk",
-      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT')`,
+      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT', 'INSTAGRAM_CONNECTION')`,
     ),
     index("audit_logs_entity_occurred_at_idx").on(
       table.entityType,

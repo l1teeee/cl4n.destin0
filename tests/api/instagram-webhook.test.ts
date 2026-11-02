@@ -1,6 +1,10 @@
 import { createHmac } from "node:crypto";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { encryptSecret } from "@/infrastructure/crypto/secret-box";
+
+import { resetTestDatabase } from "../helpers/test-db";
 
 const after = vi.fn((callback: () => unknown) => callback());
 const followup = vi.fn();
@@ -8,9 +12,12 @@ const ingest = vi.fn();
 const log = vi.fn();
 const mockedEnv = vi.hoisted(() => ({
   MESSAGING_MODE: "instagram" as "instagram" | "log",
-  META_APP_SECRET: "meta-app-secret-123456",
+  INSTAGRAM_APP_SECRET: "meta-app-secret-123456",
   META_WEBHOOK_VERIFY_TOKEN: "meta-verify-token-123456",
-  INSTAGRAM_ACCOUNT_ID: "1000",
+  INSTAGRAM_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+  DATABASE_URL: process.env.DATABASE_URL,
+  DATABASE_POOL_MAX: 2,
+  DATABASE_SSL_MODE: "disable",
 }));
 
 vi.mock("next/server", () => ({ after }));
@@ -21,6 +28,15 @@ vi.mock("@/infrastructure/messaging/ingest-instagram-events", () => ({
 vi.mock("@/infrastructure/observability/logger", () => ({ log }));
 
 const { GET, POST } = await import("@/app/api/webhooks/instagram/route");
+const { pool } = await import("@/infrastructure/db/client");
+
+beforeAll(async () => {
+  await resetTestDatabase();
+});
+
+afterAll(async () => {
+  await pool.end();
+});
 
 function signedRequest(body: string, signature?: string): Request {
   const valid = createHmac("sha256", "meta-app-secret-123456").update(body).digest("hex");
@@ -31,7 +47,13 @@ function signedRequest(body: string, signature?: string): Request {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await pool.query("DELETE FROM instagram_connection");
+  await pool.query(
+    `INSERT INTO instagram_connection (account_id, username, access_token_ciphertext, token_expires_at)
+     VALUES ('1000', 'clandestino.sv', $1, now() + interval '60 days')`,
+    [encryptSecret("private-test-token", Buffer.alloc(32, 7), "instagram_connection.access_token")],
+  );
   mockedEnv.MESSAGING_MODE = "instagram";
   followup.mockReset().mockResolvedValue(undefined);
   ingest
@@ -104,7 +126,7 @@ describe("Instagram webhook route", () => {
     await expect(response.text()).resolves.toBe("EVENT_RECEIVED");
     expect(ingest).toHaveBeenCalledWith(
       [expect.objectContaining({ type: "inbound_message", externalMessageId: "m1" })],
-      { deadline: expect.any(Number) },
+      { ownAccountId: "1000", deadline: expect.any(Number) },
     );
     const deadline = ingest.mock.calls[0]![1].deadline as number;
     expect(deadline).toBeGreaterThan(Date.now() + 20_000);
@@ -122,5 +144,15 @@ describe("Instagram webhook route", () => {
     const response = await POST(signedRequest("not-json"));
     expect(response.status).toBe(200);
     expect(log).toHaveBeenCalledWith("warn", "instagram_webhook_invalid_json");
+  });
+
+  it("acknowledges without ingestion when no connection exists", async () => {
+    await pool.query("DELETE FROM instagram_connection");
+    const response = await POST(signedRequest('{"object":"instagram"}'));
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("EVENT_RECEIVED");
+    expect(ingest).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("warn", "instagram_webhook_not_connected");
   });
 });
