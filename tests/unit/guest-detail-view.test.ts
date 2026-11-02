@@ -97,7 +97,7 @@ describe("threadMessageViews", () => {
       source: "SYSTEM",
       body: "Ya estás en la lista.",
       imageSrcs: ["https://clandestino.example/foto-1", "https://clandestino.example/foto-2"],
-      timeLabel: "30/10/2026 20:00",
+      createdAt: new Date("2026-10-31T02:00:00Z"),
       lastError: null,
     });
   });

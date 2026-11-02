@@ -52,10 +52,11 @@ function type(text: string) {
 }
 
 describe("MessageComposer window copy", () => {
-  it("tells until when the person can be written to", () => {
+  it("shows no window notice while the window is open", () => {
     renderComposer();
 
-    expect(screen.getByText("Puedes escribirle hasta las 14:30 del 3 de noviembre")).toBeDefined();
+    expect(screen.queryByText(/Puedes escribirle/)).toBeNull();
+    expect(screen.queryByText(CLOSED_WINDOW_COPY)).toBeNull();
   });
 
   it("explains the closed window", () => {
@@ -74,13 +75,21 @@ describe("MessageComposer text box", () => {
     expect(textbox().maxLength).toBe(1000);
   });
 
-  it("counts the typed characters", () => {
+  it("uses a one-row placeholder box that the field grows by itself", () => {
     renderComposer();
-    expect(screen.getByText("0/1000")).toBeDefined();
 
-    type("Hola");
+    expect(textbox().rows).toBe(1);
+    expect(textbox().placeholder).toBe("Escribe un mensaje…");
+  });
 
-    expect(screen.getByText("4/1000")).toBeDefined();
+  it("shows the character counter only above 80% of the limit", () => {
+    renderComposer();
+    type("a".repeat(800));
+    expect(screen.queryByText("800/1000")).toBeNull();
+
+    type("a".repeat(801));
+
+    expect(screen.getByText("801/1000")).toBeDefined();
   });
 
   it("cannot be sent while empty or blank", () => {
@@ -118,7 +127,7 @@ describe("MessageComposer sending", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(textbox().value).toBe(""));
-    expect(screen.getByText("0/1000")).toBeDefined();
+    expect(screen.queryByText(/\/1000/)).toBeNull();
   });
 
   it("keeps the text and shows the error when sending fails", async () => {
@@ -132,7 +141,6 @@ describe("MessageComposer sending", () => {
       "No se pudo enviar el mensaje.",
     );
     expect(textbox().value).toBe("Nos vemos mañana");
-    expect(screen.getByText("16/1000")).toBeDefined();
   });
 
   it("shows the field error under the text box", async () => {
@@ -164,7 +172,7 @@ describe("MessageComposer sending", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
-    const pending = await screen.findByRole("button", { name: "Enviando..." });
+    const pending = await screen.findByRole("button", { name: "Enviando" });
     expect(pending.hasAttribute("disabled")).toBe(true);
     expect(textbox().readOnly).toBe(true);
 
@@ -174,6 +182,35 @@ describe("MessageComposer sending", () => {
       true,
     );
     expect(textbox().readOnly).toBe(false);
+  });
+});
+
+describe("MessageComposer keyboard", () => {
+  it("sends with Enter", async () => {
+    const { sendAction } = renderComposer();
+    type("Hola Ana");
+
+    fireEvent.keyDown(textbox(), { key: "Enter" });
+
+    await waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1));
+    expect((sendAction.mock.calls[0]![2] as FormData).get("text")).toBe("Hola Ana");
+  });
+
+  it("keeps a new line for Shift+Enter instead of sending", () => {
+    const { sendAction } = renderComposer();
+    type("Hola Ana");
+
+    fireEvent.keyDown(textbox(), { key: "Enter", shiftKey: true });
+
+    expect(sendAction).not.toHaveBeenCalled();
+  });
+
+  it("does not send an empty message with Enter", () => {
+    const { sendAction } = renderComposer();
+
+    fireEvent.keyDown(textbox(), { key: "Enter" });
+
+    expect(sendAction).not.toHaveBeenCalled();
   });
 });
 

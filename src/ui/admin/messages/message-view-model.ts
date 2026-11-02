@@ -157,7 +157,7 @@ export function threadMessageView(message: ConversationMessage): ThreadMessageVi
       message.direction === "INBOUND"
         ? message.attachmentIds.map((id) => `/admin/mensajes/adjuntos/${id}`)
         : message.attachmentUrls,
-    timeLabel: format(local(message.createdAt), "dd/MM/yyyy HH:mm"),
+    createdAt: message.createdAt,
     lastError: message.lastError,
   };
 }

@@ -40,13 +40,13 @@ export function MessageImages({ srcs, username }: MessageImagesProps) {
 
   return (
     <>
-      <ul aria-label="Imágenes del mensaje" className="flex flex-wrap gap-2">
+      <ul aria-label="Imágenes del mensaje" className="grid w-max grid-cols-2 gap-1.5">
         {srcs.map((src, index) => (
           <li key={src}>
             <button
               type="button"
               aria-label={`Ampliar imagen ${index + 1} de ${srcs.length}`}
-              className="block size-24 border border-border"
+              className="block size-24 overflow-hidden rounded-[14px] border border-border"
               onClick={(event) => {
                 openedFrom.current = event.currentTarget;
                 setActiveIndex(index);

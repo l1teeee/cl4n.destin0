@@ -136,8 +136,8 @@ describe("ConversationList items", () => {
     const [first, second] = screen.getAllByRole("link");
     expect(first!.getAttribute("aria-current")).toBeNull();
     expect(second!.getAttribute("aria-current")).toBe("page");
-    expect(second!.className).toContain("bg-accent");
-    expect(first!.className).not.toContain("border-primary");
+    expect(second!.className).toContain("bg-muted");
+    expect(first!.className).not.toContain("bg-muted");
   });
 
   it("shows no active conversation when none is selected", () => {
@@ -162,19 +162,47 @@ describe("ConversationList items", () => {
     expect(within(unlinked!).getByText("Sin vincular")).toBeDefined();
   });
 
-  it("shows the unread count only when there is something unread", () => {
+  it("shows an unread dot only when there is something unread", () => {
     renderList({
       items: [
         item({ contactId: "read", unreadCount: 0 }),
-        item({ contactId: "few", unreadCount: 3 }),
+        item({ contactId: "one", unreadCount: 1 }),
         item({ contactId: "many", unreadCount: 12 }),
       ],
     });
 
-    const [read, few, many] = screen.getAllByRole("link");
+    const [read, one, many] = screen.getAllByRole("link");
     expect(within(read!).queryByText(/sin leer/)).toBeNull();
-    expect(within(few!).getByText("3")).toBeDefined();
-    expect(within(many!).getByText("9+")).toBeDefined();
+    expect(within(one!).getByText("1 mensaje sin leer")).toBeDefined();
+    expect(within(many!).getByText("12 mensajes sin leer")).toBeDefined();
+  });
+
+  it("draws an avatar with the initials of the conversation", () => {
+    renderList({
+      items: [
+        item({ title: "Ana Pérez" }),
+        item({ contactId: "contact-2", title: "@luis.mora", username: "luis.mora" }),
+        item({ contactId: "contact-3", title: "Contacto" }),
+      ],
+    });
+
+    const [ana, luis, contacto] = screen.getAllByRole("link");
+    expect(within(ana!).getByText("AP")).toBeDefined();
+    expect(within(luis!).getByText("LM")).toBeDefined();
+    expect(within(contacto!).getByText("C")).toBeDefined();
+  });
+
+  it("shows the username under the name only when the name is not already the username", () => {
+    renderList({
+      items: [
+        item({ title: "Ana Pérez", username: "ana.perez" }),
+        item({ contactId: "contact-2", title: "@luis", username: "luis" }),
+      ],
+    });
+
+    const [ana, luis] = screen.getAllByRole("link");
+    expect(within(ana!).getByText("@ana.perez")).toBeDefined();
+    expect(within(luis!).getAllByText("@luis")).toHaveLength(1);
   });
 
   it("marks a mismatched username with a warning and explains it in a tooltip", async () => {

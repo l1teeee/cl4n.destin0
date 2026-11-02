@@ -162,6 +162,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
           linkByCodeAction={canSend ? linkContactByCodeAction : undefined}
         />
         <MessageThread
+          key={selectedConversation.contact.id}
           messages={threadMessages}
           username={selectedConversation.contact.username}
           canAct={canSend}

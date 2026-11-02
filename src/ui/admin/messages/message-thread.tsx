@@ -1,36 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
-import { MutationForm } from "@/ui/admin/mutation-form";
-import { cn } from "@/ui/cn";
-import { Badge } from "@/ui/primitives/badge";
+import type { ThreadMessageView } from "./message-copy";
+import { MessageGroup, type MessageActions } from "./message-group";
+import { buildThreadItems } from "./thread-grouping";
 
-import { MessageImages } from "./image-lightbox";
-import { CopyTextButton, OpenInstagramChatLink } from "./manual-send-buttons";
-import {
-  messageKindLabel,
-  messageStatusCopy,
-  type MessageAction,
-  type MessageStatus,
-  type ThreadMessageView,
-} from "./message-copy";
-
-const manualFallbackStatuses: ReadonlySet<MessageStatus> = new Set([
-  "WAITING_CONTACT",
-  "WAITING_WINDOW",
-  "FAILED",
-]);
-const retryableStatuses: ReadonlySet<MessageStatus> = new Set(["WAITING_WINDOW", "FAILED"]);
-
-// MutationForm has no size prop, so its buttons are matched to Button size="sm" from here.
-const compactMutationButtons = "[&_button]:h-9 [&_button]:px-4 [&_button]:text-sm";
-
-interface MessageActions {
-  retryAction: MessageAction;
-  markSentAction: MessageAction;
-  discardAction: MessageAction;
-}
+const JUMP_TO_LATEST_THRESHOLD_PX = 200;
 
 interface MessageThreadProps extends MessageActions {
   messages: readonly ThreadMessageView[];
@@ -38,89 +15,6 @@ interface MessageThreadProps extends MessageActions {
   canAct: boolean;
   // The chat panel follows the newest message; a thread inside a sheet must not scroll the sheet.
   scrollToNewest?: boolean;
-}
-
-interface MessageItemProps extends MessageActions {
-  message: ThreadMessageView;
-  username: string | null;
-  canAct: boolean;
-}
-
-function ManualFallbackActions({
-  message,
-  username,
-  retryAction,
-  markSentAction,
-  discardAction,
-}: Omit<MessageItemProps, "canAct">) {
-  return (
-    <div className={cn("flex flex-wrap items-start gap-2", compactMutationButtons)}>
-      {retryableStatuses.has(message.status) ? (
-        <MutationForm action={retryAction.bind(null, message.id)} label="Reintentar" />
-      ) : null}
-      {message.body ? <CopyTextButton text={message.body} label="Copiar texto" /> : null}
-      {username ? <OpenInstagramChatLink username={username} /> : null}
-      <MutationForm action={markSentAction.bind(null, message.id)} label="Ya lo envié" />
-      <MutationForm
-        action={discardAction.bind(null, message.id)}
-        label="Descartar"
-        confirmation="El mensaje no se enviará a la persona. Confirma para continuar."
-        danger
-      />
-    </div>
-  );
-}
-
-function MessageBubble({
-  message,
-  username,
-  canAct,
-  retryAction,
-  markSentAction,
-  discardAction,
-}: MessageItemProps) {
-  const outbound = message.direction === "OUTBOUND";
-  const status = messageStatusCopy(message.status);
-  const needsManualFallback = canAct && outbound && manualFallbackStatuses.has(message.status);
-
-  return (
-    <li className={cn("flex", outbound ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "grid max-w-[85%] min-w-0 gap-2 border px-3 py-2 sm:max-w-[70%]",
-          outbound ? "border-primary/30 bg-accent" : "border-border",
-        )}
-      >
-        <p
-          className={cn(
-            "text-[0.65rem] tracking-[0.18em] text-[#8d8b85] uppercase",
-            !outbound && "sr-only",
-          )}
-        >
-          {messageKindLabel(message.kind)}
-        </p>
-        {message.body ? <p className="break-words whitespace-pre-line">{message.body}</p> : null}
-        <MessageImages srcs={message.imageSrcs} username={username} />
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.7rem] text-[#8d8b85]">
-          {outbound ? <Badge variant={status.variant}>{status.label}</Badge> : null}
-          <span>{message.timeLabel}</span>
-          {message.source === "INSTAGRAM_APP" ? <span>Desde Instagram</span> : null}
-        </div>
-        {message.status === "FAILED" && message.lastError ? (
-          <p className="text-xs text-destructive">{message.lastError}</p>
-        ) : null}
-        {needsManualFallback ? (
-          <ManualFallbackActions
-            message={message}
-            username={username}
-            retryAction={retryAction}
-            markSentAction={markSentAction}
-            discardAction={discardAction}
-          />
-        ) : null}
-      </div>
-    </li>
-  );
 }
 
 export function MessageThread({
@@ -132,34 +26,81 @@ export function MessageThread({
   discardAction,
   scrollToNewest = true,
 }: MessageThreadProps) {
+  const scroller = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const newestMessageId = messages.at(-1)?.id;
+  const [now] = useState(() => new Date());
+  // Messages present on the first render appear at once; only later arrivals animate in.
+  const [initialMessageIds] = useState(() => new Set(messages.map((message) => message.id)));
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
+  const items = buildThreadItems(messages, now);
+  const animatedMessageIds = new Set(
+    messages.filter((message) => !initialMessageIds.has(message.id)).map((message) => message.id),
+  );
 
   // The component stays mounted when another conversation opens, so follow the newest message id.
   useEffect(() => {
     if (scrollToNewest) end.current?.scrollIntoView({ block: "end" });
   }, [newestMessageId, scrollToNewest]);
 
+  function updateJumpVisibility() {
+    const element = scroller.current;
+    if (!element) return;
+    const distanceFromLatest = element.scrollHeight - element.scrollTop - element.clientHeight;
+    setAwayFromLatest(distanceFromLatest > JUMP_TO_LATEST_THRESHOLD_PX);
+  }
+
+  function jumpToLatest() {
+    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-      {messages.length === 0 ? (
-        <p className="admin-empty">Todavía no hay mensajes.</p>
-      ) : (
-        <ol aria-label="Mensajes" className="grid gap-3">
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              username={username}
-              canAct={canAct}
-              retryAction={retryAction}
-              markSentAction={markSentAction}
-              discardAction={discardAction}
-            />
-          ))}
-        </ol>
-      )}
-      <div ref={end} />
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scroller}
+        onScroll={updateJumpVisibility}
+        className="min-h-0 flex-1 overflow-y-auto p-4"
+      >
+        <div className="mx-auto w-full max-w-2xl">
+          {messages.length === 0 ? (
+            <p className="admin-empty">Todavía no hay mensajes.</p>
+          ) : (
+            <ol aria-label="Mensajes" className="grid gap-4">
+              {items.map((item) =>
+                item.kind === "day" ? (
+                  <li key={item.key} className="flex justify-center">
+                    <span className="rounded-full border border-border px-3 py-0.5 text-xs text-[#8d8b85]">
+                      {item.label}
+                    </span>
+                  </li>
+                ) : (
+                  <MessageGroup
+                    key={item.key}
+                    group={item}
+                    username={username}
+                    canAct={canAct}
+                    animatedMessageIds={animatedMessageIds}
+                    retryAction={retryAction}
+                    markSentAction={markSentAction}
+                    discardAction={discardAction}
+                  />
+                ),
+              )}
+            </ol>
+          )}
+          <div ref={end} />
+        </div>
+      </div>
+      {scrollToNewest && awayFromLatest ? (
+        <button
+          type="button"
+          onClick={jumpToLatest}
+          className="absolute bottom-3 left-1/2 inline-flex min-h-11 -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-background px-4 text-sm text-[#fffbf4] shadow-lg transition-opacity duration-200 [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-70"
+        >
+          <ChevronDown aria-hidden="true" className="size-4" />
+          Ir al último mensaje
+        </button>
+      ) : null}
     </div>
   );
 }

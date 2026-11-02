@@ -39,7 +39,7 @@ export interface ThreadMessageView {
   source: "SYSTEM" | "ADMIN" | "INSTAGRAM_APP" | "GUEST";
   body: string | null;
   imageSrcs: string[];
-  timeLabel: string;
+  createdAt: Date;
   lastError: string | null;
 }
 
@@ -106,6 +106,30 @@ const kindLabels: Record<MessageKind, string> = {
 
 export function messageStatusCopy(status: MessageStatus): MessageStatusCopy {
   return statusCopy[status];
+}
+
+export type DeliveryIcon = "clock" | "check" | "check-check" | "alert" | "ban";
+
+export interface DeliveryIndicator {
+  icon: DeliveryIcon;
+  label: string;
+  failed: boolean;
+}
+
+const deliveryIndicators: Record<MessageStatus, DeliveryIndicator> = {
+  WAITING_CONTACT: { icon: "clock", label: "En espera: aún no nos escribe", failed: false },
+  WAITING_WINDOW: { icon: "clock", label: "En espera: ventana cerrada", failed: false },
+  QUEUED: { icon: "clock", label: "En espera", failed: false },
+  SENT: { icon: "check", label: "Enviado", failed: false },
+  SENT_MANUALLY: { icon: "check", label: "Enviado a mano", failed: false },
+  READ: { icon: "check-check", label: "Leído", failed: false },
+  FAILED: { icon: "alert", label: "No se pudo", failed: true },
+  DISCARDED: { icon: "ban", label: "Descartado", failed: false },
+  RECEIVED: { icon: "check", label: "Recibido", failed: false },
+};
+
+export function messageDeliveryIndicator(status: MessageStatus): DeliveryIndicator {
+  return deliveryIndicators[status];
 }
 
 export function messageKindLabel(kind: MessageKind): string {
