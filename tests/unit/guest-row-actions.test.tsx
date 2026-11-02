@@ -17,6 +17,7 @@ afterEach(cleanup);
 const rowId = "11111111-1111-4111-8111-111111111111";
 const oneSeatId = "22222222-2222-4222-8222-222222222222";
 const twoSeatsId = "33333333-3333-4333-8333-333333333333";
+const couplesId = "44444444-4444-4444-8444-444444444444";
 
 const preview: PromotionPreview = {
   waitingCount: 2,
@@ -24,6 +25,11 @@ const preview: PromotionPreview = {
   twoSeats: [
     { id: oneSeatId, guests: ["Luis"] },
     { id: twoSeatsId, guests: ["Marta"] },
+  ],
+  waiting: [
+    { id: oneSeatId, position: 1, partySize: 1, guests: ["Luis"] },
+    { id: twoSeatsId, position: 2, partySize: 1, guests: ["Marta"] },
+    { id: couplesId, position: 3, partySize: 2, guests: ["Rosa", "Iván"] },
   ],
 };
 
@@ -92,14 +98,14 @@ function handlers() {
 
 function renderActions(
   row: EventGuestRow,
-  options: { freeSeats?: number; queueSize?: number } = {},
+  options: { freeSeats?: number; queueSize?: number; preview?: PromotionPreview } = {},
 ) {
   const guestHandlers = handlers();
   render(
     <TooltipProvider>
       <GuestRowActions
         row={row}
-        preview={preview}
+        preview={options.preview ?? preview}
         freeSeats={options.freeSeats ?? 0}
         queueSize={options.queueSize ?? 3}
         handlers={guestHandlers}
@@ -285,5 +291,77 @@ describe("GuestRowActions after release", () => {
     renderActions(cancelled("REFUNDED"));
 
     expect(screen.queryByRole("button")).toBeNull();
+  });
+});
+
+describe("GuestRowActions choosing who takes the freed seat", () => {
+  it("posts the automatic mode and no entry id by default", async () => {
+    const guestHandlers = renderActions(guestRow());
+
+    const [, , formData] = await confirmDialog("Rechazar", guestHandlers.reject);
+
+    expect(formData.get("replacementMode")).toBe("auto");
+    expect(formData.get("replacementEntryId")).toBeNull();
+  });
+
+  it("keeps the submit disabled until an entry of the cola is chosen", async () => {
+    renderActions(guestRow());
+
+    await openDialog("Rechazar");
+    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
+
+    const submit = screen.getAllByRole("button", { name: "Rechazar" }).at(-1)!;
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: /Marta/ }));
+    expect(submit.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("posts the mode and the chosen entry id", async () => {
+    const guestHandlers = renderActions(guestRow({ stage: "ON_LIST" }));
+
+    await openDialog("Eliminar de la lista");
+    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Marta/ }));
+    clickDialogConfirm("Eliminar de la lista");
+    await waitFor(() => expect(guestHandlers.cancel).toHaveBeenCalledTimes(1));
+    const [, , formData] = guestHandlers.cancel.mock.calls[0] as RecordedCall;
+
+    expect(formData.get("replacementMode")).toBe("chosen");
+    expect(formData.getAll("replacementEntryId")).toEqual([twoSeatsId]);
+    expect(formData.getAll("expectedPromotedEntryIds")).toEqual([]);
+  });
+
+  it("disables the entries whose party is larger than the freed seats", async () => {
+    renderActions(guestRow());
+
+    await openDialog("Rechazar");
+    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
+
+    const couple = screen.getByRole("radio", { name: /Rosa y Iván/ });
+    expect(couple.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("No cabe")).toBeDefined();
+    expect(screen.getByRole("radio", { name: /Marta/ }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("lets a couple release the seats for a couple of the cola", async () => {
+    renderActions(guestRow({ partySize: 2, guest2Name: "Pedro", guest2Instagram: "pedro" }));
+
+    await openDialog("Rechazar");
+    fireEvent.click(screen.getByRole("radio", { name: "Elegir de la cola" }));
+
+    expect(screen.getByRole("radio", { name: /Rosa y Iván/ }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByText("2 personas")).toBeDefined();
+    expect(screen.getByText("#3")).toBeDefined();
+  });
+
+  it("explains an empty cola and offers no choice", async () => {
+    renderActions(guestRow(), {
+      preview: { waitingCount: 0, oneSeat: [], twoSeats: [], waiting: [] },
+    });
+
+    await openDialog("Rechazar");
+
+    expect(screen.getByText("No hay nadie en la cola.")).toBeDefined();
+    expect(screen.queryByRole("radio")).toBeNull();
   });
 });

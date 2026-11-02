@@ -9,21 +9,17 @@ import { Button } from "@/ui/primitives/button";
 import { Input } from "@/ui/primitives/input";
 import { Label } from "@/ui/primitives/label";
 
-import { ExpectedReplacementInputs } from "./expected-replacement-inputs";
 import type { GuestActionHandlers } from "./guest-action-handlers";
 import {
   acceptConfirmation,
-  cancelPaidConfirmation,
-  cancelUnpaidConfirmation,
-  guestsLabel,
   promoteFromQueueConfirmation,
   refundConfirmation,
-  rejectConfirmation,
   removeFromQueueConfirmation,
   verifyPaymentConfirmation,
 } from "./guest-copy";
 import { GuestMessageToggle } from "./guest-message-toggle";
 import { guestNames } from "./guest-row-view";
+import { ReleaseForm } from "./release-form";
 
 interface GuestRowActionsProps {
   row: EventGuestRow;
@@ -31,11 +27,6 @@ interface GuestRowActionsProps {
   freeSeats: number;
   queueSize: number;
   handlers: GuestActionHandlers;
-}
-
-interface ReplacementEntries {
-  names: string[];
-  entryIds: string[];
 }
 
 interface ReleaseActionProps {
@@ -59,12 +50,8 @@ interface MoveButtonProps {
 }
 
 // Freeing a couple's two seats can let in more queue entries than freeing one seat does.
-function replacementsIfReleased(row: EventGuestRow, preview: PromotionPreview): ReplacementEntries {
-  const entries = row.partySize === 2 ? preview.twoSeats : preview.oneSeat;
-  return {
-    names: entries.map((entry) => guestsLabel(entry.guests)),
-    entryIds: entries.map((entry) => entry.id),
-  };
+function replacementsIfReleased(row: EventGuestRow, preview: PromotionPreview) {
+  return row.partySize === 2 ? preview.twoSeats : preview.oneSeat;
 }
 
 function ReviewActions({ row, preview, handlers }: ReleaseActionProps) {
@@ -78,20 +65,17 @@ function ReviewActions({ row, preview, handlers }: ReleaseActionProps) {
         confirmation={acceptConfirmation}
         reportToSection
       />
-      <MutationForm
+      <ReleaseForm
         action={handlers.reject.bind(null, row.id)}
         label="Rechazar"
-        confirmation={rejectConfirmation({
-          guests: guestNames(row),
-          replacements: replacements.names,
-          waitingCount: preview.waitingCount,
-        })}
-        danger
-        reportToSection
+        kind="REJECT"
+        guests={guestNames(row)}
+        waitingCount={preview.waitingCount}
+        autoEntries={replacements}
+        waiting={preview.waiting}
       >
         <GuestMessageToggle />
-        <ExpectedReplacementInputs entryIds={replacements.entryIds} />
-      </MutationForm>
+      </ReleaseForm>
     </>
   );
 }
@@ -120,29 +104,19 @@ function CancelFromListAction({
   preview,
   handlers,
 }: ReleaseActionProps & { stage: "ON_LIST" | "PAID" }) {
-  const replacements = replacementsIfReleased(row, preview);
-  const confirmationInput = {
-    guests: guestNames(row),
-    replacements: replacements.names,
-    waitingCount: preview.waitingCount,
-  };
-
   return (
-    <MutationForm
+    <ReleaseForm
       action={handlers.cancel.bind(null, row.id)}
       label="Eliminar de la lista"
-      confirmation={
-        stage === "PAID"
-          ? cancelPaidConfirmation(confirmationInput)
-          : cancelUnpaidConfirmation(confirmationInput)
-      }
-      danger
-      reportToSection
+      kind={stage === "PAID" ? "CANCEL_PAID" : "CANCEL_UNPAID"}
+      guests={guestNames(row)}
+      waitingCount={preview.waitingCount}
+      autoEntries={replacementsIfReleased(row, preview)}
+      waiting={preview.waiting}
     >
       <input type="hidden" name="expectedStage" value={stage} />
       <GuestMessageToggle />
-      <ExpectedReplacementInputs entryIds={replacements.entryIds} />
-    </MutationForm>
+    </ReleaseForm>
   );
 }
 
