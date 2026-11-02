@@ -1,40 +1,48 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
+import { getPublicLocale } from "@/ui/public/i18n/locale";
+import { conceptMessages } from "@/ui/public/i18n/pages";
 import { PublicHeader } from "@/ui/public/public-header";
 
-export default function ConceptPage() {
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getPublicLocale();
+  return {
+    title: conceptMessages[locale].metaTitle,
+  };
+}
+
+export default async function ConceptPage() {
+  const locale = await getPublicLocale();
+  const messages = conceptMessages[locale];
+
   return (
     <div className="public-page">
-      <PublicHeader aboutHref="/" aboutLabel="Inicio" />
+      <PublicHeader aboutHref="/" />
       <main className="concept-page">
         <div className="concept-visual">
           <Image
             className="concept-image"
             src="/clandestino-wordmark.png"
-            alt="Logotipo de Clandestino"
+            alt={messages.logoAlt}
             width={800}
             height={800}
             priority
           />
         </div>
         <div className="concept-copy">
-          <p className="public-eyebrow">CLANDESTINO SUPPER CLAN</p>
-          <h1>¿Qué es Clandestino?</h1>
-          <p>
-            Somos más que una cena y menos que un restaurante. Clandestino Supper Clan es una mesa
-            creada por cuatro amigos que creen en la cocina honesta y en el poder de compartirla.
-            Cocinamos desde lo personal, sin pretensión, para crear noches espontáneas destinadas a
-            reunir a las personas alrededor de una mesa.
-          </p>
+          <p className="public-eyebrow">{messages.eyebrow}</p>
+          <h1>{messages.title}</h1>
+          <p>{messages.paragraph}</p>
           <div className="concept-links">
-            <Link href="/">Volver al inicio</Link>
+            <Link href="/">{messages.backHome}</Link>
             <a
               href="https://www.instagram.com/cl4n.destin0/"
               target="_blank"
               rel="noopener noreferrer"
             >
-              Instagram
+              {messages.instagram}
             </a>
           </div>
         </div>

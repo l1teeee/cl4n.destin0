@@ -1,16 +1,108 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import "../legal.css";
+import { getPublicLocale } from "@/ui/public/i18n/locale";
+import { legalMessages } from "@/ui/public/i18n/pages";
 import { LegalDocument } from "@/ui/public/legal-document";
 
-export const metadata: Metadata = {
-  title: "Términos | Clandestino",
-};
+import "../legal.css";
 
-export default function TermsPage() {
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getPublicLocale();
+  return {
+    title: legalMessages[locale].termsMetaTitle,
+  };
+}
+
+export default async function TermsPage() {
+  const locale = await getPublicLocale();
+
+  if (locale === "en") {
+    return (
+      <LegalDocument title="Terms" updatedAt="November 1, 2026" locale={locale}>
+        <p>This English version is provided for convenience. The Spanish version prevails.</p>
+
+        <p>
+          These terms apply to requests and experiences of Clandestino Supper Clan in El Salvador.
+          By submitting a request you accept these terms and the{" "}
+          <Link href="/privacidad">Privacy Policy</Link>.
+        </p>
+
+        <h2>Who organizes</h2>
+        <p>
+          Clandestino Supper Clan, El Salvador. Contact: direct message to{" "}
+          <a href="https://instagram.com/cl4n.destin0" target="_blank" rel="noopener noreferrer">
+            @cl4n.destin0
+          </a>{" "}
+          on Instagram.
+        </p>
+
+        <h2>How a request works</h2>
+        <p>
+          Each request is for one person or a pair (maximum 2) and asks for the name and Instagram
+          handle of each person. Seats are allocated in the order requests arrive; once full, the
+          request automatically joins the waitlist. Submitting a request does not guarantee a seat:
+          the team reviews each request and may accept or reject it. The same Instagram account
+          cannot have more than one request per experience.
+        </p>
+
+        <h2>List, payment, and confirmation</h2>
+        <p>
+          If your request is accepted you are placed on the list and we message you on Instagram
+          with the price and payment details. Your seat is confirmed only once we verify payment. If
+          you do not pay within the deadline stated in the message, the team may release your seat
+          to someone else. If a seat becomes available, the first person on the waitlist gets it.
+        </p>
+
+        <h2>Cancellations and refunds</h2>
+        <p>
+          Payments are non-refundable. If you cannot attend, you may transfer your seat to another
+          person by notifying us via direct message before the experience; that person must comply
+          with these terms. If Clandestino cancels the experience, we issue a full refund.
+        </p>
+
+        <h2>Minimum age</h2>
+        <p>
+          Only persons 18 years of age or older may request and attend. We may ask for
+          identification upon arrival.
+        </p>
+
+        <h2>Location</h2>
+        <p>
+          The location is sent by direct message only to confirmed guests. Please do not share it
+          publicly.
+        </p>
+
+        <h2>Allergies</h2>
+        <p>
+          If you indicate allergies, we will do our best to adapt the experience, but we cannot
+          guarantee the complete absence of traces. It is your responsibility to inform us before
+          the experience.
+        </p>
+
+        <h2>Use of the site</h2>
+        <p>
+          Automated or fake requests are prohibited. The site uses Cloudflare verification to detect
+          bots. We may reject requests that violate these terms.
+        </p>
+
+        <h2>Changes to the experience</h2>
+        <p>
+          The date, time, or menu may change due to circumstances beyond our control; we will notify
+          you by direct message.
+        </p>
+
+        <h2>Applicable law</h2>
+        <p>These terms are governed by the laws of El Salvador.</p>
+
+        <h2>Changes to these terms</h2>
+        <p>If they change, we update this page and the date above.</p>
+      </LegalDocument>
+    );
+  }
+
   return (
-    <LegalDocument title="Términos" updatedAt="1 de noviembre de 2026">
+    <LegalDocument title="Términos" updatedAt="1 de noviembre de 2026" locale={locale}>
       <p>
         Estos términos aplican a las solicitudes y experiencias de Clandestino Supper Clan, en El
         Salvador. Al enviar una solicitud aceptas estos términos y la{" "}

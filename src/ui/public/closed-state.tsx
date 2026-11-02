@@ -1,29 +1,33 @@
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
 import type { ClosedStateVariant } from "./home-view-model";
+import { getPublicLocale } from "./i18n/locale";
+import { publicMessages, type PublicLocale } from "./i18n/messages";
 import { PublicLanding } from "./public-landing";
 
 interface ClosedStateProps {
   variant: ClosedStateVariant;
 }
 
-function closedStateCopy(variant: ClosedStateVariant): string {
+function closedStateCopy(variant: ClosedStateVariant, locale: PublicLocale): string {
+  const messages = publicMessages[locale].home;
   switch (variant.state) {
     case "SCHEDULED":
-      return `La próxima experiencia ya tiene fecha. Las solicitudes abren el ${formatPublicEventDate(variant.opensAt)}`;
+      return `${messages.scheduled} ${formatPublicEventDate(variant.opensAt, locale)}`;
     case "FULL":
-      return "Los cupos para esta experiencia se agotaron.";
+      return messages.fullClosed;
     case "CLOSED":
-      return "Las solicitudes para esta experiencia ya cerraron.";
+      return messages.closedExperience;
     case "DEFAULT":
-      return "Todavía no hay fecha. Cuando la haya, lo sabrás.";
+      return messages.noDate;
   }
 }
 
-export function ClosedState({ variant }: ClosedStateProps) {
+export async function ClosedState({ variant }: ClosedStateProps) {
+  const locale = await getPublicLocale();
   return (
-    <PublicLanding status="EL CLAN ESTÁ CERRADO">
-      <p className="public-home-copy">{closedStateCopy(variant)}</p>
+    <PublicLanding status={publicMessages[locale].home.closed}>
+      <p className="public-home-copy">{closedStateCopy(variant, locale)}</p>
     </PublicLanding>
   );
 }

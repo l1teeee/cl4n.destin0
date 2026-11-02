@@ -3,15 +3,18 @@ import { postgresEventRepository } from "@/infrastructure/db/repositories/postgr
 import { ClosedState } from "@/ui/public/closed-state";
 import { HomeExperience } from "@/ui/public/home-experience";
 import { buildHomeViewModel } from "@/ui/public/home-view-model";
+import { getPublicLocale } from "@/ui/public/i18n/locale";
+import { publicMessages } from "@/ui/public/i18n/messages";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const readModel = await getPublicHomeEvents(postgresEventRepository);
-  const viewModel = buildHomeViewModel(readModel.value);
+  const locale = await getPublicLocale();
+  const viewModel = buildHomeViewModel(readModel.value, locale);
 
   if (viewModel.state === "OPEN") {
-    return <HomeExperience viewModel={viewModel} />;
+    return <HomeExperience viewModel={viewModel} messages={publicMessages[locale].home} />;
   }
 
   if (viewModel.state === "SCHEDULED") {

@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FieldError, ReservationForm } from "@/ui/public/reservation-form";
+import { publicMessages, type PublicLocale } from "@/ui/public/i18n/messages";
 
 const turnstileMethods = vi.hoisted(() => ({
   reset: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@marsidev/react-turnstile", async () => {
   interface MockTurnstileProps {
     onSuccess(token: string): void;
     onError(): void;
+    options: { language: string };
   }
 
   return {
@@ -43,7 +45,7 @@ vi.mock("@marsidev/react-turnstile", async () => {
       }, [onSuccess]);
       turnstileCallbacks.onError = props.onError;
 
-      return <div data-testid="turnstile" />;
+      return <div data-testid="turnstile" lang={props.options.language} />;
     }),
   };
 });
@@ -56,9 +58,15 @@ const receivedLinkCode = "K7M2QX";
 const waitlistedLinkCode = "R4T9HB";
 const instagramUsername = "clandestino.sv";
 
-function renderForm(maxPartySize = 2) {
+function renderForm(maxPartySize = 2, locale: PublicLocale = "es") {
   return render(
-    <ReservationForm eventSlug="cena-demo" maxPartySize={maxPartySize} formattedDate="Sabado" />,
+    <ReservationForm
+      eventSlug="cena-demo"
+      maxPartySize={maxPartySize}
+      formattedDate="Sabado"
+      locale={locale}
+      messages={publicMessages[locale].reservation}
+    />,
   );
 }
 
@@ -907,6 +915,67 @@ describe("ReservationForm", () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(screen.getByLabelText("Nombre completo"));
     });
+  });
+
+  it("renders English labels, verification and client validation", async () => {
+    renderForm(2, "en");
+    expect((await screen.findByTestId("turnstile")).getAttribute("lang")).toBe("en");
+    expect(screen.getByRole("radio", { name: "As a pair" })).toBeDefined();
+    expect(screen.getByLabelText("Instagram username")).toBeDefined();
+    expect(screen.getByRole("link", { name: "privacy policy" })).toBeDefined();
+    const slider = screen.getByRole("slider", { name: "COMPLETE THE FORM" });
+    fireEvent.click(slider.closest(".reservation-slide") as HTMLElement);
+    expect(await screen.findByText("Full name is required.")).toBeDefined();
+    expect(screen.getByText("Instagram username is required.")).toBeDefined();
+    expect(screen.queryByText("El nombre completo es obligatorio.")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Full name")));
+  });
+
+  it.each([
+    ["received", "CONGRATULATIONS!"],
+    ["waitlisted", "YOU ARE ON THE WAITLIST"],
+    ["closed", "THE CLAN HAS CLOSED"],
+    ["full", "NO SEATS AVAILABLE"],
+  ])("renders the English %s screen after submission", async (outcome, heading) => {
+    vi.stubEnv("NEXT_PUBLIC_INSTAGRAM_USERNAME", instagramUsername);
+    const response =
+      outcome === "received"
+        ? receivedResponse(1)
+        : outcome === "waitlisted"
+          ? waitlistedResponse()
+          : jsonResponse(409, {
+              error: { code: outcome === "closed" ? "EVENT_NOT_OPEN" : "EVENT_FULL" },
+            });
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchMock);
+    renderForm(2, "en");
+    await screen.findByTestId("turnstile");
+    fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Ana Martinez" } });
+    fireEvent.change(screen.getByLabelText("Instagram username"), {
+      target: { value: "ana.martinez" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    const slider = await screen.findByRole("slider", { name: "SLIDE TO REQUEST ACCESS" });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+    fireEvent.keyDown(slider, { key: "End" });
+    expect(await screen.findByRole("heading", { name: heading }, { timeout: 2500 })).toBeDefined();
+    expect(sentBody(fetchMock)).toMatchObject({
+      partySize: 1,
+      guest1Name: "Ana Martinez",
+      eventSlug: "cena-demo",
+    });
+    expect(sentBody(fetchMock)).not.toHaveProperty("locale");
+    if (outcome === "received" || outcome === "waitlisted") {
+      expect(screen.getByRole("heading", { name: "Last step" })).toBeDefined();
+      expect(
+        screen.getByRole("link", { name: "Open Instagram chat" }).getAttribute("href"),
+      ).toContain("https://ig.me/m/clandestino.sv?ref=");
+      expect(screen.getByText(/^Your code:/)).toBeDefined();
+    }
+    if (outcome === "waitlisted") {
+      expect(screen.getByText(/position #3 on the waitlist/)).toBeDefined();
+    }
   });
 
   it("focuses the name when the event allows one person and the form is disabled", async () => {

@@ -10,6 +10,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { Button } from "@/ui/primitives/button";
 import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmented-control";
 import SlideCommit from "@/ui/primitives/slide-commit";
+import type { PublicLocale, PublicMessages } from "./i18n/messages";
 
 import {
   getOrCreateAttemptKey,
@@ -32,6 +33,8 @@ interface ReservationFormProps {
   eventSlug: string;
   maxPartySize: number;
   formattedDate: string;
+  locale?: PublicLocale;
+  messages: PublicMessages["reservation"];
   nonce?: string;
 }
 
@@ -50,8 +53,8 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function formatPartySize(partySize: number): string {
-  return partySize === 1 ? "1 persona" : `${partySize} personas`;
+function formatPartySize(partySize: number, messages: PublicMessages["reservation"]): string {
+  return `${partySize} ${partySize === 1 ? messages.person : messages.people}`;
 }
 
 // Blank means not configured. A leading @ is dropped so the chat link stays valid.
@@ -82,41 +85,35 @@ export function FieldError({ message, id }: { message?: string; id?: string }) {
 function InstagramLastStep({
   username,
   linkCode,
+  messages,
 }: {
   username: string | undefined;
   linkCode: string;
+  messages: PublicMessages["reservation"];
 }) {
   return (
     <div className="reservation-last-step">
-      <h3>Último paso</h3>
+      <h3>{messages.lastStep}</h3>
       {username ? (
         <>
-          <p>Para poder escribirte, envíanos un mensaje por Instagram a @{username}.</p>
+          <p>{messages.instagramPrompt.replace("{username}", username)}</p>
           <Button asChild>
             <a
               href={`https://ig.me/m/${encodeURIComponent(username)}?ref=${encodeURIComponent(linkCode)}`}
               target="_blank"
               rel="noopener noreferrer"
             >
-              Abrir chat en Instagram
+              {messages.openChat}
             </a>
           </Button>
         </>
       ) : null}
       <div className="reservation-link-code">
         <p>
-          Tu código: <code>{linkCode}</code>
+          {messages.yourCode} <code>{linkCode}</code>
         </p>
-        <p className="reservation-help">
-          {username
-            ? "Si escribes desde la computadora, envíanos este código en el mensaje."
-            : "Envíanos este código por mensaje directo en Instagram."}
-        </p>
-        <p className="reservation-help">
-          {
-            "Revisa también tus solicitudes de mensajes en Instagram (Mensajes > Solicitudes): si no nos sigues, nuestra respuesta puede llegar ahí."
-          }
-        </p>
+        <p className="reservation-help">{username ? messages.desktopCode : messages.directCode}</p>
+        <p className="reservation-help">{messages.messageRequestsHelp}</p>
       </div>
     </div>
   );
@@ -178,6 +175,8 @@ export function ReservationForm({
   eventSlug,
   maxPartySize,
   formattedDate,
+  locale = "es",
+  messages,
   nonce,
 }: ReservationFormProps) {
   const turnstileRef = useRef<TurnstileInstance>(null);
@@ -202,7 +201,7 @@ export function ReservationForm({
     control,
     formState: { errors, isSubmitting, isValid },
   } = useForm<ReservationFormInput, unknown, ReservationFormValues>({
-    resolver: zodResolver(reservationFormSchema(maxPartySize)),
+    resolver: zodResolver(reservationFormSchema(maxPartySize, messages)),
     defaultValues: { partySize: 1 },
     mode: "onTouched",
   });
@@ -303,7 +302,7 @@ export function ReservationForm({
       setTurnstileToken(null);
       const nextState: ReservationFormState = {
         kind: "error",
-        message: "No pudimos conectar con el servidor. Inténtalo de nuevo.",
+        message: messages.connectionError,
         fieldErrors: {},
         automaticRetry: false,
       };
@@ -322,11 +321,17 @@ export function ReservationForm({
     }
 
     const retryAfterSeconds = Number(response.headers.get("Retry-After"));
-    const nextState = toFormState({
-      status: response.status,
-      body,
-      ...(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? { retryAfterSeconds } : {}),
-    });
+    const nextState = toFormState(
+      {
+        status: response.status,
+        body,
+        ...(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+          ? { retryAfterSeconds }
+          : {}),
+      },
+      locale,
+      messages,
+    );
 
     if (
       nextState.kind === "received" ||
@@ -340,7 +345,7 @@ export function ReservationForm({
     if (nextState.kind === "error" && nextState.automaticRetry && !alreadyRetried) {
       setFormState({
         ...nextState,
-        message: "La solicitud tardó más de lo esperado. Reintentando...",
+        message: messages.retrying,
       });
       await delay((retryAfterSeconds > 0 ? retryAfterSeconds : 1) * 1000);
       try {
@@ -402,14 +407,16 @@ export function ReservationForm({
   if (showConfirmation && confirmedState?.kind === "received") {
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>¡FELICIDADES!</h2>
-        <p className="reservation-success-lead">
-          Completaste el formulario. Te confirmaremos por Instagram para saber si estás en la lista.
-        </p>
+        <h2>{messages.receivedTitle}</h2>
+        <p className="reservation-success-lead">{messages.receivedLead}</p>
         <p className="reservation-success-details">
-          {formatPartySize(confirmedState.partySize)} · {formattedDate}
+          {formatPartySize(confirmedState.partySize, messages)} · {formattedDate}
         </p>
-        <InstagramLastStep username={instagramUsername} linkCode={confirmedState.linkCode} />
+        <InstagramLastStep
+          username={instagramUsername}
+          linkCode={confirmedState.linkCode}
+          messages={messages}
+        />
       </section>
     );
   }
@@ -417,17 +424,20 @@ export function ReservationForm({
   if (showConfirmation && confirmedState?.kind === "waitlisted") {
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>ESTÁS EN LA COLA</h2>
+        <h2>{messages.waitlistedTitle}</h2>
         <p className="reservation-success-lead">
-          Completaste el formulario, pero el cupo ya se llenó. Quedaste en la posición #
-          {confirmedState.position} de la cola.
+          {messages.waitlistedLead.replace("{position}", String(confirmedState.position))}
         </p>
-        <p>Si se libera un lugar te escribiremos por Instagram.</p>
-        <p>Revisa también tus solicitudes de mensajes en Instagram.</p>
+        <p>{messages.waitlistedHelp}</p>
+        <p>{messages.messageRequests}</p>
         <p className="reservation-success-details">
-          {formatPartySize(confirmedState.partySize)} · {formattedDate}
+          {formatPartySize(confirmedState.partySize, messages)} · {formattedDate}
         </p>
-        <InstagramLastStep username={instagramUsername} linkCode={confirmedState.linkCode} />
+        <InstagramLastStep
+          username={instagramUsername}
+          linkCode={confirmedState.linkCode}
+          messages={messages}
+        />
       </section>
     );
   }
@@ -439,11 +449,9 @@ export function ReservationForm({
   ) {
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>SIN LUGARES DISPONIBLES</h2>
-        <p className="reservation-success-lead">
-          Registramos tu solicitud, pero ya no hay lugares disponibles para tu grupo.
-        </p>
-        <p>Mantente atento a la próxima apertura del clan.</p>
+        <h2>{messages.fullTitle}</h2>
+        <p className="reservation-success-lead">{messages.fullRejected}</p>
+        <p>{messages.nextOpening}</p>
       </section>
     );
   }
@@ -451,11 +459,9 @@ export function ReservationForm({
   if (showConfirmation && confirmedState?.kind === "closed") {
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>EL CLAN SE CERRÓ</h2>
-        <p className="reservation-success-lead">
-          Las solicitudes se cerraron mientras llenabas el formulario.
-        </p>
-        <p>Mantente atento a la próxima apertura del clan.</p>
+        <h2>{messages.closedTitle}</h2>
+        <p className="reservation-success-lead">{messages.closedLead}</p>
+        <p>{messages.nextOpening}</p>
       </section>
     );
   }
@@ -467,11 +473,9 @@ export function ReservationForm({
   ) {
     return (
       <section className="reservation-success" aria-live="polite">
-        <h2>SIN LUGARES DISPONIBLES</h2>
-        <p className="reservation-success-lead">
-          Los lugares y la cola se llenaron mientras llenabas el formulario.
-        </p>
-        <p>Mantente atento a la próxima apertura del clan.</p>
+        <h2>{messages.fullTitle}</h2>
+        <p className="reservation-success-lead">{messages.fullLead}</p>
+        <p>{messages.nextOpening}</p>
       </section>
     );
   }
@@ -480,10 +484,10 @@ export function ReservationForm({
     <form onSubmit={(event) => event.preventDefault()} className="reservation-form" noValidate>
       {canChoosePartySize ? (
         <div className="reservation-section">
-          <h2 className="reservation-section-heading">Quiénes van</h2>
+          <h2 className="reservation-section-heading">{messages.who}</h2>
           <fieldset className="reservation-party">
             <legend id="partySize-legend" className="reservation-label">
-              ¿Cuántas personas?
+              {messages.partySize}
             </legend>
             <Controller
               control={control}
@@ -501,10 +505,10 @@ export function ReservationForm({
                   aria-describedby={errors.partySize ? "partySize-error" : undefined}
                 >
                   <SegmentedControlItem className="reservation-choice-item" value="1">
-                    Solo
+                    {messages.solo}
                   </SegmentedControlItem>
                   <SegmentedControlItem className="reservation-choice-item" value="2">
-                    En pareja
+                    {messages.couple}
                   </SegmentedControlItem>
                 </SegmentedControl>
               )}
@@ -517,14 +521,14 @@ export function ReservationForm({
       <div role="group" aria-labelledby="guest1-heading" className="reservation-section">
         <h2 id="guest1-heading" className="reservation-section-heading">
           <span key={isCouple ? "couple" : "solo"} className="reservation-heading-swap">
-            {isCouple ? "Invitado 1" : "Tus datos"}
+            {isCouple ? messages.guest1 : messages.yourDetails}
           </span>
         </h2>
 
         <div className="reservation-guest-fields">
           <div className="reservation-field">
             <label htmlFor="guest1Name" className="reservation-label">
-              Nombre completo
+              {messages.fullName}
             </label>
             <input
               id="guest1Name"
@@ -538,7 +542,7 @@ export function ReservationForm({
 
           <div className="reservation-field">
             <label htmlFor="guest1Instagram" className="reservation-label">
-              Usuario de Instagram
+              {messages.instagram}
             </label>
             <input
               id="guest1Instagram"
@@ -566,13 +570,13 @@ export function ReservationForm({
               className="reservation-section"
             >
               <h2 id="guest2-heading" className="reservation-section-heading">
-                Invitado 2
+                {messages.guest2}
               </h2>
 
               <div className="reservation-guest-fields">
                 <div className="reservation-field">
                   <label htmlFor="guest2Name" className="reservation-label">
-                    Nombre completo
+                    {messages.fullName}
                   </label>
                   <input
                     id="guest2Name"
@@ -587,7 +591,7 @@ export function ReservationForm({
 
                 <div className="reservation-field">
                   <label htmlFor="guest2Instagram" className="reservation-label">
-                    Usuario de Instagram
+                    {messages.instagram}
                   </label>
                   <input
                     id="guest2Instagram"
@@ -606,7 +610,7 @@ export function ReservationForm({
       ) : null}
 
       <div className="reservation-section">
-        <h2 className="reservation-section-heading">Alergias</h2>
+        <h2 className="reservation-section-heading">{messages.allergies}</h2>
 
         <fieldset
           className="reservation-allergies"
@@ -615,7 +619,7 @@ export function ReservationForm({
           aria-describedby={errors.hasAllergies ? "hasAllergies-error" : undefined}
         >
           <legend className="reservation-label">
-            {isCouple ? "¿Alguno de los dos tiene alergias?" : "¿Tienes alergias?"}
+            {isCouple ? messages.coupleAllergies : messages.soloAllergies}
           </legend>
           <Controller
             control={control}
@@ -632,7 +636,7 @@ export function ReservationForm({
                     onBlur={field.onBlur}
                     onChange={() => field.onChange(false)}
                   />
-                  <span>No</span>
+                  <span>{messages.no}</span>
                 </label>
                 <label className="reservation-terms">
                   <input
@@ -643,7 +647,7 @@ export function ReservationForm({
                     onBlur={field.onBlur}
                     onChange={() => field.onChange(true)}
                   />
-                  <span>Sí</span>
+                  <span>{messages.yes}</span>
                 </label>
               </div>
             )}
@@ -654,7 +658,7 @@ export function ReservationForm({
         {hasAllergies ? (
           <div className="reservation-field">
             <label htmlFor="allergies" className="reservation-label">
-              {isCouple ? "¿Quién y a qué?" : "¿A qué?"}
+              {isCouple ? messages.coupleAllergyDetail : messages.soloAllergyDetail}
             </label>
             <textarea
               id="allergies"
@@ -667,7 +671,7 @@ export function ReservationForm({
             />
             {isCouple ? (
               <p id="allergies-help" className="reservation-help">
-                Indica de quién es cada alergia.
+                {messages.allergyHelp}
               </p>
             ) : null}
             <FieldError id="allergies-error" message={errors.allergies?.message} />
@@ -678,7 +682,7 @@ export function ReservationForm({
       <div className="reservation-section">
         <div className="reservation-field">
           <label htmlFor="notes" className="reservation-label">
-            Observaciones (opcional)
+            {messages.notes}
           </label>
           <textarea
             id="notes"
@@ -692,7 +696,7 @@ export function ReservationForm({
       </div>
 
       <div className="reservation-section">
-        <h2 className="reservation-section-heading">Confirmación</h2>
+        <h2 className="reservation-section-heading">{messages.confirmation}</h2>
 
         <div>
           <div className="reservation-terms">
@@ -703,9 +707,9 @@ export function ReservationForm({
               {...register("acceptTerms")}
             />
             <label htmlFor="acceptTerms">
-              Acepto los <Link href="/terminos">términos</Link> y la{" "}
-              <Link href="/privacidad">política de privacidad</Link>, incluido el uso de mi
-              información de alergias solo para preparar la experiencia.
+              {messages.acceptPrefix} <Link href="/terminos">{messages.terms}</Link>{" "}
+              {messages.privacyJoin} <Link href="/privacidad">{messages.privacy}</Link>
+              {messages.allergyConsent}
             </label>
           </div>
           <FieldError message={errors.acceptTerms?.message} />
@@ -722,6 +726,7 @@ export function ReservationForm({
               cData: idempotencyKey,
               refreshExpired: "auto",
               theme: "light",
+              language: locale,
             }}
             onSuccess={setTurnstileToken}
             onExpire={() => setTurnstileToken(null)}
@@ -729,7 +734,7 @@ export function ReservationForm({
               setTurnstileToken(null);
               setFormState({
                 kind: "error",
-                message: "No pudimos cargar la verificación. Inténtalo de nuevo.",
+                message: messages.verificationError,
                 fieldErrors: {},
                 automaticRetry: false,
               });
@@ -737,7 +742,7 @@ export function ReservationForm({
           />
         ) : null}
 
-        {!siteKey ? <p role="alert">La verificación de seguridad no está disponible.</p> : null}
+        {!siteKey ? <p role="alert">{messages.verificationUnavailable}</p> : null}
 
         <div aria-live="polite" className="reservation-message">
           {formState?.kind === "error" ? <p>{formState.message}</p> : null}
@@ -747,13 +752,13 @@ export function ReservationForm({
           <SlideCommit
             label={
               !isValid
-                ? "COMPLETA EL FORMULARIO"
+                ? messages.completeForm
                 : !turnstileToken || !idempotencyKey
-                  ? "VERIFICANDO..."
-                  : "DESLIZA PARA SOLICITAR ACCESO"
+                  ? messages.verifying
+                  : messages.slideRequest
             }
-            doneLabel="ENVIADO"
-            errorLabel="NO SE PUDO ENVIAR"
+            doneLabel={messages.sent}
+            errorLabel={messages.notSent}
             onConfirm={confirmReservation}
             onDone={showConfirmationAfterDone}
             trackColor="transparent"
@@ -768,7 +773,7 @@ export function ReservationForm({
             aria-describedby="reservation-slide-hint"
           />
           <p id="reservation-slide-hint" className="reservation-slide-hint">
-            Desliza el control hasta el final o pulsa Fin para enviar.
+            {messages.slideHint}
           </p>
         </div>
       </div>

@@ -1,4 +1,5 @@
-import { es } from "date-fns/locale";
+import { enUS, es } from "date-fns/locale";
+import type { PublicLocale } from "./i18n/messages";
 
 import type { PublicEvent } from "@/application/events/types";
 import {
@@ -36,7 +37,16 @@ export type RequestAccessViewModel =
   | { state: "CLOSED"; variant: ClosedStateVariant };
 
 // Same locale and time zone as formatPublicEventDate, split so the home can lay the date out.
-function buildDateParts(startsAt: Date): PublicEventDateParts {
+function buildDateParts(startsAt: Date, locale: PublicLocale): PublicEventDateParts {
+  const dateLocale = locale === "en" ? enUS : es;
+  if (locale === "en") {
+    return {
+      weekday: formatUtcForElSalvador(startsAt, "EEEE", dateLocale),
+      day: formatUtcForElSalvador(startsAt, "d", dateLocale),
+      month: formatUtcForElSalvador(startsAt, "MMMM", dateLocale),
+      time: formatUtcForElSalvador(startsAt, "h:mm a", dateLocale),
+    };
+  }
   const period = Number(formatUtcForElSalvador(startsAt, "H")) < 12 ? "a. m." : "p. m.";
   return {
     weekday: formatUtcForElSalvador(startsAt, "EEEE", es),
@@ -46,7 +56,10 @@ function buildDateParts(startsAt: Date): PublicEventDateParts {
   };
 }
 
-export function buildHomeViewModel(readModel: readonly PublicEvent[]): HomeViewModel {
+export function buildHomeViewModel(
+  readModel: readonly PublicEvent[],
+  locale: PublicLocale = "es",
+): HomeViewModel {
   const reservableEvents = readModel.filter(
     (event) => event.phase === "OPEN" || event.phase === "WAITLIST",
   );
@@ -55,8 +68,8 @@ export function buildHomeViewModel(readModel: readonly PublicEvent[]): HomeViewM
       state: "OPEN",
       events: reservableEvents.map((event) => ({
         slug: event.slug,
-        formattedDate: formatPublicEventDate(event.startsAt),
-        dateParts: buildDateParts(event.startsAt),
+        formattedDate: formatPublicEventDate(event.startsAt, locale),
+        dateParts: buildDateParts(event.startsAt, locale),
         ...(event.phase === "WAITLIST" ? { waitlistOnly: true as const } : {}),
       })),
     };

@@ -1,4 +1,6 @@
 import type { ReservationErrorCode } from "@/domain/reservation/reservation-outcome";
+import { publicMessages, type PublicLocale, type PublicMessages } from "./i18n/messages";
+import { translateReservationValidation } from "./reservation-form-schema";
 
 // The order is the visual order of the form: the first invalid field in this list receives focus.
 export const reservationFormFields = [
@@ -67,6 +69,8 @@ function parsedError(body: unknown): ParsedError {
 
 function matchingFieldErrors(
   fields: Record<string, unknown> | undefined,
+  locale: PublicLocale,
+  copy: PublicMessages["reservation"],
 ): Partial<Record<ReservationFormField, string[]>> {
   const result: Partial<Record<ReservationFormField, string[]>> = {};
   if (!fields) {
@@ -76,7 +80,10 @@ function matchingFieldErrors(
   for (const field of reservationFormFields) {
     const messages = fields[field];
     if (Array.isArray(messages) && messages.every((message) => typeof message === "string")) {
-      result[field] = messages;
+      result[field] =
+        locale === "es"
+          ? messages
+          : messages.map((message) => translateReservationValidation(message, copy));
     }
   }
   return result;
@@ -99,7 +106,12 @@ function errorState(
   };
 }
 
-export function toFormState(response: ReservationResponseData): ReservationFormState {
+export function toFormState(
+  response: ReservationResponseData,
+  locale: PublicLocale = "es",
+  messages: PublicMessages["reservation"] = publicMessages[locale].reservation,
+): ReservationFormState {
+  const copy = messages.errors;
   const body = record(response.body);
   if (response.status === 201) {
     const request = record(body?.request);
@@ -141,42 +153,42 @@ export function toFormState(response: ReservationResponseData): ReservationFormS
     return { kind: "full", reason: "full-rejected" };
   }
   if (response.status === 409 && error.code === "DUPLICATE_RESERVATION") {
-    return errorState("Ya existe una solicitud con este usuario de Instagram.", error);
+    return errorState(copy.duplicate, error);
   }
   if (response.status === 409 && error.code === "EVENT_NOT_OPEN") {
     return { kind: "closed" };
   }
   if (response.status === 404) {
-    return errorState("El clan está cerrado en este momento.", error);
+    return errorState(copy.closed, error);
   }
   if (response.status === 422 && error.code === "VALIDATION_FAILED") {
-    return errorState(error.message ?? "Revisa los datos enviados e intenta de nuevo.", error, {
-      fieldErrors: matchingFieldErrors(error.fields),
-    });
-  }
-  if (response.status === 422 && error.code === "PARTY_SIZE_NOT_ALLOWED") {
-    const message = error.message ?? "La cantidad de personas supera el máximo permitido.";
-    return errorState(message, error, { fieldErrors: { partySize: [message] } });
-  }
-  if (response.status === 422 && error.code === "IDEMPOTENCY_KEY_REUSED") {
-    return errorState("La solicitud cambió. Verifica los datos y envíala de nuevo.", error);
-  }
-  if (response.status === 429) {
-    const seconds = response.retryAfterSeconds ?? 1;
-    return errorState(`Demasiados intentos. Intenta de nuevo en ${seconds} segundos.`, error);
-  }
-  if (response.status === 403 && error.code === "BOT_CHECK_FAILED") {
-    return errorState("No pudimos verificar la solicitud. Inténtalo de nuevo.", error);
-  }
-  if (response.status === 503 && error.code === "TRY_AGAIN") {
     return errorState(
-      error.message ?? "No pudimos procesar la solicitud. Intenta de nuevo.",
+      locale === "es" ? (error.message ?? copy.validation) : copy.validation,
       error,
       {
-        automaticRetry: true,
+        fieldErrors: matchingFieldErrors(error.fields, locale, messages),
       },
     );
   }
+  if (response.status === 422 && error.code === "PARTY_SIZE_NOT_ALLOWED") {
+    const message = locale === "es" ? (error.message ?? copy.partySize) : copy.partySize;
+    return errorState(message, error, { fieldErrors: { partySize: [message] } });
+  }
+  if (response.status === 422 && error.code === "IDEMPOTENCY_KEY_REUSED") {
+    return errorState(copy.reused, error);
+  }
+  if (response.status === 429) {
+    const seconds = response.retryAfterSeconds ?? 1;
+    return errorState(copy.rateLimited.replace("{seconds}", String(seconds)), error);
+  }
+  if (response.status === 403 && error.code === "BOT_CHECK_FAILED") {
+    return errorState(copy.bot, error);
+  }
+  if (response.status === 503 && error.code === "TRY_AGAIN") {
+    return errorState(locale === "es" ? (error.message ?? copy.tryAgain) : copy.tryAgain, error, {
+      automaticRetry: true,
+    });
+  }
 
-  return errorState(error.message ?? "Ocurrió un error. Inténtalo de nuevo.", error);
+  return errorState(locale === "es" ? (error.message ?? copy.unknown) : copy.unknown, error);
 }

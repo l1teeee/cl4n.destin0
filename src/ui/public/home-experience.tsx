@@ -1,36 +1,20 @@
 import type { HomeViewModel } from "./home-view-model";
+import type { PublicMessages } from "./i18n/messages";
 import { ReservationLink } from "./light-page-transition";
 import { PublicLanding } from "./public-landing";
 
 interface HomeExperienceProps {
   viewModel: Extract<HomeViewModel, { state: "OPEN" }>;
+  messages: PublicMessages["home"];
 }
 
-const steps = [
-  {
-    number: "01",
-    title: "Solicita tu lugar",
-    description: "Llena el formulario con tu usuario de Instagram.",
-  },
-  {
-    number: "02",
-    title: "Te escribimos",
-    description: "Revisamos tu solicitud y te confirmamos por Instagram.",
-  },
-  {
-    number: "03",
-    title: "Recibe la ubicación",
-    description: "La dirección llega por mensaje antes de la cena.",
-  },
-] as const;
-
-export function HomeExperience({ viewModel }: HomeExperienceProps) {
+export function HomeExperience({ viewModel, messages }: HomeExperienceProps) {
   const [firstEvent, ...otherEvents] = viewModel.events;
   const reservationHref =
     firstEvent && otherEvents.length === 0 ? `/solicitar/${firstEvent.slug}` : "#eventos";
 
   return (
-    <PublicLanding status="EL CLAN ESTÁ ABIERTO" reservationHref={reservationHref}>
+    <PublicLanding status={messages.open} reservationHref={reservationHref}>
       <div className="public-events" id="eventos">
         {viewModel.events.map((event) => (
           <article key={event.slug} className="public-event" aria-label={event.formattedDate}>
@@ -42,10 +26,13 @@ export function HomeExperience({ viewModel }: HomeExperienceProps) {
               {event.dateParts.time}
             </p>
             <p className="public-eyebrow public-event-access">
-              {event.waitlistOnly ? "Cupos agotados · Aún hay lugar en la cola" : "Acceso limitado"}
+              {event.waitlistOnly ? messages.full : messages.limited}
             </p>
+            {event.waitlistOnly ? (
+              <p className="public-event-helper">{messages.waitlistHelp}</p>
+            ) : null}
             <ReservationLink href={`/solicitar/${event.slug}`} className="public-cta">
-              {event.waitlistOnly ? "Unirme a la cola" : "Solicitar acceso"}
+              {event.waitlistOnly ? messages.join : messages.request}
             </ReservationLink>
           </article>
         ))}
@@ -53,12 +40,12 @@ export function HomeExperience({ viewModel }: HomeExperienceProps) {
 
       <section className="public-steps" aria-labelledby="como-funciona">
         <h2 id="como-funciona" className="public-eyebrow">
-          Cómo funciona
+          {messages.how}
         </h2>
         <ol className="public-steps-list">
-          {steps.map((step) => (
-            <li key={step.number} className="public-step">
-              <span className="public-step-number">{step.number}</span>
+          {messages.steps.map((step, index) => (
+            <li key={step.title} className="public-step">
+              <span className="public-step-number">{String(index + 1).padStart(2, "0")}</span>
               <h3>{step.title}</h3>
               <p>{step.description}</p>
             </li>

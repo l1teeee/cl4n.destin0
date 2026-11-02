@@ -6,6 +6,8 @@ import { postgresEventRepository } from "@/infrastructure/db/repositories/postgr
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import { ClosedState } from "@/ui/public/closed-state";
 import { buildRequestAccessViewModel } from "@/ui/public/home-view-model";
+import { getPublicLocale } from "@/ui/public/i18n/locale";
+import { publicMessages } from "@/ui/public/i18n/messages";
 import { ReservationExperience } from "@/ui/public/reservation-experience";
 
 export const dynamic = "force-dynamic";
@@ -27,11 +29,14 @@ export default async function RequestAccessPage({ params }: { params: Promise<{ 
     return <ClosedState variant={viewModel.variant} />;
   }
 
+  const locale = await getPublicLocale();
   return (
     <ReservationExperience
       eventSlug={event.slug}
       maxPartySize={event.maxPartySize}
-      formattedDate={formatPublicEventDate(event.startsAt)}
+      formattedDate={formatPublicEventDate(event.startsAt, locale)}
+      locale={locale}
+      messages={publicMessages[locale].reservation}
       nonce={requestHeaders.get("x-nonce") ?? undefined}
     />
   );

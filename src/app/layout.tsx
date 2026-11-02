@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import type { ReactNode } from "react";
+import { getPublicLocale } from "@/ui/public/i18n/locale";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,9 +12,10 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   await connection();
+  const locale = await getPublicLocale();
 
   return (
-    <html lang="es" className="h-full antialiased" data-scroll-behavior="smooth">
+    <html lang={locale} className="h-full antialiased" data-scroll-behavior="smooth">
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
