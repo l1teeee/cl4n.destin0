@@ -36,6 +36,7 @@ interface MutationFormProps {
   danger?: boolean;
   reportToSection?: boolean;
   submitDisabled?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function FormContent({
@@ -84,13 +85,18 @@ export function MutationForm({
   danger = false,
   reportToSection = false,
   submitDisabled = false,
+  onOpenChange,
 }: MutationFormProps) {
   const feedback = useActionFeedback();
   const [open, setOpen] = useState(false);
+  const changeOpen = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
   const [state, formAction, pending] = useActionState(
     async (previousState: AdminActionState, formData: FormData) => {
       const result = await action(previousState, formData);
-      if (result.ok) setOpen(false);
+      if (result.ok) changeOpen(false);
       if (result.ok && reportToSection && feedback) feedback.report(result);
       return result;
     },
@@ -107,7 +113,7 @@ export function MutationForm({
   return (
     <div className="space-y-2">
       {confirmation ? (
-        <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialog open={open} onOpenChange={changeOpen}>
           {icon ? (
             <Tooltip>
               <TooltipTrigger asChild>
