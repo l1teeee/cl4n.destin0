@@ -21,11 +21,5 @@ ALTER TABLE "events" ADD COLUMN "price_cents" integer;--> statement-breakpoint
 ALTER TABLE "payment_settings" ADD CONSTRAINT "payment_settings_updated_by_admin_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."admin_users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_entity_type_chk" CHECK ("audit_logs"."entity_type" IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT', 'INSTAGRAM_CONNECTION', 'EXTRA', 'GUEST_CONSUMPTION', 'GUEST_TAB', 'PAYMENT_SETTINGS'));--> statement-breakpoint
 ALTER TABLE "events" ADD CONSTRAINT "events_price_cents_chk" CHECK ("events"."price_cents" IS NULL OR "events"."price_cents" >= 0);--> statement-breakpoint
--- Only a template still holding the seeded text moves to the split payment variables; an edited one is kept.
-UPDATE "message_templates"
-   SET "body" = E'¡Felicidades, {nombre}, estás en la lista! Para asegurar tu lugar tienes 48 horas para transferir {monto}.\n\nBanco: {banco}\nTipo de cuenta: {tipo_cuenta}\nCuenta: {cuenta}\nTitular: {titular}\n{enlace_pago}\n{nota_pago}\n\nCuando transfieras, envíanos el comprobante por aquí.',
-       "updated_at" = now()
- WHERE "key" = 'ON_LIST'
-   AND "body" = E'¡Felicidades, {nombre}, estás en la lista! Ahora tienes 48 horas para cancelar por transferencia y asegurar tu lugar.\n\n{pago}\n\nCuando transfieras, envíanos el comprobante por aquí.';--> statement-breakpoint
 -- The production app role needs the payment settings without broader database privileges.
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clandestino_app') THEN GRANT SELECT, INSERT, UPDATE ON payment_settings TO clandestino_app; END IF; END $$;

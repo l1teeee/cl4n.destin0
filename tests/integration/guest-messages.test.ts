@@ -219,7 +219,7 @@ describe("guest message repository", () => {
     }
   });
 
-  it("renders the seeded ON_LIST template with the payment details", async () => {
+  it("renders the seeded ON_LIST template with the composed payment block", async () => {
     const client = await pool.connect();
     try {
       const values = await loadGuestMessageValues(client, {
@@ -229,13 +229,13 @@ describe("guest message repository", () => {
 
       expect(body).toBe(
         [
-          "¡Felicidades, Carlos, estás en la lista! Para asegurar tu lugar tienes 48 horas para transferir $25.00.",
+          "¡Felicidades, Carlos, estás en la lista! Ahora tienes 48 horas para cancelar por transferencia y asegurar tu lugar.",
           "",
+          "Monto: $25.00",
           "Banco: Banco Demo",
           "Tipo de cuenta: Ahorro",
           "Cuenta: 0123456789",
           "Titular: Clandestino",
-          "",
           "Paga antes del jueves",
           "",
           "Cuando transfieras, envíanos el comprobante por aquí.",

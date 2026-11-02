@@ -134,9 +134,8 @@ describe("migration 0013 staged guest flow and messaging", () => {
             "Esta es la ubicación de la experiencia del {fecha}:\n\n{ubicacion}\n\nNo la compartas con nadie.",
           ],
           [
-            // Migration 0018 moves a template that still holds the 0013 text to the split payment variables.
             "ON_LIST",
-            "¡Felicidades, {nombre}, estás en la lista! Para asegurar tu lugar tienes 48 horas para transferir {monto}.\n\nBanco: {banco}\nTipo de cuenta: {tipo_cuenta}\nCuenta: {cuenta}\nTitular: {titular}\n{enlace_pago}\n{nota_pago}\n\nCuando transfieras, envíanos el comprobante por aquí.",
+            "¡Felicidades, {nombre}, estás en la lista! Ahora tienes 48 horas para cancelar por transferencia y asegurar tu lugar.\n\n{pago}\n\nCuando transfieras, envíanos el comprobante por aquí.",
           ],
           [
             "PAID",

@@ -247,7 +247,7 @@ describe("accepting a guest without the payment data or the price", () => {
     expect(outcome.stage).toBe("ON_LIST");
     expect(outcome.messages).toHaveLength(1);
     const body = outcome.messages[0]!.body;
-    expect(body).toContain("transferir $50.00.");
+    expect(body).toContain("Monto: $50.00");
     expect(body).not.toContain("Banco Demo");
     expect(body).not.toContain("{");
   });
@@ -261,6 +261,7 @@ describe("accepting a guest without the payment data or the price", () => {
     const body = outcome.messages[0]!.body;
     expect(body).toContain("Banco: Banco Demo");
     expect(body).toContain("Cuenta: 0123456789");
+    expect(body).not.toContain("Monto");
     expect(body).not.toContain("$");
     expect(body).not.toContain("{");
   });
