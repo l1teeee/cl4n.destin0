@@ -30,7 +30,7 @@ function renderSection(paymentMissing: boolean) {
       maxPartySize={2}
       counts={counts}
       guests={[]}
-      preview={{ waitingCount: 0, oneSeat: [], twoSeats: [] }}
+      preview={{ waitingCount: 0, waiting: [], oneSeat: [], twoSeats: [] }}
       handlers={{ add: vi.fn() } as unknown as GuestActionHandlers}
       paymentMissing={paymentMissing}
     />,
