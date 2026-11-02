@@ -45,7 +45,7 @@ function message(overrides: Partial<ThreadMessageView> = {}): ThreadMessageView 
     source: "ADMIN",
     body: "Hola, ya estás en la lista.",
     imageSrcs: [],
-    timeLabel: "10:30",
+    createdAt: new Date("2026-11-03T16:30:00Z"),
     lastError: null,
     ...overrides,
   };
@@ -108,28 +108,65 @@ describe("MessageThread bubbles", () => {
       ],
     });
 
-    const bubbles = Array.from(screen.getByRole("list", { name: "Mensajes" }).children);
-    expect(bubbles.map((bubble) => bubble.textContent)).toEqual([
+    const groups = Array.from(screen.getByRole("list", { name: "Mensajes" }).children).slice(1);
+    expect(groups.map((group) => group.textContent)).toEqual([
       expect.stringContaining("Primero"),
       expect.stringContaining("Segundo"),
       expect.stringContaining("Tercero"),
     ]);
-    expect(bubbles[0]!.className).toContain("justify-start");
-    expect(bubbles[1]!.className).toContain("justify-end");
-    expect(bubbles[2]!.className).toContain("justify-start");
+    expect(groups[0]!.className).toContain("items-start");
+    expect(groups[1]!.className).toContain("items-end");
+    expect(groups[2]!.className).toContain("items-start");
   });
 
-  it("shows the kind label, the status badge and the time on outbound messages", () => {
+  it("styles inbound bubbles muted and outbound bubbles cream with a 6px tail corner", () => {
     renderThread({
       messages: [
-        message({ kind: "CLUE", status: "READ", body: "Busca la puerta azul", timeLabel: "21:05" }),
+        message({
+          id: "m1",
+          direction: "INBOUND",
+          kind: "INBOUND",
+          status: "RECEIVED",
+          body: "Hola",
+        }),
+        message({ id: "m2", body: "Uno" }),
+        message({ id: "m3", body: "Dos" }),
+      ],
+    });
+
+    const inbound = screen.getByText("Hola").parentElement!;
+    const first = screen.getByText("Uno").parentElement!;
+    const last = screen.getByText("Dos").parentElement!;
+    expect(inbound.className).toContain("bg-muted");
+    expect(inbound.className).toContain("rounded-bl-[6px]");
+    expect(first.className).toContain("bg-primary");
+    expect(first.className).not.toContain("rounded-br-[6px]");
+    expect(last.className).toContain("rounded-br-[6px]");
+  });
+
+  it("labels automatic messages with their kind and shows the status under the group", () => {
+    renderThread({
+      messages: [
+        message({
+          kind: "CLUE",
+          source: "SYSTEM",
+          status: "READ",
+          body: "Busca la puerta azul",
+          createdAt: new Date("2026-11-04T03:05:00Z"),
+        }),
       ],
     });
 
     const bubble = bubbleOf("Busca la puerta azul");
-    expect(within(bubble).getByText("Pista").className).not.toContain("sr-only");
-    expect(within(bubble).getByText("Leído")).toBeDefined();
-    expect(within(bubble).getByText("21:05")).toBeDefined();
+    expect(within(bubble).getByText("Automático · Pista")).toBeDefined();
+    expect(screen.getByText("Leído")).toBeDefined();
+    expect(screen.getByText("21:05")).toBeDefined();
+  });
+
+  it("does not label messages written by an admin as automatic", () => {
+    renderThread({ messages: [message({ source: "ADMIN", body: "Hola" })] });
+
+    expect(screen.queryByText(/Automático/)).toBeNull();
   });
 
   it("shows only the time on inbound messages and keeps their kind for screen readers", () => {
@@ -141,25 +178,25 @@ describe("MessageThread bubbles", () => {
           status: "RECEIVED",
           source: "GUEST",
           body: "¿A qué hora es?",
-          timeLabel: "10:42",
+          createdAt: new Date("2026-11-03T16:42:00Z"),
         }),
       ],
     });
 
     const bubble = bubbleOf("¿A qué hora es?");
-    expect(within(bubble).getByText("10:42")).toBeDefined();
-    expect(within(bubble).queryByText("Recibido")).toBeNull();
+    expect(screen.getByText("10:42")).toBeDefined();
+    expect(screen.queryByText("Recibido")).toBeNull();
     expect(within(bubble).getByText("Mensaje recibido").className).toContain("sr-only");
-    expect(within(bubble).queryByRole("button")).toBeNull();
+    expect(within(bubble).queryByRole("button", { name: /Reintentar|Descartar/ })).toBeNull();
   });
 
   it("keeps line breaks in the text", () => {
     renderThread({ messages: [message({ body: "Primera línea\nSegunda línea" })] });
 
     const text = screen.getByText(
-      (_, element) => element?.textContent === "Primera línea\nSegunda línea",
+      (_, element) =>
+        element?.tagName === "P" && element.textContent === "Primera línea\nSegunda línea",
     );
-    expect(text.tagName).toBe("P");
     expect(text.className).toContain("whitespace-pre-line");
   });
 
@@ -175,7 +212,7 @@ describe("MessageThread bubbles", () => {
     expect(within(bubbleOf("Desde el panel")).queryByText("Desde Instagram")).toBeNull();
   });
 
-  it("renders images as thumbnails that open the full image in a new tab", () => {
+  it("renders images as thumbnails that open the lightbox instead of a new tab", () => {
     renderThread({
       messages: [
         message({
@@ -185,13 +222,10 @@ describe("MessageThread bubbles", () => {
       ],
     });
 
-    const first = screen.getByRole("link", { name: "Imagen 1 del mensaje" });
-    const second = screen.getByRole("link", { name: "Imagen 2 del mensaje" });
-    expect(first.getAttribute("href")).toBe("/admin/messages/images/a");
-    expect(first.getAttribute("target")).toBe("_blank");
-    expect(first.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(second.getAttribute("href")).toBe("/admin/messages/images/b");
+    const first = screen.getByRole("button", { name: "Ampliar imagen 1 de 2" });
+    expect(screen.queryByRole("link", { name: /Imagen/ })).toBeNull();
     expect(within(first).getByRole("img").getAttribute("src")).toBe("/admin/messages/images/a");
+    expect(screen.getByRole("button", { name: "Ampliar imagen 2 de 2" })).toBeDefined();
   });
 
   it("renders no image list and no text paragraph when the message has neither", () => {
@@ -204,18 +238,194 @@ describe("MessageThread bubbles", () => {
 
 describe("MessageThread status labels", () => {
   it.each([
-    ["WAITING_CONTACT", "Pendiente: aún no nos escribe"],
-    ["WAITING_WINDOW", "Pendiente: ventana cerrada"],
-    ["QUEUED", "Enviando"],
+    ["WAITING_CONTACT", "En espera: aún no nos escribe"],
+    ["WAITING_WINDOW", "En espera: ventana cerrada"],
+    ["QUEUED", "En espera"],
     ["SENT", "Enviado"],
     ["READ", "Leído"],
-    ["FAILED", "No se pudo enviar"],
+    ["FAILED", "No se pudo"],
     ["SENT_MANUALLY", "Enviado a mano"],
     ["DISCARDED", "Descartado"],
   ] as const)("labels an outbound %s message", (status, label) => {
     renderThread({ messages: [message({ status, body: "Texto del mensaje" })] });
 
-    expect(within(bubbleOf("Texto del mensaje")).getByText(label)).toBeDefined();
+    expect(screen.getByText(label)).toBeDefined();
+  });
+
+  it.each([
+    ["WAITING_WINDOW", "lucide-clock"],
+    ["QUEUED", "lucide-clock"],
+    ["SENT", "lucide-check"],
+    ["READ", "lucide-check-check"],
+    ["FAILED", "lucide-circle-alert"],
+  ] as const)("draws the %s icon", (status, iconClass) => {
+    renderThread({ messages: [message({ status })] });
+
+    expect(document.querySelector(`svg.${iconClass}`)).not.toBeNull();
+  });
+
+  it("colors only the failed status as an error", () => {
+    renderThread({
+      messages: [message({ id: "m1", status: "FAILED" }), message({ id: "m2", status: "SENT" })],
+    });
+
+    expect(screen.getByText("No se pudo").className).toContain("text-destructive");
+    expect(screen.getByText("Enviado").className).not.toContain("text-destructive");
+  });
+
+  it("shows one status for the whole group, taken from its newest message", () => {
+    renderThread({
+      messages: [
+        message({ id: "m1", status: "SENT", body: "Uno" }),
+        message({ id: "m2", status: "READ", body: "Dos" }),
+      ],
+    });
+
+    expect(screen.getByText("Leído")).toBeDefined();
+    expect(screen.queryByText("Enviado")).toBeNull();
+  });
+});
+
+describe("MessageThread grouping and dates", () => {
+  const at = (iso: string) => new Date(iso);
+
+  it("groups same-direction messages within five minutes under one time", () => {
+    renderThread({
+      messages: [
+        message({ id: "m1", body: "Uno", createdAt: at("2026-11-03T16:00:00Z") }),
+        message({ id: "m2", body: "Dos", createdAt: at("2026-11-03T16:05:00Z") }),
+        message({ id: "m3", body: "Tres", createdAt: at("2026-11-03T16:10:30Z") }),
+      ],
+    });
+
+    const groups = Array.from(screen.getByRole("list", { name: "Mensajes" }).children).slice(1);
+    expect(groups).toHaveLength(2);
+    const first = within(groups[0] as HTMLElement);
+    expect(first.getByText("Uno")).toBeDefined();
+    expect(first.getByText("Dos")).toBeDefined();
+    expect(first.getAllByText(/^\d\d:\d\d$/)).toHaveLength(1);
+    expect(first.getByText("10:05")).toBeDefined();
+    expect(within(groups[1] as HTMLElement).getByText("Tres")).toBeDefined();
+  });
+
+  it("starts a new group when the direction changes", () => {
+    renderThread({
+      messages: [
+        message({ id: "m1", body: "Uno" }),
+        message({
+          id: "m2",
+          direction: "INBOUND",
+          kind: "INBOUND",
+          status: "RECEIVED",
+          body: "Dos",
+        }),
+        message({ id: "m3", body: "Tres" }),
+      ],
+    });
+
+    expect(Array.from(screen.getByRole("list", { name: "Mensajes" }).children)).toHaveLength(4);
+  });
+
+  it("separates days with Hoy, Ayer and a long date", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(at("2026-11-03T18:00:00Z"));
+    renderThread({
+      messages: [
+        message({ id: "m1", body: "Viejo", createdAt: at("2026-10-30T16:00:00Z") }),
+        message({ id: "m2", body: "De ayer", createdAt: at("2026-11-02T16:00:00Z") }),
+        message({ id: "m3", body: "De hoy", createdAt: at("2026-11-03T16:00:00Z") }),
+      ],
+    });
+
+    const items = Array.from(screen.getByRole("list", { name: "Mensajes" }).children);
+    expect(items.map((item) => item.textContent)).toEqual([
+      "30 de octubre",
+      expect.stringContaining("Viejo"),
+      "Ayer",
+      expect.stringContaining("De ayer"),
+      "Hoy",
+      expect.stringContaining("De hoy"),
+    ]);
+  });
+
+  it("does not merge messages from different days into one group", () => {
+    renderThread({
+      messages: [
+        message({ id: "m1", body: "Noche", createdAt: at("2026-11-03T05:58:00Z") }),
+        message({ id: "m2", body: "Madrugada", createdAt: at("2026-11-03T06:01:00Z") }),
+      ],
+    });
+
+    expect(Array.from(screen.getByRole("list", { name: "Mensajes" }).children)).toHaveLength(4);
+  });
+
+  it("animates only messages that arrive after the first render", () => {
+    const actions = createActions();
+    const view = render(
+      <MessageThread
+        messages={[message({ id: "m1", body: "Uno" })]}
+        username="ana"
+        canAct
+        {...actions}
+      />,
+    );
+
+    view.rerender(
+      <MessageThread
+        messages={[message({ id: "m1", body: "Uno" }), message({ id: "m2", body: "Dos" })]}
+        username="ana"
+        canAct
+        {...actions}
+      />,
+    );
+
+    expect(bubbleOf("Uno").className).not.toContain("admin-chat-in");
+    expect(bubbleOf("Dos").className).toContain("admin-chat-in");
+  });
+});
+
+describe("MessageThread jump to latest", () => {
+  function scrollThread(container: HTMLElement, distanceFromLatest: number) {
+    const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      value: 600 - distanceFromLatest,
+    });
+    fireEvent.scroll(scroller);
+  }
+
+  it("is hidden at the bottom and appears after scrolling up more than 200px", () => {
+    const { container } = renderThread();
+    expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).toBeNull();
+
+    scrollThread(container, 200);
+    expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).toBeNull();
+
+    scrollThread(container, 201);
+    expect(screen.getByRole("button", { name: "Ir al último mensaje" })).toBeDefined();
+
+    scrollThread(container, 0);
+    expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).toBeNull();
+  });
+
+  it("scrolls smoothly to the newest message when pressed", () => {
+    const { container } = renderThread();
+    scrollThread(container, 500);
+    scrollIntoView.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ir al último mensaje" }));
+
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ behavior: "smooth", block: "end" });
+  });
+
+  it("is not offered in threads that do not follow the newest message", () => {
+    const { container } = renderThread({ scrollToNewest: false });
+
+    scrollThread(container, 500);
+
+    expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).toBeNull();
   });
 });
 
@@ -408,7 +618,7 @@ describe("MessageThread server actions", () => {
     });
 
     expect(screen.getByText("Pendiente de envío")).toBeDefined();
-    expect(screen.getByText("No se pudo enviar")).toBeDefined();
+    expect(screen.getByText("No se pudo")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Reintentar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Ya lo envié" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Descartar" })).toBeNull();

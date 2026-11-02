@@ -1,12 +1,28 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+
+import { isNotificationSoundEnabled, playNotificationChime } from "@/ui/admin/notification-sound";
 
 const REFRESH_INTERVAL_MS = 10_000;
 
-export function ConversationAutoRefresh() {
+interface ConversationAutoRefreshProps {
+  newestInboundMessageId: string | null;
+}
+
+export function ConversationAutoRefresh({ newestInboundMessageId }: ConversationAutoRefreshProps) {
   const router = useRouter();
+  const knownInboundMessageId = useRef(newestInboundMessageId);
+
+  useEffect(() => {
+    const previousId = knownInboundMessageId.current;
+    knownInboundMessageId.current = newestInboundMessageId;
+
+    if (newestInboundMessageId !== null && newestInboundMessageId !== previousId) {
+      if (isNotificationSoundEnabled()) playNotificationChime();
+    }
+  }, [newestInboundMessageId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

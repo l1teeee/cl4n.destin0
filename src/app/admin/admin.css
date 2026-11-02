@@ -117,6 +117,17 @@
   animation: admin-badge-bounce 1.4s ease-in-out infinite;
 }
 
+.admin-chat-in {
+  animation: admin-chat-in 200ms ease-out;
+}
+
+@keyframes admin-chat-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 @keyframes admin-badge-bounce {
   0%,
   50%,

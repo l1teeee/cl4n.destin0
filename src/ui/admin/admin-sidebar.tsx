@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  Bell,
+  BellOff,
   CalendarDays,
   CircleUser,
   LogOut,
@@ -16,7 +18,7 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 import { Button } from "@/ui/primitives/button";
 import {
@@ -34,6 +36,12 @@ import {
 } from "@/ui/primitives/sidebar";
 import { BrandMark } from "@/ui/public/brand-mark";
 import { UnreadCountBadge } from "@/ui/admin/messages/unread-count-badge";
+import {
+  isNotificationSoundEnabled,
+  setNotificationSoundEnabled,
+  subscribeToNotificationSoundPreference,
+} from "@/ui/admin/notification-sound";
+import { useUnreadCount } from "@/ui/admin/use-unread-count";
 
 interface AdminSidebarProps {
   displayName: string;
@@ -78,6 +86,26 @@ function isActive(pathname: string, href: string): boolean {
   }
 
   return pathname.startsWith(href);
+}
+
+function NotificationSoundToggle() {
+  const soundEnabled = useSyncExternalStore(
+    subscribeToNotificationSoundPreference,
+    isNotificationSoundEnabled,
+    () => true,
+  );
+  const Icon = soundEnabled ? Bell : BellOff;
+
+  return (
+    <button
+      type="button"
+      aria-label={soundEnabled ? "Silenciar notificaciones" : "Activar sonido de notificaciones"}
+      className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-[#8d8b85] transition-colors duration-200 hover:text-[#fffbf4] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-primary/40 [&>svg]:size-[1.125rem] [&>svg]:stroke-[1.75]"
+      onClick={() => setNotificationSoundEnabled(!soundEnabled)}
+    >
+      <Icon />
+    </button>
+  );
 }
 
 function ActivePill({ reduceMotion }: { reduceMotion: boolean }) {
@@ -157,6 +185,7 @@ export function AdminSidebar({
   signOutAction,
   unreadMessageCount = 0,
 }: AdminSidebarProps) {
+  const liveUnreadCount = useUnreadCount(unreadMessageCount);
   const pathname = usePathname();
   const reduceMotion = useReducedMotion() ?? false;
   const { isMobile, peeking, setOpenMobile, state } = useSidebar();
@@ -188,17 +217,20 @@ export function AdminSidebar({
           pathname={pathname}
           reduceMotion={reduceMotion}
           closeMobileSidebar={closeMobileSidebar}
-          unreadMessageCount={unreadMessageCount}
+          unreadMessageCount={liveUnreadCount}
         />
       </SidebarContent>
 
       <SidebarFooter className="p-2.5">
-        <span
-          className="max-w-full overflow-hidden px-3 text-[0.8rem] text-[#8d8b85] text-ellipsis whitespace-nowrap opacity-100 transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0"
-          aria-hidden={labelsHidden}
-        >
-          {displayName}
-        </span>
+        <div className="flex items-center justify-between group-data-[collapsible=icon]:justify-center">
+          <span
+            className="min-w-0 overflow-hidden px-3 text-[0.8rem] text-[#8d8b85] text-ellipsis whitespace-nowrap opacity-100 transition-opacity duration-200 group-data-[collapsible=icon]:w-0 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:opacity-0"
+            aria-hidden={labelsHidden}
+          >
+            {displayName}
+          </span>
+          <NotificationSoundToggle />
+        </div>
         <SidebarMenu>
           <SidebarMenuItem>
             <form action={signOutAction}>

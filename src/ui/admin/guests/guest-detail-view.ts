@@ -27,7 +27,7 @@ export function threadMessageViews(messages: readonly ConversationMessage[]): Th
       message.direction === "INBOUND"
         ? message.attachmentIds.map((attachmentId) => `/admin/mensajes/adjuntos/${attachmentId}`)
         : message.attachmentUrls,
-    timeLabel: formatAdminDate(message.createdAt),
+    createdAt: message.createdAt,
     lastError: message.lastError,
   }));
 }

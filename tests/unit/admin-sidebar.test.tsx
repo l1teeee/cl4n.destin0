@@ -125,6 +125,18 @@ describe("AdminSidebar", () => {
     expect(within(messages).getByText("12 mensajes sin leer")).toBeDefined();
   });
 
+  it("toggles the notification sound and remembers the choice", () => {
+    window.localStorage.clear();
+    renderSidebar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Silenciar notificaciones" }));
+
+    expect(window.localStorage.getItem("cl4n_admin_sound")).toBe("off");
+    fireEvent.click(screen.getByRole("button", { name: "Activar sonido de notificaciones" }));
+    expect(window.localStorage.getItem("cl4n_admin_sound")).toBe("on");
+    expect(screen.getByRole("button", { name: "Silenciar notificaciones" })).toBeDefined();
+  });
+
   it("renders sign out as a submit button inside a form", () => {
     renderSidebar();
     const button = screen.getByRole("button", { name: "Cerrar sesión" });
