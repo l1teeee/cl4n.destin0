@@ -211,6 +211,57 @@ describe("GuestRowActions in the queue", () => {
     expect(screen.getByRole("button", { name: "Pasar a la lista" })).toBeDefined();
   });
 
+  it("asks for confirmation naming the guest before promoting", async () => {
+    const guestHandlers = renderActions(waiting(), { freeSeats: 1 });
+
+    await openDialog("Pasar a la lista");
+
+    expect(
+      screen.getByText(
+        "Se pasará a Ana López de la cola a la lista y se le enviará el mensaje por Instagram.",
+      ),
+    ).toBeDefined();
+    expect(guestHandlers.promote).not.toHaveBeenCalled();
+  });
+
+  it("names both guests of a couple in the promotion confirmation", async () => {
+    renderActions(
+      guestRow({
+        kind: "WAITLIST_ENTRY",
+        position: 2,
+        status: "WAITING",
+        stage: null,
+        partySize: 2,
+        guest2Name: "Luis Pérez",
+        guest2Instagram: "luis.perez",
+      }),
+      { freeSeats: 2 },
+    );
+
+    await openDialog("Pasar a la lista");
+
+    expect(screen.getByText(/Se pasará a Ana López y Luis Pérez de la cola/)).toBeDefined();
+  });
+
+  it("does not promote when the confirmation is cancelled", async () => {
+    const guestHandlers = renderActions(waiting(), { freeSeats: 1 });
+
+    await openDialog("Pasar a la lista");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(guestHandlers.promote).not.toHaveBeenCalled();
+  });
+
+  it("promotes once when the confirmation is accepted", async () => {
+    const guestHandlers = renderActions(waiting(), { freeSeats: 1 });
+
+    const [id] = await confirmDialog("Pasar a la lista", guestHandlers.promote);
+
+    expect(id).toBe(rowId);
+    expect(guestHandlers.promote).toHaveBeenCalledTimes(1);
+  });
+
   it("disables Subir at the head and Bajar at the tail", () => {
     renderActions(waiting(1), { queueSize: 1 });
 

@@ -77,6 +77,13 @@ function fillGuest(group: HTMLElement, name: string, instagram: string) {
   });
 }
 
+function fillEnglishGuest(group: HTMLElement, name: string, instagram: string) {
+  fireEvent.change(within(group).getByLabelText("Full name"), { target: { value: name } });
+  fireEvent.change(within(group).getByLabelText("Instagram username"), {
+    target: { value: instagram },
+  });
+}
+
 function answerAllergiesAndAcceptTerms(allergies?: string) {
   if (allergies) {
     fireEvent.click(screen.getByRole("radio", { name: "Sí" }));
@@ -755,6 +762,41 @@ describe("ReservationForm", () => {
     await submitAndWaitForHeading(receivedResponse(1), "¡FELICIDADES!", fillAsSolo);
 
     expect(screen.getByText("1 persona · Sabado")).toBeDefined();
+  });
+
+  it("shows the submitted name above the details line for one person", async () => {
+    await submitAndWaitForHeading(receivedResponse(1), "¡FELICIDADES!", fillAsSolo);
+
+    expect(screen.getByText("Ana Martinez")).toBeDefined();
+  });
+
+  it("shows both submitted names on the received screen for a couple", async () => {
+    await submitAndWaitForHeading(receivedResponse(), "¡FELICIDADES!");
+
+    expect(screen.getByText("Ana Martinez y Luis Perez")).toBeDefined();
+  });
+
+  it("shows both submitted names on the queue screen for a couple", async () => {
+    await submitAndWaitForHeading(waitlistedResponse(), "ESTÁS EN LA COLA");
+
+    expect(screen.getByText("Ana Martinez y Luis Perez")).toBeDefined();
+  });
+
+  it("joins the submitted names with the English conjunction", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(receivedResponse()));
+    renderForm(2, "en");
+    await screen.findByTestId("turnstile");
+    fireEvent.click(screen.getByRole("radio", { name: "As a pair" }));
+    fillEnglishGuest(await screen.findByRole("group", { name: "Guest 1" }), "Ana", "ana.m");
+    fillEnglishGuest(await screen.findByRole("group", { name: "Guest 2" }), "Luis", "luis.p");
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    const slider = await screen.findByRole("slider", { name: "SLIDE TO REQUEST ACCESS" });
+    await waitFor(() => expect(slider.hasAttribute("aria-disabled")).toBe(false));
+    fireEvent.keyDown(slider, { key: "End" });
+
+    await screen.findByRole("heading", { name: "CONGRATULATIONS!" }, { timeout: 2500 });
+    expect(screen.getByText("Ana and Luis")).toBeDefined();
   });
 
   it("shows the queue screen and the Instagram step when the guest is waitlisted", async () => {

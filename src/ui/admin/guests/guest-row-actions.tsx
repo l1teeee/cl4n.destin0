@@ -16,6 +16,7 @@ import {
   cancelPaidConfirmation,
   cancelUnpaidConfirmation,
   guestsLabel,
+  promoteFromQueueConfirmation,
   refundConfirmation,
   rejectConfirmation,
   removeFromQueueConfirmation,
@@ -181,6 +182,7 @@ function QueueActions({ row, freeSeats, queueSize, handlers }: QueueActionsProps
         <MutationForm
           action={handlers.promote.bind(null, row.id)}
           label="Pasar a la lista"
+          confirmation={promoteFromQueueConfirmation(guestNames(row))}
           reportToSection
         />
       ) : null}

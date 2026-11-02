@@ -57,6 +57,17 @@ function formatPartySize(partySize: number, messages: PublicMessages["reservatio
   return `${partySize} ${partySize === 1 ? messages.person : messages.people}`;
 }
 
+function submittedGuestNames(fields: ReservationFormValues): string[] {
+  if (fields.partySize === 2 && fields.guest2Name) {
+    return [fields.guest1Name, fields.guest2Name];
+  }
+  return [fields.guest1Name];
+}
+
+function formatGuestNames(names: string[], messages: PublicMessages["reservation"]): string {
+  return names.join(` ${messages.nameConjunction} `);
+}
+
 // Blank means not configured. A leading @ is dropped so the chat link stays valid.
 function configuredInstagramUsername(): string | undefined {
   const username = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME?.trim().replace(/^@/, "");
@@ -186,6 +197,7 @@ export function ReservationForm({
   const [formState, setFormState] = useState<ReservationFormState | null>(null);
   const [confirmedState, setConfirmedState] = useState<ConfirmedReservationState | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [submittedNames, setSubmittedNames] = useState<string[]>([]);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const instagramUsername = configuredInstagramUsername();
   const canChoosePartySize = maxPartySize >= 2;
@@ -340,6 +352,7 @@ export function ReservationForm({
       nextState.kind === "closed"
     ) {
       setConfirmedState(nextState);
+      setSubmittedNames(submittedGuestNames(fields));
     }
 
     if (nextState.kind === "error" && nextState.automaticRetry && !alreadyRetried) {
@@ -409,6 +422,7 @@ export function ReservationForm({
       <section className="reservation-success" aria-live="polite">
         <h2>{messages.receivedTitle}</h2>
         <p className="reservation-success-lead">{messages.receivedLead}</p>
+        <p className="reservation-success-details">{formatGuestNames(submittedNames, messages)}</p>
         <p className="reservation-success-details">
           {formatPartySize(confirmedState.partySize, messages)} · {formattedDate}
         </p>
@@ -430,6 +444,7 @@ export function ReservationForm({
         </p>
         <p>{messages.waitlistedHelp}</p>
         <p>{messages.messageRequests}</p>
+        <p className="reservation-success-details">{formatGuestNames(submittedNames, messages)}</p>
         <p className="reservation-success-details">
           {formatPartySize(confirmedState.partySize, messages)} · {formattedDate}
         </p>

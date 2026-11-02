@@ -121,6 +121,10 @@ export function removeFromQueueConfirmation(guests: readonly string[]): string {
   return `Se quitará a ${guestsLabel(guests)} de la cola. ¿Estás seguro?`;
 }
 
+export function promoteFromQueueConfirmation(guests: readonly string[]): string {
+  return `Se pasará a ${guestsLabel(guests)} de la cola a la lista y se le enviará el mensaje por Instagram.`;
+}
+
 export function refundConfirmation(guests: readonly string[]): string {
   return `Confirma que ya le devolviste el pago a ${guestsLabel(guests)}.`;
 }
