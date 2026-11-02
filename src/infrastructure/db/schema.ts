@@ -83,6 +83,13 @@ export const auditAction = pgEnum("audit_action", [
   "MESSAGING_CONTACT_UNLINKED",
   "INSTAGRAM_CONNECTED",
   "INSTAGRAM_DISCONNECTED",
+  "EXTRA_CREATED",
+  "EXTRA_UPDATED",
+  "EXTRA_DELETED",
+  "CONSUMPTION_ADDED",
+  "CONSUMPTION_VOIDED",
+  "GUEST_TAB_SETTLED",
+  "GUEST_TAB_REOPENED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);
@@ -1101,7 +1108,7 @@ export const auditLogs = pgTable(
     ),
     check(
       "audit_logs_entity_type_chk",
-      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT', 'INSTAGRAM_CONNECTION')`,
+      sql`${table.entityType} IN ('EVENT', 'RESERVATION', 'ADMIN_USER', 'WAITLIST_ENTRY', 'DRINK', 'MESSAGE_TEMPLATE', 'MESSAGING_CONTACT', 'INSTAGRAM_CONNECTION', 'EXTRA', 'GUEST_CONSUMPTION', 'GUEST_TAB')`,
     ),
     index("audit_logs_entity_occurred_at_idx").on(
       table.entityType,
@@ -1186,5 +1193,122 @@ export const drinkImages = pgTable(
     ),
     check("drink_images_byte_size_chk", sql`${table.byteSize} BETWEEN 1 AND 2097152`),
     check("drink_images_data_size_chk", sql`octet_length(${table.data}) = ${table.byteSize}`),
+  ],
+);
+
+export const extras = pgTable(
+  "extras",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    name: text("name").notNull(),
+    priceCents: integer("price_cents").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ name: "extras_pkey", columns: [table.id] }),
+    check("extras_name_length_chk", sql`char_length(${table.name}) BETWEEN 1 AND 80`),
+    check("extras_price_cents_chk", sql`${table.priceCents} BETWEEN 0 AND 10000000`),
+  ],
+);
+
+export const guestConsumptions = pgTable(
+  "guest_consumptions",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    eventId: uuid("event_id").notNull(),
+    reservationId: uuid("reservation_id").notNull(),
+    guestSlot: smallint("guest_slot").notNull(),
+    source: text("source").notNull(),
+    drinkId: uuid("drink_id"),
+    extraId: uuid("extra_id"),
+    itemName: text("item_name").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    quantity: integer("quantity").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    voidedBy: uuid("voided_by"),
+  },
+  (table) => [
+    primaryKey({ name: "guest_consumptions_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "guest_consumptions_event_fk",
+      columns: [table.eventId],
+      foreignColumns: [events.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "guest_consumptions_reservation_fk",
+      columns: [table.reservationId],
+      foreignColumns: [reservations.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "guest_consumptions_drink_fk",
+      columns: [table.drinkId],
+      foreignColumns: [drinks.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "guest_consumptions_extra_fk",
+      columns: [table.extraId],
+      foreignColumns: [extras.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "guest_consumptions_created_by_admin_fk",
+      columns: [table.createdBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "guest_consumptions_voided_by_admin_fk",
+      columns: [table.voidedBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("set null"),
+    check("guest_consumptions_guest_slot_chk", sql`${table.guestSlot} IN (1, 2)`),
+    check("guest_consumptions_source_chk", sql`${table.source} IN ('DRINK', 'EXTRA', 'CUSTOM')`),
+    // The item reference is cleared when a drink is deleted, so only the opposite direction is enforced.
+    check(
+      "guest_consumptions_source_reference_chk",
+      sql`(${table.drinkId} IS NULL OR ${table.source} = 'DRINK') AND (${table.extraId} IS NULL OR ${table.source} = 'EXTRA')`,
+    ),
+    check(
+      "guest_consumptions_item_name_length_chk",
+      sql`char_length(${table.itemName}) BETWEEN 1 AND 80`,
+    ),
+    check("guest_consumptions_unit_price_chk", sql`${table.unitPriceCents} BETWEEN 0 AND 10000000`),
+    check("guest_consumptions_quantity_chk", sql`${table.quantity} BETWEEN 1 AND 99`),
+    check(
+      "guest_consumptions_voided_pair_chk",
+      sql`${table.voidedAt} IS NOT NULL OR ${table.voidedBy} IS NULL`,
+    ),
+    index("guest_consumptions_tab_idx")
+      .on(table.eventId, table.reservationId, table.guestSlot)
+      .where(sql`${table.voidedAt} IS NULL`),
+  ],
+);
+
+export const guestTabs = pgTable(
+  "guest_tabs",
+  {
+    reservationId: uuid("reservation_id").notNull(),
+    guestSlot: smallint("guest_slot").notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    settledBy: uuid("settled_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "guest_tabs_pkey", columns: [table.reservationId, table.guestSlot] }),
+    foreignKey({
+      name: "guest_tabs_reservation_fk",
+      columns: [table.reservationId],
+      foreignColumns: [reservations.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "guest_tabs_settled_by_admin_fk",
+      columns: [table.settledBy],
+      foreignColumns: [adminUsers.id],
+    }).onDelete("set null"),
+    check("guest_tabs_guest_slot_chk", sql`${table.guestSlot} IN (1, 2)`),
   ],
 );
