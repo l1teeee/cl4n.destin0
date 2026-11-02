@@ -6,6 +6,7 @@ import { MutationForm } from "@/ui/admin/mutation-form";
 import { cn } from "@/ui/cn";
 import { Badge } from "@/ui/primitives/badge";
 
+import { MessageImages } from "./image-lightbox";
 import { CopyTextButton, OpenInstagramChatLink } from "./manual-send-buttons";
 import {
   messageKindLabel,
@@ -43,34 +44,6 @@ interface MessageItemProps extends MessageActions {
   message: ThreadMessageView;
   username: string | null;
   canAct: boolean;
-}
-
-function MessageImages({ srcs }: { srcs: readonly string[] }) {
-  if (srcs.length === 0) return null;
-
-  return (
-    <ul aria-label="Imágenes del mensaje" className="flex flex-wrap gap-2">
-      {srcs.map((src, index) => (
-        <li key={src}>
-          <a
-            href={src}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block size-24 border border-border"
-          >
-            {/* Message images come from an authenticated same-origin route, so next/image adds nothing. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={src}
-              alt={`Imagen ${index + 1} del mensaje`}
-              loading="lazy"
-              className="size-full object-cover"
-            />
-          </a>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 function ManualFallbackActions({
@@ -127,7 +100,7 @@ function MessageBubble({
           {messageKindLabel(message.kind)}
         </p>
         {message.body ? <p className="break-words whitespace-pre-line">{message.body}</p> : null}
-        <MessageImages srcs={message.imageSrcs} />
+        <MessageImages srcs={message.imageSrcs} username={username} />
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.7rem] text-[#8d8b85]">
           {outbound ? <Badge variant={status.variant}>{status.label}</Badge> : null}
           <span>{message.timeLabel}</span>

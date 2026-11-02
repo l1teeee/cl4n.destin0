@@ -175,7 +175,7 @@ describe("MessageThread bubbles", () => {
     expect(within(bubbleOf("Desde el panel")).queryByText("Desde Instagram")).toBeNull();
   });
 
-  it("renders images as thumbnails that open the full image in a new tab", () => {
+  it("renders images as thumbnails that open the lightbox instead of a new tab", () => {
     renderThread({
       messages: [
         message({
@@ -185,13 +185,10 @@ describe("MessageThread bubbles", () => {
       ],
     });
 
-    const first = screen.getByRole("link", { name: "Imagen 1 del mensaje" });
-    const second = screen.getByRole("link", { name: "Imagen 2 del mensaje" });
-    expect(first.getAttribute("href")).toBe("/admin/messages/images/a");
-    expect(first.getAttribute("target")).toBe("_blank");
-    expect(first.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(second.getAttribute("href")).toBe("/admin/messages/images/b");
+    const first = screen.getByRole("button", { name: "Ampliar imagen 1 de 2" });
+    expect(screen.queryByRole("link", { name: /Imagen/ })).toBeNull();
     expect(within(first).getByRole("img").getAttribute("src")).toBe("/admin/messages/images/a");
+    expect(screen.getByRole("button", { name: "Ampliar imagen 2 de 2" })).toBeDefined();
   });
 
   it("renders no image list and no text paragraph when the message has neither", () => {

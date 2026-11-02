@@ -4,9 +4,11 @@ const NOTE_DURATION_SECONDS = 0.12;
 const NOTE_ATTACK_SECONDS = 0.02;
 const PEAK_GAIN = 0.12;
 const SILENT_GAIN = 0.0001;
+const CHIME_COOLDOWN_MS = 3_000;
 
 const preferenceListeners = new Set<() => void>();
 let audioContext: AudioContext | null = null;
+let lastChimeAt = Number.NEGATIVE_INFINITY;
 
 function unlockAudio(): void {
   if (!audioContext) {
@@ -46,6 +48,11 @@ function playNote(context: AudioContext, frequencyHz: number, startTime: number)
 
 export function playNotificationChime(): void {
   if (!audioContext || audioContext.state !== "running") return;
+
+  // WHY: the unread poll and the open conversation can both notice the same new message.
+  const now = Date.now();
+  if (now - lastChimeAt < CHIME_COOLDOWN_MS) return;
+  lastChimeAt = now;
 
   const firstNoteStart = audioContext.currentTime;
   NOTE_FREQUENCIES_HZ.forEach((frequencyHz, index) => {

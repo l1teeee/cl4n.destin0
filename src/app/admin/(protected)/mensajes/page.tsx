@@ -138,11 +138,13 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
   let conversation = null;
   if (selectedConversation) {
     const header = conversationHeaderView(selectedConversation, now);
+    const threadMessages = selectedConversation.messages.map(threadMessageView);
+    const newestInboundMessageId =
+      threadMessages.filter((message) => message.direction === "INBOUND").at(-1)?.id ?? null;
     const controls = canSend ? (
       <ConversationControls
         contactId={selectedConversation.contact.id}
         linkedRequests={selectedConversation.linkedRequests}
-        linkByCodeAction={linkContactByCodeAction}
         unlinkAction={unlinkContactAction}
       />
     ) : undefined;
@@ -154,9 +156,13 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
             action={markConversationReadAction}
           />
         ) : null}
-        <ConversationHeader header={header} controls={controls} />
+        <ConversationHeader
+          header={header}
+          controls={controls}
+          linkByCodeAction={canSend ? linkContactByCodeAction : undefined}
+        />
         <MessageThread
-          messages={selectedConversation.messages.map(threadMessageView)}
+          messages={threadMessages}
           username={selectedConversation.contact.username}
           canAct={canSend}
           retryAction={retryMessageAction}
@@ -176,7 +182,10 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
             Solo lectura: solo un superadministrador puede enviar mensajes.
           </p>
         )}
-        <ConversationAutoRefresh />
+        <ConversationAutoRefresh
+          key={selectedConversation.contact.id}
+          newestInboundMessageId={newestInboundMessageId}
+        />
       </>
     );
   }

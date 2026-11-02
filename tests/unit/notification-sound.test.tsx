@@ -81,6 +81,22 @@ describe("notification chime", () => {
     removeListeners();
   });
 
+  it("ignores a second chime inside the 3 second cooldown", async () => {
+    vi.useFakeTimers();
+    const removeListeners = sound.installAudioUnlock();
+    window.dispatchEvent(new Event("pointerdown"));
+    await Promise.resolve();
+
+    sound.playNotificationChime();
+    sound.playNotificationChime();
+    vi.advanceTimersByTime(3_000);
+    sound.playNotificationChime();
+
+    expect(FakeAudioContext.instances[0]?.oscillators).toHaveLength(4);
+    removeListeners();
+    vi.useRealTimers();
+  });
+
   it("stops listening for gestures after cleanup", () => {
     const removeListeners = sound.installAudioUnlock();
     removeListeners();
