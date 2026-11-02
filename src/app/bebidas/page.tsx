@@ -1,8 +1,10 @@
+import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 
 import { formatDrinkPrice } from "@/domain/drink/drink-price";
 import { postgresDrinkRepository } from "@/infrastructure/db/repositories/postgres-drink-repository";
 import { DrinkDetailsDialog } from "@/ui/drink-details-dialog";
+import { DrinkImage } from "@/ui/public/drink-image";
 import { PublicHeader } from "@/ui/public/public-header";
 
 import "./bebidas.css";
@@ -24,17 +26,14 @@ export default async function DrinksMenuPage() {
           <p>El menú de bebidas estará disponible pronto.</p>
         ) : (
           <ul className="drinks-list">
-            {drinks.map((drink) => (
-              <li key={drink.id} className="drink-item">
+            {drinks.map((drink, index) => (
+              <li
+                key={drink.id}
+                className="drink-item"
+                style={{ "--drink-index": index } as CSSProperties}
+              >
                 {drink.imageId ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    className="drink-image"
-                    src={`/bebidas/imagen/${drink.imageId}`}
-                    alt={drink.name}
-                    loading="lazy"
-                    decoding="async"
-                  />
+                  <DrinkImage src={`/bebidas/imagen/${drink.imageId}`} alt={drink.name} />
                 ) : null}
                 <div className="drink-copy">
                   <h2>
