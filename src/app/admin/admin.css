@@ -145,6 +145,21 @@
   }
 }
 
+/* Keyboard focus only: a quiet ring. Text fields signal focus with their border instead. */
+.admin-shell :focus-visible,
+.admin-login :focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--clan-foreground) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.admin-shell textarea:focus-visible,
+.admin-shell input:not([type="checkbox"], [type="radio"]):focus-visible,
+.admin-shell [data-slot="select-trigger"]:focus-visible,
+.admin-login textarea:focus-visible,
+.admin-login input:not([type="checkbox"], [type="radio"]):focus-visible {
+  outline: none;
+}
+
 .admin-brand:focus-visible .admin-brand-mark {
   animation: public-blink 420ms ease-in-out;
 }

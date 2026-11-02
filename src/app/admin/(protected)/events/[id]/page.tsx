@@ -36,6 +36,7 @@ import { parseGuestView } from "@/ui/admin/guests/guest-list-view";
 import { LinkPendingIndicator } from "@/ui/admin/link-pending";
 import { LocationDeliveryPanel } from "@/ui/admin/location-delivery-panel";
 import { MutationForm } from "@/ui/admin/mutation-form";
+import { Pagination } from "@/ui/admin/pagination";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import {
@@ -452,51 +453,15 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
       >
         <h2 className="admin-section-title">Auditoría de la experiencia</h2>
         <AuditLogTable items={audit.value.items} />
-        <AuditPagination
-          eventId={id}
+        <Pagination
           page={audit.value.page}
           pageSize={audit.value.pageSize}
           total={audit.value.total}
-          view={guestView}
+          pageHref={(targetPage) =>
+            `/admin/events/${id}?seccion=auditoria&vista=${guestView}&page=${targetPage}`
+          }
         />
       </section>
     </main>
-  );
-}
-
-function AuditPagination({
-  eventId,
-  page,
-  pageSize,
-  total,
-  view,
-}: {
-  eventId: string;
-  page: number;
-  pageSize: number;
-  total: number;
-  view: string;
-}) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  return (
-    <nav className="admin-muted flex items-center gap-4" aria-label="Paginación de auditoría">
-      <span className="admin-secondary">
-        Página {page} de {pages}
-      </span>
-      {page > 1 ? (
-        <Button variant="link" asChild>
-          <Link href={`/admin/events/${eventId}?seccion=auditoria&vista=${view}&page=${page - 1}`}>
-            Anterior
-          </Link>
-        </Button>
-      ) : null}
-      {page < pages ? (
-        <Button variant="link" asChild>
-          <Link href={`/admin/events/${eventId}?seccion=auditoria&vista=${view}&page=${page + 1}`}>
-            Siguiente
-          </Link>
-        </Button>
-      ) : null}
-    </nav>
   );
 }

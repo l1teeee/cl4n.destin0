@@ -29,7 +29,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "group flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-md border border-input bg-[#fffbf405] px-4 py-2.5 text-sm text-foreground transition-[border-color,background-color,box-shadow] duration-200 disabled:opacity-50 focus:border-[#b9b7b0] focus:bg-[#fffbf40a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:border-[#b9b7b0] data-[state=open]:bg-[#fffbf40a] aria-invalid:border-destructive aria-invalid:focus:border-destructive data-[placeholder]:text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:aria-invalid:hover:border-destructive [@media(hover:hover)_and_(pointer:fine)]:hover:not-focus:border-[#b9b7b0]",
+        "group flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-md border border-input bg-[#fffbf405] px-4 py-2.5 text-sm text-foreground transition-[border-color,background-color] duration-200 disabled:opacity-50 focus:border-primary/50 focus-visible:outline-none data-[state=open]:border-primary/50 aria-invalid:border-destructive aria-invalid:focus:border-destructive data-[placeholder]:text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:aria-invalid:hover:border-destructive [@media(hover:hover)_and_(pointer:fine)]:hover:not-focus:border-[#b9b7b0]",
         className,
       )}
       {...props}

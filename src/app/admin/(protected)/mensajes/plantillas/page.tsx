@@ -7,7 +7,8 @@ import { TEMPLATE_VARIABLES, type TemplateKey } from "@/domain/messaging/message
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresMessageTemplateRepository } from "@/infrastructure/db/repositories/postgres-message-template-repository";
 import { formatAdminDate } from "@/ui/admin/view-model";
-import { TemplateEditor } from "@/ui/admin/messages/template-editor";
+import { TemplateList } from "@/ui/admin/messages/template-list";
+import type { TemplateListItem } from "@/ui/admin/messages/template-list-view";
 import { Button } from "@/ui/primitives/button";
 
 const templateCopy: Record<TemplateKey, { title: string; timing: string }> = {
@@ -42,9 +43,18 @@ export default async function MessageTemplatesPage() {
   const authorization = await requireAdmin("page");
   const canSend = hasPermission(authorization.session.admin.role, "templates.edit");
   const templates = await listTemplates(postgresMessageTemplateRepository);
+  const items: TemplateListItem[] = templates.map((template) => ({
+    key: template.key,
+    title: templateCopy[template.key].title,
+    timing: templateCopy[template.key].timing,
+    body: template.body,
+    variables: TEMPLATE_VARIABLES[template.key],
+    editedLabel: `Editado ${formatAdminDate(template.updatedAt)}`,
+    updatedLabel: `Última edición: ${formatAdminDate(template.updatedAt)} por ${template.updatedBy ?? "Sistema"}`,
+  }));
 
   return (
-    <main className="admin-page space-y-8">
+    <main className="admin-page max-w-3xl space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="admin-eyebrow">Mensajes</p>
@@ -60,24 +70,7 @@ export default async function MessageTemplatesPage() {
           Solo lectura: solo un superadministrador puede editar las plantillas.
         </p>
       ) : null}
-      <div className="grid gap-6 xl:grid-cols-2">
-        {templates.map((template) => {
-          const copy = templateCopy[template.key];
-          return (
-            <TemplateEditor
-              key={template.key}
-              templateKey={template.key}
-              title={copy.title}
-              timing={copy.timing}
-              initialBody={template.body}
-              variables={TEMPLATE_VARIABLES[template.key]}
-              updatedLabel={`Última edición: ${formatAdminDate(template.updatedAt)} por ${template.updatedBy ?? "Sistema"}`}
-              readOnly={!canSend}
-              action={updateTemplateAction}
-            />
-          );
-        })}
-      </div>
+      <TemplateList items={items} readOnly={!canSend} action={updateTemplateAction} />
     </main>
   );
 }
