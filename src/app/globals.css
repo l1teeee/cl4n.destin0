@@ -279,7 +279,9 @@ textarea {
   gap: 0.5rem;
   min-width: 0;
   padding: 2.5rem 1.5rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--clan-foreground);
+  background: var(--clan-foreground);
+  color: var(--clan-background);
   overflow-wrap: anywhere;
 }
 
@@ -302,8 +304,8 @@ textarea {
   width: 100%;
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--border);
-  opacity: 0.7;
+  border-top: 1px solid rgb(17 18 13 / 0.25);
+  color: rgb(17 18 13 / 0.7);
   text-wrap: balance;
 }
 
@@ -315,9 +317,9 @@ textarea {
   max-width: 100%;
   margin-top: 0.5rem;
   padding: 0 2.5rem;
-  border: 1px solid var(--clan-foreground);
+  border: 1px solid var(--clan-background);
   border-radius: 1.75rem;
-  background: transparent;
+  background: var(--clan-background);
   color: var(--clan-foreground);
   font-size: 0.8125rem;
   font-weight: 700;
@@ -329,8 +331,9 @@ textarea {
 }
 
 .public-cta:focus-visible {
-  background: var(--clan-foreground);
+  background: transparent;
   color: var(--clan-background);
+  outline-color: var(--clan-background);
 }
 
 .public-steps {
@@ -510,6 +513,36 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem 1.5rem;
+}
+
+.reservation-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms ease-out;
+}
+
+.reservation-collapse[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.reservation-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 320ms ease-out,
+    transform 320ms ease-out;
+}
+
+.reservation-collapse[data-open="true"] > .reservation-collapse-inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.reservation-heading-swap {
+  display: inline-block;
+  animation: public-fade 240ms ease-out backwards;
 }
 
 .reservation-label {
@@ -869,7 +902,7 @@ textarea.reservation-input {
   }
 
   .public-cta:hover {
-    background: var(--clan-foreground);
+    background: transparent;
     color: var(--clan-background);
   }
 
@@ -941,6 +974,86 @@ textarea.reservation-input {
   .public-steps-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 2rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .public-page-landing {
+    height: 100svh;
+    overflow: hidden;
+  }
+
+  .public-page-landing .public-header {
+    flex-shrink: 0;
+    min-height: clamp(3.5rem, 9svh, 5.5rem);
+    padding-block: clamp(0.25rem, 1svh, 1rem);
+  }
+
+  .public-page-landing .public-footer {
+    flex-shrink: 0;
+    padding-block: clamp(0.25rem, 1svh, 1rem);
+  }
+
+  .public-home {
+    min-height: 0;
+    gap: clamp(0.5rem, 1.6svh, 1rem);
+    padding-block: clamp(0.5rem, 2svh, 2rem);
+  }
+
+  .public-home-mark {
+    width: clamp(1.75rem, 5svh, 4rem);
+  }
+
+  .public-home h1 {
+    font-size: clamp(2rem, min(5vw, 6.5svh), 4.5rem);
+  }
+
+  .public-events {
+    margin-top: 0;
+  }
+
+  .public-event {
+    gap: clamp(0.25rem, 0.8svh, 0.5rem);
+    padding: clamp(1rem, 2.6svh, 2.5rem) 1.5rem;
+  }
+
+  .public-event-day {
+    font-size: clamp(2.5rem, 7svh, 5.5rem);
+  }
+
+  .public-event-when {
+    font-size: clamp(1rem, 2svh, 1.125rem);
+  }
+
+  .public-event-access {
+    margin-top: clamp(0.5rem, 1.5svh, 1rem);
+    padding-top: clamp(0.5rem, 1.5svh, 1rem);
+  }
+
+  .public-cta {
+    min-height: clamp(3rem, 6.5svh, 3.5rem);
+    margin-top: clamp(0.25rem, 0.5svh, 0.5rem);
+  }
+
+  .public-steps {
+    gap: clamp(0.5rem, 1.5svh, 1.5rem);
+    margin-top: clamp(0.5rem, 3svh, 3rem);
+  }
+
+  .public-step {
+    gap: clamp(0.25rem, 0.8svh, 0.5rem);
+    padding-top: clamp(0.5rem, 1.5svh, 1rem);
+  }
+
+  .public-step p {
+    font-size: clamp(0.8125rem, 1.7svh, 0.9375rem);
+    line-height: 1.5;
+  }
+}
+
+@media (min-width: 1024px) and (max-height: 759px) {
+  .public-steps {
+    display: none;
   }
 }
 

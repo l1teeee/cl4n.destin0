@@ -113,6 +113,58 @@ function InstagramLastStep({
   );
 }
 
+const SECOND_GUEST_TRANSITION_MS = 320;
+
+// Keeps the second guest block in the DOM while it collapses, so the exit can animate.
+// The block is only presentation while collapsing; its fields are unregistered by then.
+function useSecondGuestTransition(isCouple: boolean) {
+  const [mounted, setMounted] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    if (!isCouple) return;
+    let secondFrame = 0;
+    // Two frames let the collapsed block paint once, so the expand has a start state.
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        setMounted(true);
+        setOpen(true);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [isCouple]);
+
+  useEffect(() => {
+    if (isCouple || !mounted) return;
+    const timer = setTimeout(() => {
+      setMounted(false);
+      setOpen(false);
+    }, SECOND_GUEST_TRANSITION_MS);
+    return () => clearTimeout(timer);
+  }, [isCouple, mounted]);
+
+  const isCollapsing = !isCouple && mounted;
+
+  function restartCollapsingBlock() {
+    // A block that is still collapsing keeps the old text; a new one starts empty.
+    setMounted(false);
+    setOpen(false);
+    setEpoch((current) => current + 1);
+  }
+
+  return {
+    isRendered: isCouple || mounted,
+    isExpanded: isCouple && open,
+    isCollapsing,
+    epoch,
+    restartCollapsingBlock,
+  };
+}
+
 export function ReservationForm({
   eventSlug,
   maxPartySize,
@@ -148,6 +200,14 @@ export function ReservationForm({
   const partySize = useWatch({ control, name: "partySize" });
   const hasAllergies = useWatch({ control, name: "hasAllergies" });
   const isCouple = partySize === 2;
+  const secondGuest = useSecondGuestTransition(isCouple);
+
+  function choosePartySize(value: string, onChange: (partySize: number) => void) {
+    if (value === "2" && secondGuest.isCollapsing) {
+      secondGuest.restartCollapsingBlock();
+    }
+    onChange(Number(value));
+  }
 
   useEffect(() => {
     let key: string;
@@ -423,7 +483,7 @@ export function ReservationForm({
                   ref={field.ref}
                   className="reservation-choice"
                   value={field.value ? String(field.value) : ""}
-                  onValueChange={(value) => field.onChange(Number(value))}
+                  onValueChange={(value) => choosePartySize(value, field.onChange)}
                   onBlur={field.onBlur}
                   required
                   aria-labelledby="partySize-legend"
@@ -446,7 +506,9 @@ export function ReservationForm({
 
       <div role="group" aria-labelledby="guest1-heading" className="reservation-section">
         <h2 id="guest1-heading" className="reservation-section-heading">
-          {isCouple ? "Invitado 1" : "Tus datos"}
+          <span key={isCouple ? "couple" : "solo"} className="reservation-heading-swap">
+            {isCouple ? "Invitado 1" : "Tus datos"}
+          </span>
         </h2>
 
         <div className="reservation-guest-fields">
@@ -480,39 +542,54 @@ export function ReservationForm({
         </div>
       </div>
 
-      {isCouple ? (
-        <div role="group" aria-labelledby="guest2-heading" className="reservation-section">
-          <h2 id="guest2-heading" className="reservation-section-heading">
-            Invitado 2
-          </h2>
+      {secondGuest.isRendered ? (
+        <div
+          key={secondGuest.epoch}
+          className="reservation-collapse"
+          data-open={secondGuest.isExpanded}
+        >
+          <div className="reservation-collapse-inner" inert={!isCouple}>
+            <div
+              role="group"
+              aria-labelledby="guest2-heading"
+              aria-hidden={isCouple ? undefined : true}
+              className="reservation-section"
+            >
+              <h2 id="guest2-heading" className="reservation-section-heading">
+                Invitado 2
+              </h2>
 
-          <div className="reservation-guest-fields">
-            <div className="reservation-field">
-              <label htmlFor="guest2Name" className="reservation-label">
-                Nombre completo
-              </label>
-              <input
-                id="guest2Name"
-                autoComplete="off"
-                className={inputClassName}
-                aria-invalid={Boolean(errors.guest2Name)}
-                {...register("guest2Name")}
-              />
-              <FieldError message={errors.guest2Name?.message} />
-            </div>
+              <div className="reservation-guest-fields">
+                <div className="reservation-field">
+                  <label htmlFor="guest2Name" className="reservation-label">
+                    Nombre completo
+                  </label>
+                  <input
+                    id="guest2Name"
+                    autoComplete="off"
+                    className={inputClassName}
+                    readOnly={!isCouple}
+                    aria-invalid={Boolean(isCouple && errors.guest2Name)}
+                    {...(isCouple ? register("guest2Name") : {})}
+                  />
+                  <FieldError message={isCouple ? errors.guest2Name?.message : undefined} />
+                </div>
 
-            <div className="reservation-field">
-              <label htmlFor="guest2Instagram" className="reservation-label">
-                Usuario de Instagram
-              </label>
-              <input
-                id="guest2Instagram"
-                autoComplete="off"
-                className={inputClassName}
-                aria-invalid={Boolean(errors.guest2Instagram)}
-                {...register("guest2Instagram")}
-              />
-              <FieldError message={errors.guest2Instagram?.message} />
+                <div className="reservation-field">
+                  <label htmlFor="guest2Instagram" className="reservation-label">
+                    Usuario de Instagram
+                  </label>
+                  <input
+                    id="guest2Instagram"
+                    autoComplete="off"
+                    className={inputClassName}
+                    readOnly={!isCouple}
+                    aria-invalid={Boolean(isCouple && errors.guest2Instagram)}
+                    {...(isCouple ? register("guest2Instagram") : {})}
+                  />
+                  <FieldError message={isCouple ? errors.guest2Instagram?.message : undefined} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
