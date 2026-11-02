@@ -131,6 +131,22 @@ export const adminGuestIdSchema = z.uuid("El identificador no es válido.");
 export const expectedPromotedEntryIdsSchema = z.array(
   z.uuid("La entrada esperada de la cola no es válida."),
 );
+export const reservationReplacementSchema = z
+  .discriminatedUnion("replacementMode", [
+    z.object({
+      replacementMode: z.literal("auto"),
+      expectedPromotedEntryIds: expectedPromotedEntryIdsSchema,
+    }),
+    z.object({
+      replacementMode: z.literal("chosen"),
+      replacementEntryId: z.uuid("Elige una entrada válida de la cola."),
+    }),
+  ])
+  .transform((input) =>
+    input.replacementMode === "auto"
+      ? { mode: input.replacementMode, expectedPromotedEntryIds: input.expectedPromotedEntryIds }
+      : { mode: input.replacementMode, waitlistEntryId: input.replacementEntryId },
+  );
 export const moveEntryDirectionSchema = z.enum(["UP", "DOWN"]);
 export const expectedCancellationStageSchema = z.enum(["ON_LIST", "PAID"], {
   error: "La etapa esperada es obligatoria.",
@@ -162,4 +178,12 @@ export function readAdminGuestFields(formData: FormData) {
 
 export function readSendMessage(formData: FormData): boolean {
   return formData.get("sendMessage") === "on";
+}
+
+export function readReservationReplacement(formData: FormData) {
+  return {
+    replacementMode: formData.get("replacementMode") ?? "auto",
+    replacementEntryId: formData.get("replacementEntryId"),
+    expectedPromotedEntryIds: formData.getAll("expectedPromotedEntryIds"),
+  };
 }

@@ -114,6 +114,37 @@ function sameIds(actual: readonly WaitlistPromotion[], expected: readonly string
   );
 }
 
+async function promoteReplacement(
+  client: PoolClient,
+  eventId: string,
+  command: ReleaseReservationCommand,
+): Promise<WaitlistPromotion[]> {
+  if (command.replacement.mode === "auto") {
+    const promotions = await promoteWaitlistDetailed(client, eventId);
+    if (!sameIds(promotions, command.replacement.expectedPromotedEntryIds)) {
+      throw new RollbackResult(failed("WAITLIST_CHANGED"));
+    }
+    return promotions;
+  }
+
+  const result = await promoteSpecificWaitlistEntry(
+    client,
+    eventId,
+    command.replacement.waitlistEntryId,
+    command.actorAdminId,
+  );
+  if (!result.ok) {
+    if (result.code === "INVALID_STAGE") {
+      throw new RollbackResult(failed("WAITLIST_CHANGED"));
+    }
+    if (result.code === "NO_SEAT") {
+      throw new RollbackResult(failed("REPLACEMENT_DOES_NOT_FIT"));
+    }
+    throw new RollbackResult(failed(result.code));
+  }
+  return [result.promotion];
+}
+
 async function runTransaction<T>(
   pool: Pool,
   work: (client: PoolClient) => Promise<T>,
@@ -512,10 +543,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           }),
         );
       }
-      const promotions = await promoteWaitlistDetailed(client, event.id);
-      if (!sameIds(promotions, command.expectedPromotedEntryIds)) {
-        throw new RollbackResult(failed("WAITLIST_CHANGED"));
-      }
+      const promotions = await promoteReplacement(client, event.id, command);
       await insertAudit(client, {
         actorAdminId: command.actorAdminId,
         action: "RESERVATION_REJECTED",
@@ -526,6 +554,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           stage: reservation.stage,
           partySize: reservation.party_size,
           promotedCount: promotions.length,
+          replacementMode: command.replacement.mode,
         },
       });
       messageIds.push(...promotions.map((promotion) => promotion.messageId));
@@ -579,10 +608,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           }),
         );
       }
-      const promotions = await promoteWaitlistDetailed(client, event.id);
-      if (!sameIds(promotions, command.expectedPromotedEntryIds)) {
-        throw new RollbackResult(failed("WAITLIST_CHANGED"));
-      }
+      const promotions = await promoteReplacement(client, event.id, command);
       await insertAudit(client, {
         actorAdminId: command.actorAdminId,
         action: "RESERVATION_CANCELLED",
@@ -594,6 +620,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           partySize: reservation.party_size,
           refundPending,
           promotedCount: promotions.length,
+          replacementMode: command.replacement.mode,
         },
       });
       messageIds.push(...promotions.map((promotion) => promotion.messageId));

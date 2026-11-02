@@ -6,7 +6,9 @@ import {
   expectedPromotedEntryIdsSchema,
   paymentNoteSchema,
   readAdminGuestFields,
+  readReservationReplacement,
   readSendMessage,
+  reservationReplacementSchema,
 } from "@/contracts/admin-guest";
 
 function guestForm(overrides: Record<string, string | undefined> = {}): FormData {
@@ -26,6 +28,47 @@ function guestForm(overrides: Record<string, string | undefined> = {}): FormData
 }
 
 describe("admin guest contract", () => {
+  it("defaults missing replacement mode to auto and keeps the preview ids", () => {
+    const formData = new FormData();
+    const entryId = "00000000-0000-4000-8000-000000000001";
+    formData.append("expectedPromotedEntryIds", entryId);
+    expect(reservationReplacementSchema.parse(readReservationReplacement(formData))).toEqual({
+      mode: "auto",
+      expectedPromotedEntryIds: [entryId],
+    });
+    formData.set("replacementMode", "auto");
+    expect(reservationReplacementSchema.parse(readReservationReplacement(formData))).toEqual({
+      mode: "auto",
+      expectedPromotedEntryIds: [entryId],
+    });
+  });
+
+  it("requires a UUID for chosen mode and ignores the auto preview", () => {
+    const formData = new FormData();
+    formData.set("replacementMode", "chosen");
+    for (const entryId of [null, "", "invalid"]) {
+      if (entryId !== null) formData.set("replacementEntryId", entryId);
+      const parsed = reservationReplacementSchema.safeParse(readReservationReplacement(formData));
+      expect(parsed.success).toBe(false);
+      if (!parsed.success) {
+        expect(parsed.error.issues).toContainEqual(
+          expect.objectContaining({ path: ["replacementEntryId"] }),
+        );
+      }
+    }
+    const entryId = "00000000-0000-4000-8000-000000000002";
+    formData.set("replacementEntryId", entryId);
+    formData.append("expectedPromotedEntryIds", "stale-preview");
+    expect(reservationReplacementSchema.parse(readReservationReplacement(formData))).toEqual({
+      mode: "chosen",
+      waitlistEntryId: entryId,
+    });
+    formData.set("replacementMode", "invalid");
+    expect(
+      reservationReplacementSchema.safeParse(readReservationReplacement(formData)).success,
+    ).toBe(false);
+  });
+
   it("trims fields, normalizes Instagram URLs, and turns empty notes into null", () => {
     const result = adminGuestFieldsSchema.parse(readAdminGuestFields(guestForm()));
 

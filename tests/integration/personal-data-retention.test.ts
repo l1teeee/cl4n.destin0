@@ -701,6 +701,7 @@ async function assertGuestAuditsContainNoPersonalData(since: string): Promise<vo
     "partySize",
     "stage",
     "promotedCount",
+    "replacementMode",
     "refundPending",
     "changedFields",
     "direction",
@@ -781,7 +782,7 @@ describe("guest audit privacy", () => {
       actorAdminId: adminId,
       expectedStage: "PAID",
       sendMessage: true,
-      expectedPromotedEntryIds: [secondEntry],
+      replacement: { mode: "auto", expectedPromotedEntryIds: [secondEntry] },
     });
     expect(cancelled.ok).toBe(true);
     expect(
@@ -797,7 +798,7 @@ describe("guest audit privacy", () => {
           reservationId: promoted.rows[0]!.promoted_reservation_id,
           actorAdminId: adminId,
           sendMessage: true,
-          expectedPromotedEntryIds: [firstEntry],
+          replacement: { mode: "auto", expectedPromotedEntryIds: [firstEntry] },
         })
       ).ok,
     ).toBe(true);
