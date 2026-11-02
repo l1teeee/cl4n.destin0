@@ -16,19 +16,7 @@ import {
 } from "@/ui/primitives/alert-dialog";
 import { Badge } from "@/ui/primitives/badge";
 import { Button, buttonVariants } from "@/ui/primitives/button";
-
-export const instagramConnectionNotices = [
-  "connected",
-  "cancelled",
-  "failed",
-  "invalid_state",
-  "wrong_account",
-  "missing_permission",
-  "subscribe_failed",
-  "forbidden",
-] as const;
-
-export type InstagramConnectionNotice = (typeof instagramConnectionNotices)[number];
+import type { InstagramConnectionNotice } from "./instagram-connection-notices";
 
 export interface InstagramConnectionPanelProps {
   mode: "log" | "instagram";

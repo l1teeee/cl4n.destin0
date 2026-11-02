@@ -5,11 +5,11 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { loadInstagramConnectionStatus } from "@/infrastructure/instagram/instagram-connection-runtime";
 import { PasswordForm } from "@/ui/admin/admin-user-forms";
+import { InstagramConnectionPanel } from "@/ui/admin/messages/instagram-connection-panel";
 import {
-  InstagramConnectionPanel,
   instagramConnectionNotices,
   type InstagramConnectionNotice,
-} from "@/ui/admin/messages/instagram-connection-panel";
+} from "@/ui/admin/messages/instagram-connection-notices";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import { adminRoleLabel, formatAdminDate } from "@/ui/admin/view-model";
 
