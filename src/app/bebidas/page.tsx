@@ -65,7 +65,7 @@ export default async function DrinksMenuPage() {
           </ul>
         )}
       </main>
-      <PublicFooter />
+      <PublicFooter locale={locale} />
     </div>
   );
 }

@@ -31,7 +31,7 @@ export async function LegalDocument({
         </p>
         {children}
       </main>
-      <PublicFooter />
+      <PublicFooter locale={locale} />
     </div>
   );
 }

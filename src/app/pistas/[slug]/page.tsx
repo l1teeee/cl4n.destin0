@@ -16,11 +16,6 @@ import "../pistas.css";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: "Pistas · Clandestino",
-  robots: { index: false, follow: false },
-};
-
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getPublicLocale();
   return {
@@ -82,7 +77,7 @@ export default async function CluesPage({ params }: { params: Promise<{ slug: st
         )}
         {event.phase === "CLOSED" ? <CluesAutoRefresh /> : null}
       </main>
-      <PublicFooter />
+      <PublicFooter locale={locale} />
     </div>
   );
 }

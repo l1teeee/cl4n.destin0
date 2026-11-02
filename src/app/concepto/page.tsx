@@ -48,7 +48,7 @@ export default async function ConceptPage() {
           </div>
         </div>
       </main>
-      <PublicFooter />
+      <PublicFooter locale={locale} />
     </div>
   );
 }

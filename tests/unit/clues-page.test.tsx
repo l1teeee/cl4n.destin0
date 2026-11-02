@@ -45,7 +45,7 @@ vi.mock("@/infrastructure/db/repositories/postgres-event-clue-repository", () =>
   postgresEventClueRepository: { listForSlug },
 }));
 
-import CluesPage, { dynamic, generateMetadata, metadata } from "@/app/pistas/[slug]/page";
+import CluesPage, { dynamic, generateMetadata } from "@/app/pistas/[slug]/page";
 
 const startsAt = new Date("2026-11-21T01:30:00Z");
 const clues: EventClue[] = [
@@ -94,9 +94,9 @@ afterEach(() => {
 });
 
 describe("clues page", () => {
-  it("is rendered per request and hidden from search engines", () => {
+  it("is rendered per request and hidden from search engines", async () => {
     expect(dynamic).toBe("force-dynamic");
-    expect(metadata).toEqual({
+    expect(await generateMetadata()).toEqual({
       title: "Pistas · Clandestino",
       robots: { index: false, follow: false },
     });

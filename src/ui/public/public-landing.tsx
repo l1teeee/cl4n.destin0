@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { BrandMark } from "./brand-mark";
+import { getPublicLocale } from "./i18n/locale";
 import { PublicFooter } from "./public-footer";
 import { PublicHeader } from "./public-header";
 
@@ -10,7 +11,8 @@ interface PublicLandingProps {
   children: ReactNode;
 }
 
-export function PublicLanding({ status, reservationHref, children }: PublicLandingProps) {
+export async function PublicLanding({ status, reservationHref, children }: PublicLandingProps) {
+  const locale = await getPublicLocale();
   return (
     <div className="public-page public-page-landing">
       <PublicHeader {...(reservationHref ? { reservationHref } : {})} />
@@ -20,7 +22,7 @@ export function PublicLanding({ status, reservationHref, children }: PublicLandi
         <h1>{status}</h1>
         {children}
       </main>
-      <PublicFooter />
+      <PublicFooter locale={locale} />
     </div>
   );
 }

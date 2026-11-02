@@ -29,9 +29,13 @@ async function resolvePublicShell(node: ReactNode): Promise<ReactNode> {
       await PublicHeader(node.props as ComponentProps<typeof PublicHeader>),
     );
   }
-  if (node.type === PublicFooter) return resolvePublicShell(await PublicFooter());
+  if (node.type === PublicFooter) {
+    return resolvePublicShell(PublicFooter(node.props as ComponentProps<typeof PublicFooter>));
+  }
   if (node.type === PublicLanding) {
-    return resolvePublicShell(PublicLanding(node.props as ComponentProps<typeof PublicLanding>));
+    return resolvePublicShell(
+      await PublicLanding(node.props as ComponentProps<typeof PublicLanding>),
+    );
   }
   const children = await Promise.all(Children.toArray(node.props.children).map(resolvePublicShell));
   return children.length ? cloneElement(node, undefined, ...children) : node;

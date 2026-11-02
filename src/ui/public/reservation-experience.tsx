@@ -26,7 +26,7 @@ export function ReservationExperience(props: ReservationExperienceProps) {
         </div>
         <ReservationForm {...props} />
       </main>
-      <PublicFooter />
+      <PublicFooter locale={props.locale} />
     </LightPage>
   );
 }
