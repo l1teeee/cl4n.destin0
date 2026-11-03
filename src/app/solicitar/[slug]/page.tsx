@@ -21,7 +21,11 @@ export async function generateMetadata({
   const { slug } = await params;
   const event = (await getPublicEventBySlug(postgresEventRepository, slug)).value;
 
-  if (!event || event.phase === "DRAFT") {
+  if (
+    !event ||
+    event.phase === "DRAFT" ||
+    buildRequestAccessViewModel(event).state !== "RESERVATION"
+  ) {
     return {};
   }
 
