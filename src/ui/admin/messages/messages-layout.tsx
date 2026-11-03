@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { cn } from "@/ui/cn";
 import { Button } from "@/ui/primitives/button";
+import { RefreshButton } from "./refresh-button";
 
 interface MessagesLayoutProps {
   list: ReactNode;
@@ -36,13 +37,14 @@ export function MessagesLayout({ list, conversation, backHref }: MessagesLayoutP
       >
         {hasConversation ? (
           <>
-            <div className="shrink-0 border-b border-border px-2 py-1 md:hidden">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1 md:hidden">
               <Button variant="ghost" size="sm" asChild>
                 <Link href={backHref}>
                   <ArrowLeft aria-hidden="true" />
                   Volver
                 </Link>
               </Button>
+              <RefreshButton />
             </div>
             {conversation}
           </>
