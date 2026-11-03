@@ -30,6 +30,11 @@ export interface EconomyHandlers {
   settle: TabHandler;
   reopen: TabHandler;
   sendTab: TabHandler;
+  sendGroupTabs: (
+    eventId: string,
+    state: AdminActionState,
+    formData: FormData,
+  ) => Promise<AdminActionState>;
 }
 
 export const IDLE_ACTION_STATE: AdminActionState = { ok: false, message: "" };

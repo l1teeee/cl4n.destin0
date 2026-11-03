@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConsumptionLine, EconomyGuest } from "@/application/economy/economy-repository";
 import {
   buildTabMessages,
+  sendGroupTabs,
   sendTabMessage,
   type SendTabMessageDependencies,
   type TabMessagePreviewDependencies,
@@ -70,7 +71,7 @@ describe("buildTabMessages", () => {
     ).resolves.toEqual([]);
   });
 
-  it("renders each slot's name, only active lines and the supplied tab total", async () => {
+  it("renders one group bill with active lines and the titular's name", async () => {
     const dependencies = previewDependencies();
     dependencies.findPaymentSettings.mockResolvedValue({
       bankName: "Banco Demo",
@@ -104,13 +105,8 @@ describe("buildTabMessages", () => {
     expect(previews).toEqual([
       {
         reservationId: "reservation-1",
-        slot: 1,
-        text: "Hola Ana, 22 de noviembre:\n2 × Café: $6.50\nTotal: $6.50\nBanco: Banco Demo\nTipo de cuenta: Ahorro\nCuenta: 123\nTitular: Clandestino",
-      },
-      {
-        reservationId: "reservation-1",
-        slot: 2,
-        text: "Hola Luis, 22 de noviembre:\n1 × Postre: $4.25\nTotal: $4.25\nBanco: Banco Demo\nTipo de cuenta: Ahorro\nCuenta: 123\nTitular: Clandestino",
+        totalCents: 1075,
+        text: "Hola Ana, 22 de noviembre:\nAna\n2 × Café: $6.50\nSubtotal: $6.50\n\nLuis\n1 × Postre: $4.25\nSubtotal: $4.25\nTotal: $10.75\nBanco: Banco Demo\nTipo de cuenta: Ahorro\nCuenta: 123\nTitular: Clandestino",
       },
     ]);
   });
@@ -145,6 +141,46 @@ function sendDependencies() {
       .mockResolvedValue({ status: "QUEUED", lastError: null }),
   };
 }
+
+describe("sendGroupTabs", () => {
+  const previews = [
+    { reservationId: "reservation-1", text: "Cuenta 1", totalCents: 650 },
+    { reservationId: "reservation-2", text: "Cuenta 2", totalCents: 425 },
+  ];
+  const batch = { eventId: "event-1", adminId: "admin-1", reservationIds: null, previews };
+
+  it("limits once, skips missing reservations and delivers the remaining messages", async () => {
+    const dependencies = sendDependencies();
+    dependencies.enqueueTabMessage.mockResolvedValueOnce("message-1").mockResolvedValueOnce(null);
+    await expect(sendGroupTabs(dependencies, batch)).resolves.toEqual({
+      ok: true,
+      sent: 0,
+      waiting: 1,
+      failed: 0,
+      skipped: 1,
+    });
+    expect(dependencies.consumeRateLimit).toHaveBeenCalledTimes(1);
+    expect(dependencies.deliver).toHaveBeenCalledWith(["message-1"]);
+  });
+
+  it("rejects a limited batch before enqueuing", async () => {
+    const dependencies = sendDependencies();
+    dependencies.consumeRateLimit.mockResolvedValue({ allowed: false });
+    await expect(sendGroupTabs(dependencies, batch)).resolves.toEqual({
+      ok: false,
+      error: "RATE_LIMITED",
+    });
+    expect(dependencies.enqueueTabMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores unknown selections and reports an empty selection", async () => {
+    const dependencies = sendDependencies();
+    await expect(
+      sendGroupTabs(dependencies, { ...batch, reservationIds: ["unknown"] }),
+    ).resolves.toEqual({ ok: false, error: "NOTHING_TO_SEND" });
+    expect(dependencies.consumeRateLimit).not.toHaveBeenCalled();
+  });
+});
 
 describe("sendTabMessage", () => {
   it("trims the final text and sends it through the outbox", async () => {

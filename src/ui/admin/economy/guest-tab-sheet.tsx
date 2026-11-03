@@ -200,7 +200,8 @@ function GuestTabPanel({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Enviar cuenta a pagar</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Se envía por Instagram al chat de la reserva. Revisa el texto antes de enviarlo.
+                    Se envía al titular de la reserva con la cuenta del grupo. Revisa el texto antes
+                    de enviarlo.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <form className="grid gap-4" onSubmit={(event) => void sendTab(event)}>

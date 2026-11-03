@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { tabMessageValues, type TabMessageInput } from "@/domain/economy/tab-message";
+import { groupTabMessageValues, type GroupTabMessageInput } from "@/domain/economy/tab-message";
 import type { PaymentSettings } from "@/domain/payment/payment-settings";
 
 const settings: PaymentSettings = {
@@ -11,20 +11,26 @@ const settings: PaymentSettings = {
   paymentLink: "https://pago.example.com/cuenta",
 };
 
-const input: TabMessageInput = {
-  guestFullName: "  María   López Pérez ",
+const input: GroupTabMessageInput = {
+  titularFullName: "  María   López Pérez ",
   eventDate: "22 de noviembre de 2030",
-  lines: [
-    { itemName: "Café", quantity: 2, totalCents: 650 },
-    { itemName: "Postre", quantity: 1, totalCents: 425 },
+  people: [
+    {
+      fullName: "María López",
+      lines: [
+        { itemName: "Café", quantity: 2, totalCents: 650 },
+        { itemName: "Postre", quantity: 1, totalCents: 425 },
+      ],
+      totalCents: 1075,
+    },
   ],
-  totalCents: 1075,
+  isCouple: false,
   settings,
 };
 
-describe("tabMessageValues", () => {
+describe("groupTabMessageValues", () => {
   it("formats each line total, the tab total and the guest's first name", () => {
-    expect(tabMessageValues(input)).toEqual({
+    expect(groupTabMessageValues(input)).toEqual({
       nombre: "María",
       fecha: "22 de noviembre de 2030",
       consumos: "2 × Café: $6.50\n1 × Postre: $4.25",
@@ -45,7 +51,7 @@ describe("tabMessageValues", () => {
   });
 
   it("omits empty payment account lines without adding an amount or note", () => {
-    const values = tabMessageValues({
+    const values = groupTabMessageValues({
       ...input,
       settings: { ...settings, bankName: "", accountNumber: "", paymentLink: null },
     });
@@ -57,7 +63,7 @@ describe("tabMessageValues", () => {
   });
 
   it("leaves all payment variables empty when settings are missing", () => {
-    expect(tabMessageValues({ ...input, settings: null })).toMatchObject({
+    expect(groupTabMessageValues({ ...input, settings: null })).toMatchObject({
       banco: "",
       tipo_cuenta: "",
       cuenta: "",
@@ -65,5 +71,24 @@ describe("tabMessageValues", () => {
       enlace_pago: "",
       datos_pago: "",
     });
+  });
+
+  it("formats couple subtotals and the group total", () => {
+    const values = groupTabMessageValues({
+      ...input,
+      isCouple: true,
+      people: [
+        ...input.people,
+        {
+          fullName: "Luis Pérez",
+          lines: [{ itemName: "Té", quantity: 1, totalCents: 200 }],
+          totalCents: 200,
+        },
+      ],
+    });
+    expect(values.consumos).toBe(
+      "María\n2 × Café: $6.50\n1 × Postre: $4.25\nSubtotal: $10.75\n\nLuis\n1 × Té: $2.00\nSubtotal: $2.00",
+    );
+    expect(values.total).toBe("$12.75");
   });
 });
