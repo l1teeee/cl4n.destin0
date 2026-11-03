@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import type { ReactNode } from "react";
+import { env } from "@/infrastructure/config/env";
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(env.APP_BASE_URL),
   title: "Clandestino",
   description: "Experiencias privadas Clandestino",
   icons: { icon: "/clandestino-logo.jpg", apple: "/clandestino-logo.jpg" },
+  openGraph: { siteName: "Clandestino", type: "website", locale: "es_SV" },
+  twitter: { card: "summary_large_image" },
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
