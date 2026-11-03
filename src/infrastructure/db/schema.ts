@@ -292,6 +292,7 @@ export const events = pgTable(
     locationName: text("location_name"),
     locationAddress: text("location_address"),
     locationMapsUrl: text("location_maps_url"),
+    locationWazeUrl: text("location_waze_url"),
     locationNotes: text("location_notes"),
     locationStatus: eventLocationStatus("location_status").notNull().default("PENDING"),
     locationConfirmedAt: timestamp("location_confirmed_at", { withTimezone: true }),
@@ -351,6 +352,10 @@ export const events = pgTable(
       sql`${table.locationMapsUrl} IS NULL OR (char_length(${table.locationMapsUrl}) BETWEEN 1 AND 2048 AND ${table.locationMapsUrl} LIKE 'https://%')`,
     ),
     check(
+      "events_location_waze_url_chk",
+      sql`${table.locationWazeUrl} IS NULL OR (char_length(${table.locationWazeUrl}) BETWEEN 1 AND 2048 AND ${table.locationWazeUrl} LIKE 'https://%')`,
+    ),
+    check(
       "events_location_notes_length_chk",
       sql`${table.locationNotes} IS NULL OR char_length(${table.locationNotes}) BETWEEN 1 AND 1000`,
     ),
@@ -360,7 +365,7 @@ export const events = pgTable(
     ),
     check(
       "events_location_confirmation_complete_chk",
-      sql`${table.locationStatus} <> 'CONFIRMED' OR ${table.locationAddress} IS NOT NULL OR ${table.locationMapsUrl} IS NOT NULL`,
+      sql`${table.locationStatus} <> 'CONFIRMED' OR ${table.locationAddress} IS NOT NULL OR ${table.locationMapsUrl} IS NOT NULL OR ${table.locationWazeUrl} IS NOT NULL`,
     ),
     check("events_location_revision_nonnegative_chk", sql`${table.locationRevision} >= 0`),
     check(
@@ -534,6 +539,7 @@ export const reservations = pgTable(
     linkCode: text("link_code"),
     contactId: uuid("contact_id"),
     contactLinkedBy: text("contact_linked_by"),
+    guest2ContactId: uuid("guest2_contact_id"),
     source: text("source").notNull().default("PUBLIC"),
     createdBy: uuid("created_by"),
     stage: text("stage").notNull().default("IN_REVIEW"),
@@ -560,6 +566,11 @@ export const reservations = pgTable(
     foreignKey({
       name: "reservations_contact_fk",
       columns: [table.contactId],
+      foreignColumns: [messagingContacts.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "reservations_guest2_contact_fk",
+      columns: [table.guest2ContactId],
       foreignColumns: [messagingContacts.id],
     }).onDelete("set null"),
     foreignKey({
@@ -598,7 +609,15 @@ export const reservations = pgTable(
       "reservations_contact_link_pair_chk",
       sql`(${table.contactId} IS NULL) = (${table.contactLinkedBy} IS NULL)`,
     ),
-    check("reservations_source_chk", sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
+    check(
+      "reservations_guest2_contact_requires_guest2_chk",
+      sql`${table.guest2ContactId} IS NULL OR ${table.guest2FullName} IS NOT NULL`,
+    ),
+    check(
+      "reservations_guest2_contact_distinct_chk",
+      sql`${table.guest2ContactId} IS NULL OR ${table.guest2ContactId} IS DISTINCT FROM ${table.contactId}`,
+    ),
+    check("reservations_source_chk",sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
     check(
       "reservations_admin_source_chk",
       sql`(${table.source} = 'ADMIN') = (${table.createdBy} IS NOT NULL)`,
@@ -662,6 +681,7 @@ export const reservations = pgTable(
       .on(table.linkCode)
       .where(sql`${table.linkCode} IS NOT NULL`),
     index("reservations_contact_id_idx").on(table.contactId),
+    index("reservations_guest2_contact_idx").on(table.guest2ContactId),
     index("reservations_event_status_idx").on(table.eventId, table.status),
     index("reservations_event_submitted_at_idx").on(table.eventId, table.submittedAt),
   ],
@@ -806,6 +826,7 @@ export const messages = pgTable(
     contactId: uuid("contact_id"),
     reservationId: uuid("reservation_id"),
     waitlistEntryId: uuid("waitlist_entry_id"),
+    guestSlot: smallint("guest_slot").notNull().default(1),
     eventId: uuid("event_id"),
     direction: text("direction").notNull(),
     kind: text("kind").notNull(),
@@ -867,7 +888,12 @@ export const messages = pgTable(
       columns: [table.handledBy],
       foreignColumns: [adminUsers.id],
     }).onDelete("no action"),
-    check("messages_direction_chk", sql`${table.direction} IN ('OUTBOUND', 'INBOUND')`),
+    check("messages_guest_slot_chk", sql`${table.guestSlot} IN (1, 2)`),
+    check(
+      "messages_guest_slot_subject_chk",
+      sql`${table.guestSlot} = 1 OR ${table.reservationId} IS NOT NULL`,
+    ),
+    check("messages_direction_chk",sql`${table.direction} IN ('OUTBOUND', 'INBOUND')`),
     check(
       "messages_kind_chk",
       sql`${table.kind} IN ('REQUEST_RECEIVED', 'WAITLISTED', 'PROMOTED', 'ON_LIST', 'PAID', 'REJECTED', 'CANCELLED_UNPAID', 'CANCELLED_PAID', 'REFUNDED', 'LOCATION', 'CLUE', 'FREE_TEXT', 'INBOUND')`,
@@ -953,10 +979,10 @@ export const messages = pgTable(
       .on(table.status)
       .where(sql`${table.status} IN ('WAITING_CONTACT', 'WAITING_WINDOW')`),
     uniqueIndex("messages_location_revision_uq")
-      .on(table.reservationId, table.locationRevision)
+      .on(table.reservationId, table.guestSlot, table.locationRevision)
       .where(sql`${table.kind} = 'LOCATION'`),
     uniqueIndex("messages_clue_uq")
-      .on(table.reservationId, table.clueId)
+      .on(table.reservationId, table.guestSlot, table.clueId)
       .where(sql`${table.kind} = 'CLUE'`),
   ],
 );
