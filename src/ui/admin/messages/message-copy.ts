@@ -8,6 +8,7 @@ import {
   MESSAGE_STATUSES,
   type MessageKind as DomainMessageKind,
   type MessageStatus as DomainMessageStatus,
+  type TemplateKey,
 } from "@/domain/messaging/message-types";
 import type { BadgeVariant } from "@/ui/primitives/badge";
 
@@ -76,6 +77,18 @@ export interface ConversationHeaderView {
     href: string;
     mismatch: boolean;
   }>;
+}
+
+export interface ComposerTemplateOption {
+  key: TemplateKey;
+  title: string;
+  text: string;
+}
+
+export interface ComposerTemplates {
+  // The linked request whose data filled the templates, e.g. "JULIAN MENDEZ y MAJO · lun 2 nov".
+  sourceLabel: string;
+  options: readonly ComposerTemplateOption[];
 }
 
 export type MessageAction = (
@@ -154,6 +167,9 @@ export function messageDeliveryIndicator(status: MessageStatus): DeliveryIndicat
 export function messageKindLabel(kind: MessageKind): string {
   return kindLabels[kind];
 }
+
+export const META_FAILING_COMPOSER_COPY =
+  "Instagram no está enviando mensajes automáticos. Usa Enviar por Instagram y después Ya lo envié para guardarlo.";
 
 export function windowCopy({ open, closesAt }: { open: boolean; closesAt: Date | null }): string {
   if (!open) {

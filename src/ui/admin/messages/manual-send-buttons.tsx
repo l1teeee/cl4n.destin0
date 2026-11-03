@@ -18,13 +18,13 @@ interface CopyTextButtonProps {
   disabled?: boolean;
 }
 
-export function CopyTextButton({ text, label, disabled = false }: CopyTextButtonProps) {
+function useCopyFeedback(): { feedback: CopyFeedback; copy(text: string): Promise<void> } {
   const [feedback, setFeedback] = useState<CopyFeedback>("idle");
   const feedbackTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(feedbackTimer.current), []);
 
-  async function copyText() {
+  async function copy(text: string): Promise<void> {
     let result: "copied" | "failed" = "copied";
     try {
       await navigator.clipboard.writeText(text);
@@ -37,6 +37,12 @@ export function CopyTextButton({ text, label, disabled = false }: CopyTextButton
     feedbackTimer.current = window.setTimeout(() => setFeedback("idle"), FEEDBACK_DURATION_MS);
   }
 
+  return { feedback, copy };
+}
+
+export function CopyTextButton({ text, label, disabled = false }: CopyTextButtonProps) {
+  const { feedback, copy } = useCopyFeedback();
+
   return (
     <Button
       type="button"
@@ -44,19 +50,56 @@ export function CopyTextButton({ text, label, disabled = false }: CopyTextButton
       size="sm"
       disabled={disabled}
       aria-live="polite"
-      onClick={() => void copyText()}
+      onClick={() => void copy(text)}
     >
       {feedback === "idle" ? label : copyFeedbackLabels[feedback]}
     </Button>
   );
 }
 
-export function OpenInstagramChatLink({ username }: { username: string }) {
+export function OpenInstagramChatLink({
+  username,
+  text = null,
+}: {
+  username: string;
+  text?: string | null;
+}) {
+  const { feedback, copy } = useCopyFeedback();
+
+  if (text === null) {
+    return (
+      <Button variant="outline" size="sm" asChild>
+        <a href={instagramChatHref(username)} target="_blank" rel="noopener noreferrer">
+          Abrir chat en Instagram
+        </a>
+      </Button>
+    );
+  }
+
   return (
     <Button variant="outline" size="sm" asChild>
-      <a href={instagramChatHref(username)} target="_blank" rel="noopener noreferrer">
-        Abrir chat en Instagram
+      <a
+        href={instagramChatHref(username)}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-live="polite"
+        onClick={() => void copy(text)}
+      >
+        {feedback === "idle" ? "Enviar por Instagram" : copyFeedbackLabels[feedback]}
       </a>
     </Button>
   );
+}
+
+// Opens the guest's chat with the text copied; without a username the text can only be copied.
+export function ManualSendButton({
+  username,
+  text,
+}: {
+  username: string | null;
+  text: string | null;
+}) {
+  if (username) return <OpenInstagramChatLink username={username} text={text} />;
+  if (text) return <CopyTextButton text={text} label="Copiar texto" />;
+  return null;
 }

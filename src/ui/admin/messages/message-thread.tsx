@@ -59,7 +59,7 @@ export function MessageThread({
       <div
         ref={scroller}
         onScroll={updateJumpVisibility}
-        className="min-h-0 flex-1 overflow-y-auto p-4"
+        className="relative min-h-0 flex-1 overflow-y-auto p-4"
       >
         <div className="mx-auto w-full max-w-2xl">
           {messages.length === 0 ? (

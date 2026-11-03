@@ -36,7 +36,10 @@ function renderComposer(props: Partial<ComponentProps<typeof MessageComposer>> =
       windowOpen
       windowClosesAt={new Date("2026-11-03T20:30:00.000Z")}
       username="ana.perez"
+      metaFailing={false}
       sendAction={sendAction}
+      recordAction={vi.fn().mockResolvedValue(result(true, "Guardado como enviado a mano."))}
+      templates={null}
       {...props}
     />,
   );
@@ -224,20 +227,19 @@ describe("MessageComposer manual fallbacks", () => {
 
   it("offers copying the text and opening the Instagram chat when the window is closed", async () => {
     renderComposer({ windowOpen: false, windowClosesAt: null });
-    const copy = screen.getByRole("button", { name: "Copiar" });
-    expect(copy.hasAttribute("disabled")).toBe(true);
 
     type("Hola Ana");
-    expect(copy.hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Copiar" })).toBeNull();
+    const chat = screen.getByRole("link", { name: "Enviar por Instagram" });
+    expect(chat.getAttribute("href")).toBe("https://ig.me/m/ana.perez");
+    expect(chat.getAttribute("target")).toBe("_blank");
+    chat.addEventListener("click", (event) => event.preventDefault());
     await act(async () => {
-      fireEvent.click(copy);
+      fireEvent.click(chat);
     });
 
     expect(writeText).toHaveBeenCalledExactlyOnceWith("Hola Ana");
-    expect(screen.getByRole("button", { name: "Copiado" })).toBeDefined();
-    const chat = screen.getByRole("link", { name: "Abrir chat en Instagram" });
-    expect(chat.getAttribute("href")).toBe("https://ig.me/m/ana.perez");
-    expect(chat.getAttribute("target")).toBe("_blank");
+    expect(screen.getByRole("link", { name: "Copiado" })).toBeDefined();
   });
 
   it("still sends normally when the window is closed", async () => {

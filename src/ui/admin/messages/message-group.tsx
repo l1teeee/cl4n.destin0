@@ -4,7 +4,7 @@ import { MutationForm } from "@/ui/admin/mutation-form";
 import { cn } from "@/ui/cn";
 
 import { MessageImages } from "./image-lightbox";
-import { CopyTextButton, OpenInstagramChatLink } from "./manual-send-buttons";
+import { ManualSendButton } from "./manual-send-buttons";
 import {
   isUnsupportedMessage,
   messageDeliveryIndicator,
@@ -25,7 +25,7 @@ const manualFallbackStatuses: ReadonlySet<MessageStatus> = new Set([
 const retryableStatuses: ReadonlySet<MessageStatus> = new Set(["WAITING_WINDOW", "FAILED"]);
 
 // MutationForm has no variant or size props, so its buttons are shaped into small pills from here.
-const pillMutationButtons =
+export const pillMutationButtons =
   "[&_button]:h-11 [&_button]:rounded-full [&_button]:px-4 [&_button]:text-xs [&_button]:font-medium [&_button]:tracking-normal sm:[&_button]:h-9";
 
 const deliveryIcons: Record<DeliveryIcon, LucideIcon> = {
@@ -83,12 +83,11 @@ function ManualFallbackActions({
 }: Pick<MessageItemProps, "message" | "username" | keyof MessageActions>) {
   return (
     <div className={cn("flex flex-wrap items-start gap-2", pillMutationButtons)}>
+      <ManualSendButton username={username} text={message.body} />
+      <MutationForm action={markSentAction.bind(null, message.id)} label="Ya lo envié" />
       {retryableStatuses.has(message.status) ? (
         <MutationForm action={retryAction.bind(null, message.id)} label="Reintentar" />
       ) : null}
-      {message.body ? <CopyTextButton text={message.body} label="Copiar texto" /> : null}
-      {username ? <OpenInstagramChatLink username={username} /> : null}
-      <MutationForm action={markSentAction.bind(null, message.id)} label="Ya lo envié" />
       <MutationForm
         action={discardAction.bind(null, message.id)}
         label="Descartar"

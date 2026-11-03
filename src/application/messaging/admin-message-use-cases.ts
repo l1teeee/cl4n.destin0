@@ -5,6 +5,11 @@ import type {
 } from "./admin-message-repository";
 import type { MessageDeliverySummary } from "./deliver-messages";
 
+function normalizedFreeText(text: string): string | null {
+  const normalized = text.trim();
+  return normalized.length >= 1 && normalized.length <= 1000 ? normalized : null;
+}
+
 export interface SendFreeTextDependencies {
   repository: AdminMessageRepository;
   consumeRateLimit(adminId: string): Promise<{ allowed: boolean }>;
@@ -21,10 +26,8 @@ export async function sendFreeText(
   text: string,
   adminId: string,
 ): Promise<SendFreeTextResult> {
-  const normalizedText = text.trim();
-  if (normalizedText.length < 1 || normalizedText.length > 1000) {
-    return { ok: false, error: "INVALID_TEXT" };
-  }
+  const normalizedText = normalizedFreeText(text);
+  if (normalizedText === null) return { ok: false, error: "INVALID_TEXT" };
   const rateLimit = await dependencies.consumeRateLimit(adminId);
   if (!rateLimit.allowed) return { ok: false, error: "RATE_LIMITED" };
 
@@ -38,6 +41,35 @@ export async function sendFreeText(
   const state = await dependencies.repository.getDeliveryState(messageId);
   const status = summary.outcomes[messageId] ?? state?.status ?? "QUEUED";
   return { ok: true, messageId, status, lastError: state?.lastError ?? null };
+}
+
+export interface RecordManualMessageDependencies {
+  repository: AdminMessageRepository;
+  consumeRateLimit(adminId: string): Promise<{ allowed: boolean }>;
+}
+
+export type RecordManualMessageResult =
+  | { ok: true; messageId: string }
+  | { ok: false; error: "INVALID_TEXT" | "CONTACT_NOT_FOUND" | "RATE_LIMITED" };
+
+// The admin already sent this text from the Instagram app: it is stored for the history and never delivered.
+export async function recordManualMessage(
+  dependencies: RecordManualMessageDependencies,
+  contactId: string,
+  text: string,
+  adminId: string,
+): Promise<RecordManualMessageResult> {
+  const normalizedText = normalizedFreeText(text);
+  if (normalizedText === null) return { ok: false, error: "INVALID_TEXT" };
+  const rateLimit = await dependencies.consumeRateLimit(adminId);
+  if (!rateLimit.allowed) return { ok: false, error: "RATE_LIMITED" };
+  const messageId = await dependencies.repository.recordManualFreeText(
+    contactId,
+    normalizedText,
+    adminId,
+  );
+  if (!messageId) return { ok: false, error: "CONTACT_NOT_FOUND" };
+  return { ok: true, messageId };
 }
 
 export function retryMessage(

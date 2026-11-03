@@ -13,6 +13,7 @@ import {
   linkContactByCode as linkContactByCodeUseCase,
   markConversationRead as markConversationReadUseCase,
   markSentManually as markSentManuallyUseCase,
+  recordManualMessage as recordManualMessageUseCase,
   retryMessage as retryMessageUseCase,
   sendFreeText as sendFreeTextUseCase,
   unlinkContact as unlinkContactUseCase,
@@ -29,6 +30,11 @@ import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-mes
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
 const idSchema = z.uuid("El identificador no es válido.");
+const FREE_TEXT_ERRORS = {
+  INVALID_TEXT: "El mensaje debe tener entre 1 y 1000 caracteres.",
+  CONTACT_NOT_FOUND: "No se encontró la conversación.",
+  RATE_LIMITED: "Alcanzaste el límite de mensajes. Intenta de nuevo más tarde.",
+} as const;
 const simulatorSchema = z.object({
   username: z
     .string()
@@ -93,7 +99,12 @@ function subjectFrom(formData: FormData): MessageSubject | null {
 
 function refreshMessages(): void {
   revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
   revalidatePath("/admin");
+}
+
+function consumeAdminMessageRateLimit(adminId: string) {
+  return consume({ scope: "admin-message:send", subject: adminId, limit: 60, windowSeconds: 600 });
 }
 
 export async function sendFreeTextAction(
@@ -110,29 +121,38 @@ export async function sendFreeTextAction(
   const result = await sendFreeTextUseCase(
     {
       repository: postgresMessageRepository,
-      consumeRateLimit: (adminId) =>
-        consume({
-          scope: "admin-message:send",
-          subject: adminId,
-          limit: 60,
-          windowSeconds: 600,
-        }),
+      consumeRateLimit: consumeAdminMessageRateLimit,
       deliver: (messageIds) => drainMessagesNow(messageIds, { timeBudgetMs: 6_000 }),
     },
     contactId.data,
     String(formData.get("text") ?? ""),
     authorization.session.admin.id,
   );
-  if (!result.ok) {
-    const messages = {
-      INVALID_TEXT: "El mensaje debe tener entre 1 y 1000 caracteres.",
-      CONTACT_NOT_FOUND: "No se encontró la conversación.",
-      RATE_LIMITED: "Alcanzaste el límite de mensajes. Intenta de nuevo más tarde.",
-    } as const;
-    return { ok: false, message: messages[result.error] };
-  }
+  if (!result.ok) return { ok: false, message: FREE_TEXT_ERRORS[result.error] };
   refreshMessages();
   return deliveryMessage(result.messageId, result.status, result.lastError);
+}
+
+export async function recordManualMessageAction(
+  id: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requirePermission("messages.send", "action");
+  void _previousState;
+  if (!authorization.authorized) return unauthorized(authorization.error);
+  const contactId = idSchema.safeParse(id);
+  if (!contactId.success) return { ok: false, message: contactId.error.issues[0]!.message };
+
+  const result = await recordManualMessageUseCase(
+    { repository: postgresMessageRepository, consumeRateLimit: consumeAdminMessageRateLimit },
+    contactId.data,
+    String(formData.get("text") ?? ""),
+    authorization.session.admin.id,
+  );
+  if (!result.ok) return { ok: false, message: FREE_TEXT_ERRORS[result.error] };
+  refreshMessages();
+  return { ok: true, message: "Guardado como enviado a mano." };
 }
 
 export async function retryMessageAction(

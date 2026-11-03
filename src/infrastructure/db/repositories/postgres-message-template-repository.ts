@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import type { Pool, QueryResultRow } from "pg";
 
+import type { RequestMessageSubject } from "@/application/messaging/conversation-queries";
+import type { ManualTemplateRepository } from "@/application/messaging/manual-templates";
 import type {
   MessageTemplate,
   MessageTemplateRepository,
@@ -10,6 +12,7 @@ import { TEMPLATE_KEYS, type TemplateKey } from "@/domain/messaging/message-type
 
 import { pool as applicationPool } from "../client";
 import { inTransaction } from "../transaction";
+import { loadGuestMessageValues } from "./guest-messages";
 
 export const MESSAGE_TEMPLATE_UUID_NAMESPACE = "bc6f0a0c-b68a-4d32-9aca-1681c6f7ea8a";
 
@@ -50,7 +53,9 @@ const transactionSettings = [
   "SET LOCAL idle_in_transaction_session_timeout = '5s'",
 ] as const;
 
-export class PostgresMessageTemplateRepository implements MessageTemplateRepository {
+export class PostgresMessageTemplateRepository
+  implements MessageTemplateRepository, ManualTemplateRepository
+{
   constructor(private readonly pool: Pool = applicationPool) {}
 
   async listTemplates(): Promise<MessageTemplate[]> {
@@ -63,6 +68,15 @@ export class PostgresMessageTemplateRepository implements MessageTemplateReposit
       [[...TEMPLATE_KEYS]],
     );
     return result.rows.map(toTemplate);
+  }
+
+  async loadRequestMessageValues(subject: RequestMessageSubject): Promise<Record<string, string>> {
+    const client = await this.pool.connect();
+    try {
+      return await loadGuestMessageValues(client, subject);
+    } finally {
+      client.release();
+    }
   }
 
   updateTemplate(key: TemplateKey, body: string, adminId: string): Promise<MessageTemplate> {

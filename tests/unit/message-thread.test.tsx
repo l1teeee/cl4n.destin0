@@ -468,8 +468,8 @@ describe("MessageThread manual actions per status", () => {
     const has = (role: "button" | "link", name: string) =>
       within(bubble).queryByRole(role, { name }) !== null;
 
-    expect(has("button", "Copiar texto")).toBe(withManualActions.has(status));
-    expect(has("link", "Abrir chat en Instagram")).toBe(withManualActions.has(status));
+    expect(has("link", "Enviar por Instagram")).toBe(withManualActions.has(status));
+    expect(has("button", "Copiar texto")).toBe(false);
     expect(has("button", "Ya lo envié")).toBe(withManualActions.has(status));
     expect(has("button", "Descartar")).toBe(withManualActions.has(status));
     expect(has("button", "Reintentar")).toBe(withRetry.has(status));
@@ -510,7 +510,7 @@ describe("MessageThread manual actions per status", () => {
   it("opens the Instagram chat of the contact in a new tab", () => {
     renderThread({ messages: [message({ status: "WAITING_CONTACT" })] });
 
-    const link = screen.getByRole("link", { name: "Abrir chat en Instagram" });
+    const link = screen.getByRole("link", { name: "Enviar por Instagram" });
     expect(link.getAttribute("href")).toBe("https://ig.me/m/ana.perez");
     expect(link.getAttribute("target")).toBe("_blank");
   });
@@ -540,16 +540,18 @@ describe("MessageThread copy feedback", () => {
     vi.useFakeTimers();
     renderThread({ messages: [message({ status: "FAILED", body: "Hola Ana" })] });
 
+    const link = screen.getByRole("link", { name: "Enviar por Instagram" });
+    link.addEventListener("click", (event) => event.preventDefault());
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copiar texto" }));
+      fireEvent.click(link);
     });
 
     expect(writeText).toHaveBeenCalledExactlyOnceWith("Hola Ana");
-    expect(screen.getByRole("button", { name: "Copiado" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "Copiado" })).toBeDefined();
 
     act(() => vi.advanceTimersByTime(2_000));
 
-    expect(screen.getByRole("button", { name: "Copiar texto" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "Enviar por Instagram" })).toBeDefined();
   });
 });
 
