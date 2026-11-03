@@ -1,7 +1,8 @@
 import type { LoadedLocationVersion } from "./types";
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
 
 export interface LocationDeliverySummary {
-  // Reservations that are CONFIRMED with stage PAID.
+  // People in reservations that are CONFIRMED with stage PAID.
   paid: number;
   // Current revision SENT, READ or SENT_MANUALLY.
   received: number;
@@ -39,5 +40,12 @@ export interface LocationMessageRepository {
     expectedLocation: LoadedLocationVersion,
     adminId: string,
   ): Promise<SendLocationToPaidGuestsResult>;
+  sendLocationToPeople(
+    eventId: string,
+    expectedLocation: LoadedLocationVersion,
+    people: Array<{ reservationId: string; slot: 1 | 2 }>,
+    adminId: string,
+  ): Promise<SendLocationToPaidGuestsResult>;
+  listLocationRecipients(eventId: string): Promise<RecipientGroup[]>;
   getLocationDeliverySummary(eventId: string): Promise<LocationDeliverySummary>;
 }

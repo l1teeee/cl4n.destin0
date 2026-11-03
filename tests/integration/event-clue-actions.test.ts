@@ -27,7 +27,7 @@ vi.mock("next/navigation", () => ({
 import {
   deleteEventClueAction,
   sendClueToAllAction,
-  sendClueToGuestAction,
+  sendClueToPersonAction,
 } from "@/app/admin/(protected)/events/actions";
 import { POST } from "@/app/admin/(protected)/events/[id]/clues/route";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
@@ -201,11 +201,11 @@ describe("POST /admin/events/[id]/clues", () => {
     authState.token = sessionToken;
 
     expect(
-      await sendClueToGuestAction(eventId, clueId, reservationId, initialState, new FormData()),
+      await sendClueToPersonAction(eventId, clueId, reservationId, 1, initialState, new FormData()),
     ).toEqual({ ok: true, message: "Pista enviada." });
     expect(
-      await sendClueToGuestAction(eventId, clueId, reservationId, initialState, new FormData()),
-    ).toEqual({ ok: true, message: "Este invitado ya tiene esta pista." });
+      await sendClueToPersonAction(eventId, clueId, reservationId, 1, initialState, new FormData()),
+    ).toEqual({ ok: true, message: "Esta persona ya tiene esta pista." });
     const messages = await pool.query<{ reservation_id: string }>(
       "SELECT reservation_id FROM messages WHERE clue_id = $1",
       [clueId],

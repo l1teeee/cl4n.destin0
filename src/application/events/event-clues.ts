@@ -61,10 +61,10 @@ export async function sendClueToAll(
   return clues.sendToAll(input);
 }
 
-export async function sendClueToGuest(
+export async function sendClueToPerson(
   events: EventRepository,
   clues: EventClueRepository,
-  input: RemoveEventClueInput & { reservationId: string },
+  input: RemoveEventClueInput & { reservationId: string; slot: 1 | 2 },
 ) {
   const detail = (await events.getAdminEvent(input.eventId)).value;
   if (!detail) return { ok: false as const, error: "EVENT_NOT_FOUND" as const };
@@ -72,7 +72,7 @@ export async function sendClueToGuest(
     return { ok: false as const, error: "CLUES_CLOSED" as const };
   }
 
-  return clues.sendToGuest(input);
+  return clues.sendToPerson(input);
 }
 
 export function listClueRecipients(clues: EventClueRepository, eventId: string) {

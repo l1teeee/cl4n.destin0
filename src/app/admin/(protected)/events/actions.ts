@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
-import { removeEventClue, sendClueToAll, sendClueToGuest } from "@/application/events/event-clues";
+import { removeEventClue, sendClueToAll, sendClueToPerson } from "@/application/events/event-clues";
 import { resolveCreateSchedule, resolveUpdateSchedule } from "@/application/events/event-schedule";
 import {
   cancelEvent,
@@ -271,6 +271,7 @@ export async function createEventAction(
         name: parsed.data.locationName,
         address: parsed.data.locationAddress,
         mapsUrl: parsed.data.locationMapsUrl,
+        wazeUrl: parsed.data.locationWazeUrl,
         notes: parsed.data.locationNotes,
         status: parsed.data.locationStatus,
       },
@@ -310,6 +311,7 @@ export async function updateEventAction(
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
     locationMapsUrl: formData.get("locationMapsUrl"),
+    locationWazeUrl: formData.has("locationWazeUrl") ? formData.get("locationWazeUrl") : undefined,
     locationNotes: formData.get("locationNotes"),
     locationStatus: formData.get("locationStatus"),
     keepMapsUrl: formData.get("keepMapsUrl") === "on",
@@ -358,6 +360,7 @@ export async function updateEventAction(
         name: parsed.data.locationName,
         address: parsed.data.locationAddress,
         mapsUrl: parsed.data.locationMapsUrl,
+        wazeUrl: parsed.data.locationWazeUrl,
         notes: parsed.data.locationNotes,
         status: parsed.data.locationStatus,
       },
@@ -436,6 +439,69 @@ export async function sendEventLocationAction(
     const count = result.messageIds.length;
     const people = count === 1 ? "1 persona" : `${count} personas`;
     return { ok: true, message: `Ubicación en cola para ${people}; se enviará en unos minutos.` };
+  }
+  return {
+    ok: true,
+    message: describeLocationSend(
+      result.messageIds,
+      delivery.outcomes,
+      await pendingAfterEmptySend(parsed.data.id, result.messageIds),
+    ),
+  };
+}
+
+export async function sendEventLocationToPeopleAction(
+  eventId: string,
+  expectedLocation: LoadedLocationVersion,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = locationSendSchema.safeParse({
+    id: eventId,
+    loadedRevision: expectedLocation.revision,
+    loadedStatus: expectedLocation.status,
+  });
+  if (!parsed.success) return firstValidationError(parsed.error);
+  const selected = z
+    .array(z.string().regex(/^[0-9a-f-]{36}:[12]$/i))
+    .min(1)
+    .safeParse(formData.getAll("people"));
+  if (!selected.success) return invalid("Elige personas válidas para el envío.");
+  const people = selected.data.map((value) => {
+    const [reservationId, slot] = value.split(":");
+    return { reservationId, slot: Number(slot) };
+  });
+  const validated = z
+    .array(
+      z.object({
+        reservationId: z.string().uuid(),
+        slot: z.union([z.literal(1), z.literal(2)]),
+      }),
+    )
+    .safeParse(people);
+  if (!validated.success) return invalid("Elige personas válidas para el envío.");
+  const result = await postgresLocationMessageRepository.sendLocationToPeople(
+    parsed.data.id,
+    { revision: parsed.data.loadedRevision, status: parsed.data.loadedStatus },
+    validated.data,
+    authorization.session.admin.id,
+  );
+  if (!result.ok) return invalid(locationSendMessages[result.error]);
+  const delivery = await deliverLocationMessages(result.messageIds);
+  scheduleMessageDelivery();
+  revalidatePath(`/admin/events/${parsed.data.id}`);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  if (!delivery) {
+    const count = result.messageIds.length;
+    const recipients = count === 1 ? "1 persona" : `${count} personas`;
+    return {
+      ok: true,
+      message: `Ubicación en cola para ${recipients}; se enviará en unos minutos.`,
+    };
   }
   return {
     ok: true,
@@ -556,10 +622,11 @@ export async function sendClueToAllAction(
   return { ok: true, message };
 }
 
-export async function sendClueToGuestAction(
+export async function sendClueToPersonAction(
   eventId: string,
   clueId: string,
   reservationId: string,
+  slot: 1 | 2,
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
@@ -570,11 +637,14 @@ export async function sendClueToGuestAction(
 
   const parsed = clueActionSchema.safeParse({ eventId, clueId });
   if (!parsed.success) return formValidationError(parsed.error);
-  const parsedReservation = idSchema.safeParse({ id: reservationId });
+  const parsedReservation = z
+    .object({ id: z.string().uuid(), slot: z.union([z.literal(1), z.literal(2)]) })
+    .safeParse({ id: reservationId, slot });
   if (!parsedReservation.success) return formValidationError(parsedReservation.error);
-  const result = await sendClueToGuest(postgresEventRepository, postgresEventClueRepository, {
+  const result = await sendClueToPerson(postgresEventRepository, postgresEventClueRepository, {
     ...parsed.data,
     reservationId: parsedReservation.data.id,
+    slot: parsedReservation.data.slot,
     actorId: authorization.session.admin.id,
   });
   if (!result.ok) return invalid(clueSendMessages[result.error]);
@@ -585,7 +655,7 @@ export async function sendClueToGuestAction(
   revalidatePath("/admin/mensajes/sin-enviar");
   return {
     ok: true,
-    message: result.messageIds.length > 0 ? "Pista enviada." : "Este invitado ya tiene esta pista.",
+    message: result.messageIds.length > 0 ? "Pista enviada." : "Esta persona ya tiene esta pista.",
   };
 }
 

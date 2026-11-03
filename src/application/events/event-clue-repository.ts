@@ -1,3 +1,5 @@
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
+
 export interface EventClue {
   id: string;
   body: string;
@@ -10,7 +12,7 @@ export interface StoredEventClueImage {
   data: Uint8Array;
 }
 
-// How far one clue got among the reservations that are CONFIRMED with stage PAID right now.
+// How far one clue got among the people in CONFIRMED reservations with stage PAID right now.
 export interface EventClueDelivery {
   paid: number;
   received: number;
@@ -20,15 +22,6 @@ export interface EventClueDelivery {
 
 export type AddEventClueResult =
   { ok: true; value: EventClue } | { ok: false; error: "EVENT_NOT_FOUND" };
-
-export type ClueRecipientStatus = "NOT_SENT" | "SENT" | "PENDING" | "FAILED";
-
-export interface ClueRecipient {
-  reservationId: string;
-  guestName: string;
-  instagram: string | null;
-  statusByClue: Record<string, ClueRecipientStatus>;
-}
 
 export type SendClueResult =
   | { ok: true; messageIds: string[] }
@@ -43,13 +36,14 @@ export interface EventClueRepository {
   }): Promise<AddEventClueResult>;
   remove(input: { eventId: string; clueId: string; actorId: string }): Promise<boolean>;
   sendToAll(input: { eventId: string; clueId: string; actorId: string }): Promise<SendClueResult>;
-  sendToGuest(input: {
+  sendToPerson(input: {
     eventId: string;
     clueId: string;
     reservationId: string;
+    slot: 1 | 2;
     actorId: string;
   }): Promise<SendClueResult>;
-  listRecipients(eventId: string): Promise<ClueRecipient[]>;
+  listRecipients(eventId: string): Promise<RecipientGroup[]>;
   listForEvent(eventId: string): Promise<EventClue[]>;
   getDeliveryForEvent(eventId: string): Promise<Record<string, EventClueDelivery>>;
   getImageForSlug(slug: string, imageId: string): Promise<StoredEventClueImage | null>;

@@ -8,6 +8,7 @@ import {
 
 import type { EventRepository } from "./event-repository";
 import type { MapsLinkResolver } from "./maps-link-resolver";
+import type { LocationMessageRepository } from "./location-message-repository";
 import type {
   AdminReservationQuery,
   AuditLogQuery,
@@ -78,6 +79,20 @@ export function setLocationStatus(
   actorId: string,
 ) {
   return repository.setLocationStatus(id, status, expectedLocation, actorId);
+}
+
+export function sendLocationToPeople(
+  repository: LocationMessageRepository,
+  eventId: string,
+  expectedLocation: LoadedLocationVersion,
+  people: Array<{ reservationId: string; slot: 1 | 2 }>,
+  adminId: string,
+) {
+  return repository.sendLocationToPeople(eventId, expectedLocation, people, adminId);
+}
+
+export function listLocationRecipients(repository: LocationMessageRepository, eventId: string) {
+  return repository.listLocationRecipients(eventId);
 }
 
 export function publishEvent(repository: EventRepository, id: string, actorId: string) {

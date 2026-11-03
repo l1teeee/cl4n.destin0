@@ -2,12 +2,12 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import type {
   AddEventClueResult,
-  ClueRecipient,
   EventClue,
   EventClueDelivery,
   EventClueRepository,
   SendClueResult,
 } from "@/application/events/event-clue-repository";
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
 import type { ImageContentType } from "@/contracts/image-upload";
 
 import { pool as applicationPool } from "../client";
@@ -123,20 +123,22 @@ export class PostgresEventClueRepository implements EventClueRepository {
     return this.sendClue(input);
   }
 
-  sendToGuest(input: {
+  sendToPerson(input: {
     eventId: string;
     clueId: string;
     reservationId: string;
+    slot: 1 | 2;
     actorId: string;
   }): Promise<SendClueResult> {
-    return this.sendClue(input);
+    const { reservationId, slot, ...clue } = input;
+    return this.sendClue({ ...clue, person: { reservationId, slot } });
   }
 
   private sendClue(input: {
     eventId: string;
     clueId: string;
     actorId: string;
-    reservationId?: string;
+    person?: { reservationId: string; slot: 1 | 2 };
   }): Promise<SendClueResult> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
       const result = await client.query<{ body: string; slug: string; image_ids: string[] }>(
@@ -152,12 +154,13 @@ export class PostgresEventClueRepository implements EventClueRepository {
       const clue = result.rows[0];
       if (!clue) return { ok: false, error: "CLUE_NOT_FOUND" };
 
-      if (input.reservationId) {
+      if (input.person) {
         const guest = await client.query(
           `SELECT id FROM reservations
             WHERE id = $1 AND event_id = $2 AND status = 'CONFIRMED' AND stage = 'PAID'
+              AND ($3::smallint = 1 OR guest2_full_name IS NOT NULL)
             FOR SHARE`,
-          [input.reservationId, input.eventId],
+          [input.person.reservationId, input.eventId, input.person.slot],
         );
         if (guest.rowCount === 0) return { ok: false, error: "GUEST_NOT_ELIGIBLE" };
       }
@@ -178,7 +181,7 @@ export class PostgresEventClueRepository implements EventClueRepository {
     });
   }
 
-  listRecipients(eventId: string): Promise<ClueRecipient[]> {
+  listRecipients(eventId: string): Promise<RecipientGroup[]> {
     return queryClueRecipients(this.pool, eventId);
   }
 

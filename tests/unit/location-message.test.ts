@@ -19,7 +19,9 @@ describe("composeLocationText", () => {
         notes: "Toca el timbre",
         mapsUrl: "https://maps.google.com/?q=casa",
       }),
-    ).toBe("Casa Secreta\nCalle 1, San Salvador\nToca el timbre\nhttps://maps.google.com/?q=casa");
+    ).toBe(
+      "Casa Secreta\nCalle 1, San Salvador\nToca el timbre\nGoogle Maps: https://maps.google.com/?q=casa",
+    );
   });
 
   it("skips missing and blank parts", () => {
@@ -27,6 +29,27 @@ describe("composeLocationText", () => {
       composeLocationText({ name: null, address: "Calle 1", notes: "   ", mapsUrl: null }),
     ).toBe("Calle 1");
     expect(composeLocationText({ name: null, address: null, notes: null, mapsUrl: null })).toBe("");
+  });
+
+  it("labels both providers and supports a Waze-only location", () => {
+    expect(
+      composeLocationText({
+        name: null,
+        address: null,
+        notes: null,
+        mapsUrl: "https://maps.app.goo.gl/place",
+        wazeUrl: "https://waze.com/ul?ll=1,2",
+      }),
+    ).toBe("Google Maps: https://maps.app.goo.gl/place\nWaze: https://waze.com/ul?ll=1,2");
+    expect(
+      composeLocationText({
+        name: null,
+        address: null,
+        notes: null,
+        mapsUrl: null,
+        wazeUrl: "https://waze.com/ul",
+      }),
+    ).toBe("Waze: https://waze.com/ul");
   });
 
   it("keeps the line breaks that the notes already contain", () => {

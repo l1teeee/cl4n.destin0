@@ -13,10 +13,17 @@ export interface LocationMessageContent {
   address: string | null;
   notes: string | null;
   mapsUrl: string | null;
+  wazeUrl?: string | null;
 }
 
 export function composeLocationText(location: LocationMessageContent): string {
-  return [location.name, location.address, location.notes, location.mapsUrl]
+  return [
+    location.name,
+    location.address,
+    location.notes,
+    location.mapsUrl?.trim() ? `Google Maps: ${location.mapsUrl.trim()}` : null,
+    location.wazeUrl?.trim() ? `Waze: ${location.wazeUrl.trim()}` : null,
+  ]
     .map((part) => part?.trim() ?? "")
     .filter((part) => part !== "")
     .join("\n");

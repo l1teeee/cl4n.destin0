@@ -8,7 +8,7 @@ import {
   publishEventClue,
   removeEventClue,
   sendClueToAll,
-  sendClueToGuest,
+  sendClueToPerson,
 } from "@/application/events/event-clues";
 import type { EventLifecycleStatus } from "@/domain/event/event-phase";
 import { PostgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
@@ -197,7 +197,7 @@ describe("event clue repository", () => {
     ).toEqual([]);
   });
 
-  it("sends once per paid reservation and audits only sends that queue messages", async () => {
+  it("sends once per paid person and audits only sends that queue messages", async () => {
     const event = await createEvent();
     const other = await createEvent();
     const linked = await insertGuestReservation(pool, event.id, {
@@ -215,7 +215,7 @@ describe("event clue repository", () => {
 
     const sent = await sendClueToAll(eventRepository, clueRepository, input);
     if (!sent.ok) throw new Error(sent.error);
-    expect(sent.messageIds).toHaveLength(2);
+    expect(sent.messageIds).toHaveLength(3);
     await expect(sendClueToAll(eventRepository, clueRepository, input)).resolves.toEqual({
       ok: true,
       messageIds: [],
@@ -228,6 +228,7 @@ describe("event clue repository", () => {
     expect(messages.rows).toEqual(
       expect.arrayContaining([
         { id: expect.any(String), reservation_id: linked, status: "QUEUED" },
+        { id: expect.any(String), reservation_id: linked, status: "WAITING_CONTACT" },
         { id: expect.any(String), reservation_id: unlinked, status: "WAITING_CONTACT" },
       ]),
     );
@@ -236,7 +237,7 @@ describe("event clue repository", () => {
       [event.id],
     );
     expect(audits.rows).toEqual([
-      { actor_admin_id: adminId, metadata: { clueSent: clue.value.id, recipients: 2 } },
+      { actor_admin_id: adminId, metadata: { clueSent: clue.value.id, recipients: 3 } },
     ]);
 
     const lateGuest = await insertGuestReservation(pool, event.id);
@@ -265,20 +266,22 @@ describe("event clue repository", () => {
 
     for (const reservationId of [inReview, onList, cancelled, otherGuest, randomUUID()]) {
       await expect(
-        sendClueToGuest(eventRepository, clueRepository, {
+        sendClueToPerson(eventRepository, clueRepository, {
           ...input,
           reservationId,
+          slot: 1,
         }),
       ).resolves.toEqual({ ok: false, error: "GUEST_NOT_ELIGIBLE" });
     }
-    const sent = await sendClueToGuest(eventRepository, clueRepository, {
+    const sent = await sendClueToPerson(eventRepository, clueRepository, {
       ...input,
       reservationId: eligible,
+      slot: 1,
     });
     if (!sent.ok) throw new Error(sent.error);
     expect(sent.messageIds).toHaveLength(1);
     await expect(
-      clueRepository.sendToGuest({ ...input, reservationId: eligible }),
+      clueRepository.sendToPerson({ ...input, reservationId: eligible, slot: 1 }),
     ).resolves.toEqual({ ok: true, messageIds: [] });
     const messages = await pool.query<{ reservation_id: string }>(
       "SELECT reservation_id FROM messages WHERE clue_id = $1",
@@ -302,7 +305,9 @@ describe("event clue repository", () => {
         ok: false,
         error: "CLUE_NOT_FOUND",
       });
-      await expect(clueRepository.sendToGuest({ ...input, reservationId })).resolves.toEqual({
+      await expect(
+        clueRepository.sendToPerson({ ...input, reservationId, slot: 1 }),
+      ).resolves.toEqual({
         ok: false,
         error: "CLUE_NOT_FOUND",
       });
@@ -360,7 +365,7 @@ describe("event clue repository", () => {
         `UPDATE messages SET status = $3,
                 sent_at = CASE WHEN $3 IN ('SENT', 'READ', 'SENT_MANUALLY') THEN now() END,
                 read_at = CASE WHEN $3 = 'READ' THEN now() END
-          WHERE reservation_id = $1 AND clue_id = $2`,
+          WHERE reservation_id = $1 AND clue_id = $2 AND guest_slot = 1`,
         [reservations[index], clue.value.id, status],
       );
     }
@@ -370,30 +375,31 @@ describe("event clue repository", () => {
       ...reservations,
       neverSent,
     ]);
-    expect(recipients.map((recipient) => recipient.statusByClue[clue.value.id])).toEqual([
-      "SENT",
-      "SENT",
-      "SENT",
-      "PENDING",
-      "PENDING",
-      "PENDING",
-      "FAILED",
-      "NOT_SENT",
-      "NOT_SENT",
-    ]);
+    expect(recipients.map((recipient) => recipient.people[0]!.statusByItem[clue.value.id])).toEqual(
+      ["SENT", "SENT", "SENT", "PENDING", "PENDING", "PENDING", "FAILED", "NOT_SENT", "NOT_SENT"],
+    );
     expect(
-      recipients.every((recipient) => recipient.statusByClue[unsentClue.value.id] === "NOT_SENT"),
+      recipients.every((recipient) =>
+        recipient.people.every((person) => person.statusByItem[unsentClue.value.id] === "NOT_SENT"),
+      ),
     ).toBe(true);
     expect(recipients[0]).toMatchObject({
-      guestName: "Invitado 0 y María Pérez",
-      instagram: "ana.linked",
+      people: [
+        expect.objectContaining({
+          slot: 1,
+          name: "Invitado 0",
+          instagram: "ana.linked",
+          linked: true,
+        }),
+        expect.objectContaining({ slot: 2, name: "María Pérez", linked: false }),
+      ],
     });
     const fallback = await pool.query<{ instagram_handle: string }>(
       "SELECT instagram_handle FROM reservations WHERE id = $1",
       [reservations[3]],
     );
-    expect(recipients[3]).toMatchObject({
-      guestName: "Invitado 3",
+    expect(recipients[3]!.people[0]).toMatchObject({
+      name: "Invitado 3",
       instagram: fallback.rows[0]!.instagram_handle,
     });
     await pool.query("UPDATE messaging_contacts SET username = NULL WHERE id = $1", [contactId]);
@@ -401,7 +407,7 @@ describe("event clue repository", () => {
       "SELECT instagram_handle FROM reservations WHERE id = $1",
       [reservations[0]],
     );
-    expect((await clueRepository.listRecipients(event.id))[0]?.instagram).toBe(
+    expect((await clueRepository.listRecipients(event.id))[0]?.people[0]?.instagram).toBe(
       linkedFallback.rows[0]!.instagram_handle,
     );
   });
@@ -411,7 +417,10 @@ describe("event clue repository", () => {
     await expect(clueRepository.listRecipients(event.id)).resolves.toEqual([]);
     const reservationId = await insertGuestReservation(pool, event.id);
     expect(await clueRepository.listRecipients(event.id)).toEqual([
-      expect.objectContaining({ reservationId, statusByClue: {} }),
+      expect.objectContaining({
+        reservationId,
+        people: [expect.objectContaining({ statusByItem: {} })],
+      }),
     ]);
   });
 
@@ -483,9 +492,10 @@ describe("event clue use cases", () => {
       error: "CLUES_CLOSED",
     });
     await expect(
-      sendClueToGuest(eventRepository, clueRepository, {
+      sendClueToPerson(eventRepository, clueRepository, {
         ...input,
         reservationId,
+        slot: 1,
       }),
     ).resolves.toEqual({ ok: false, error: "CLUES_CLOSED" });
     expect(
@@ -500,9 +510,10 @@ describe("event clue use cases", () => {
     if (!clue.ok) throw new Error(clue.error);
     const input = { eventId: event.id, clueId: clue.value.id, actorId: adminId };
 
-    const result = await sendClueToGuest(eventRepository, clueRepository, {
+    const result = await sendClueToPerson(eventRepository, clueRepository, {
       ...input,
       reservationId,
+      slot: 1,
     });
     if (!result.ok) throw new Error(result.error);
     expect(result.messageIds).toHaveLength(1);
@@ -579,9 +590,10 @@ describe("event clue use cases", () => {
         error: "EVENT_NOT_FOUND",
       });
       await expect(
-        sendClueToGuest(eventRepository, clueRepository, {
+        sendClueToPerson(eventRepository, clueRepository, {
           ...sendInput,
           reservationId: randomUUID(),
+          slot: 1,
         }),
       ).resolves.toEqual({ ok: false, error: "EVENT_NOT_FOUND" });
     }

@@ -35,6 +35,53 @@ const validCreate = {
 } as const;
 
 describe("admin event contracts", () => {
+  it("accepts Waze links, trims them and reads the field from a form", () => {
+    const form = new FormData();
+    form.set("locationWazeUrl", "https://waze.com/ul");
+    expect(readCreateEventFormData(form).locationWazeUrl).toBe("https://waze.com/ul");
+    expect(
+      createAdminEventSchema.parse({
+        ...validCreate,
+        locationWazeUrl: "  https://waze.com/ul  ",
+      }).locationWazeUrl,
+    ).toBe("https://waze.com/ul");
+    expect(
+      createAdminEventSchema.parse({ ...validCreate, locationWazeUrl: "  " }).locationWazeUrl,
+    ).toBeNull();
+  });
+
+  it.each([
+    [
+      "locationMapsUrl",
+      "https://waze.com/ul",
+      "Este enlace es de Waze: pégalo en el campo de Waze.",
+    ],
+    ["locationMapsUrl", "https://example.com/maps", "Este enlace no es de Google Maps."],
+    [
+      "locationWazeUrl",
+      "https://google.com/maps",
+      "Este enlace es de Google Maps: pégalo en el campo de Google Maps.",
+    ],
+    ["locationWazeUrl", "https://example.com/ul", "Este enlace no es de Waze."],
+  ])("explains a misplaced link in %s", (field, url, message) => {
+    const result = createAdminEventSchema.safeParse({ ...validCreate, [field]: url });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error("Expected invalid link");
+    expect(result.error.issues).toContainEqual(expect.objectContaining({ path: [field], message }));
+  });
+
+  it.each([
+    "http://waze.com/ul",
+    "https://user@waze.com/ul",
+    "https://waze.com:444/ul",
+    "https://waze.com/\\ul",
+    `https://waze.com/ul?q=${"a".repeat(2048)}`,
+  ])("rejects unsafe or oversized Waze links: %s", (locationWazeUrl) => {
+    expect(createAdminEventSchema.safeParse({ ...validCreate, locationWazeUrl }).success).toBe(
+      false,
+    );
+  });
+
   it("reads create form numbers, empty values, and checkboxes", () => {
     const formData = new FormData();
     for (const [field, value] of Object.entries({

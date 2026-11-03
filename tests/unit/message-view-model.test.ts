@@ -34,6 +34,7 @@ const summary: ConversationSummary = {
       instagramHandles: ["ana.ig", "luis.ig"],
       status: "CONFIRMED",
       stage: "ON_LIST",
+      role: "TITULAR",
     },
   ],
 };

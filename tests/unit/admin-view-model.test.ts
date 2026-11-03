@@ -84,6 +84,7 @@ function event(overrides: Partial<AdminEventSummary>): AdminEventSummary {
       name: null,
       address: null,
       mapsUrl: null,
+      wazeUrl: null,
       notes: null,
       status: "PENDING",
       confirmedAt: null,
