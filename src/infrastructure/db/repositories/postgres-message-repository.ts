@@ -24,6 +24,12 @@ import type {
   RequestMessagesBySubject,
 } from "@/application/messaging/conversation-queries";
 import type { InstagramWebhookEvent } from "@/application/messaging/instagram-events";
+import type {
+  MessagingHealthRepository,
+  UndeliveredCounts,
+  UnsentMessage,
+  UnsentMessageStatus,
+} from "@/application/messaging/messaging-health";
 import type { MessageKind, MessageStatus } from "@/domain/messaging/message-types";
 import { extractLinkCode, isLinkCode } from "@/domain/messaging/link-code";
 import { log } from "@/infrastructure/observability/logger";
@@ -169,6 +175,7 @@ export class PostgresMessageRepository
     MessageDeliveryRepository,
     InstagramEventRepository,
     AdminMessageRepository,
+    MessagingHealthRepository,
     ConversationQueryRepository
 {
   constructor(readonly pool: Pool = applicationPool) {}
@@ -1073,6 +1080,103 @@ export class PostgresMessageRepository
       [contactId, text, adminId],
     );
     return result.rows[0]?.id ?? null;
+  }
+
+  async recordManualFreeText(
+    contactId: string,
+    text: string,
+    adminId: string,
+  ): Promise<string | null> {
+    const result = await this.pool.query<{ id: string }>(
+      `INSERT INTO messages (
+         contact_id, direction, kind, source, status, body, sent_at, created_by, handled_by
+       )
+       SELECT id, 'OUTBOUND', 'FREE_TEXT', 'ADMIN', 'SENT_MANUALLY', $2, clock_timestamp(), $3, $3
+         FROM messaging_contacts WHERE id = $1
+       RETURNING id`,
+      [contactId, text, adminId],
+    );
+    return result.rows[0]?.id ?? null;
+  }
+
+  async countUndeliveredMessages(): Promise<UndeliveredCounts> {
+    const result = await this.pool.query<UndeliveredCounts>(
+      `SELECT count(*) FILTER (WHERE status = 'FAILED')::integer AS failed,
+              count(*) FILTER (WHERE status = 'QUEUED' AND attempts > 0)::integer AS retrying
+         FROM messages
+        WHERE direction = 'OUTBOUND'
+          AND status IN ('FAILED', 'QUEUED')`,
+    );
+    return result.rows[0]!;
+  }
+
+  async lastMetaSignalAt(): Promise<Date | null> {
+    const result = await this.pool.query<{ last_signal_at: Date | null }>(
+      `SELECT GREATEST(
+                (SELECT max(received_at) FROM messages WHERE direction = 'INBOUND'),
+                (SELECT max(read_at) FROM messages WHERE direction = 'OUTBOUND'),
+                (SELECT max(sent_at) FROM messages WHERE source = 'INSTAGRAM_APP')
+              ) AS last_signal_at`,
+    );
+    return result.rows[0]!.last_signal_at;
+  }
+
+  async listUnsentMessages(limit: number): Promise<UnsentMessage[]> {
+    const result = await this.pool.query<{
+      id: string;
+      status: UnsentMessageStatus;
+      kind: MessageKind;
+      body: string | null;
+      attachment_count: number;
+      last_error: string | null;
+      created_at: Date;
+      contact_id: string | null;
+      instagram_username: string | null;
+      full_name: string | null;
+      guest2_full_name: string | null;
+      event_name: string | null;
+      event_starts_at: Date | null;
+    }>(
+      `SELECT m.id,
+              CASE WHEN m.status = 'QUEUED' THEN 'RETRYING' ELSE m.status END AS status,
+              m.kind, m.body,
+              COALESCE(cardinality(m.attachment_urls), 0)::integer AS attachment_count,
+              m.last_error, m.created_at, m.contact_id,
+              COALESCE(c.username, r.instagram_handle, w.instagram_handle) AS instagram_username,
+              COALESCE(r.full_name, w.full_name) AS full_name,
+              COALESCE(r.guest2_full_name, w.guest2_full_name) AS guest2_full_name,
+              e.internal_name AS event_name, e.starts_at AS event_starts_at
+         FROM messages m
+         LEFT JOIN messaging_contacts c ON c.id = m.contact_id
+         LEFT JOIN reservations r ON r.id = m.reservation_id
+         LEFT JOIN waitlist_entries w ON w.id = m.waitlist_entry_id
+         LEFT JOIN events e ON e.id = m.event_id
+        WHERE m.direction = 'OUTBOUND'
+          AND (m.status IN ('FAILED', 'WAITING_WINDOW', 'WAITING_CONTACT')
+               OR (m.status = 'QUEUED' AND m.attempts > 0))
+        ORDER BY m.created_at, m.id
+        LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      kind: row.kind,
+      body: row.body,
+      attachmentCount: row.attachment_count,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      contactId: row.contact_id,
+      instagramUsername: row.instagram_username,
+      guestName:
+        row.full_name === null
+          ? null
+          : row.guest2_full_name === null
+            ? row.full_name
+            : `${row.full_name} y ${row.guest2_full_name}`,
+      eventName: row.event_name,
+      eventStartsAt: row.event_starts_at,
+    }));
   }
 
   private async lockAdminMessage(

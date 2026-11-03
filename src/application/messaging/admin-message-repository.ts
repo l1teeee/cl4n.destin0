@@ -5,6 +5,7 @@ export type AdminMessageMutationResult = "UPDATED" | "LIVE_LEASE" | "NOT_UPDATED
 
 export interface AdminMessageRepository {
   createFreeText(contactId: string, text: string, adminId: string): Promise<string | null>;
+  recordManualFreeText(contactId: string, text: string, adminId: string): Promise<string | null>;
   retryMessage(id: string): Promise<AdminMessageMutationResult>;
   markSentManually(id: string, adminId: string): Promise<AdminMessageMutationResult>;
   discardMessage(id: string, adminId: string): Promise<AdminMessageMutationResult>;
