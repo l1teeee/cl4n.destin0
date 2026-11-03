@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-09.
 
+Amended 2026-11-03: Waze link, per-person sending (see "Amendment 2026-11-03").
+
 ## Context
 
 An experience needs an admin-managed venue, address, Google Maps link, directions and venue photos. Venues may change, and guests must not receive an unconfirmed or stale location. The public experience and reservation flow must not expose location data.
@@ -66,3 +68,9 @@ When an update changes the address (compared trimmed, whitespace-collapsed and c
 If the Maps link is unchanged and no coordinates could be obtained (for example a transient resolver failure), the stored point is kept. A changed or cleared link stores whatever was resolved, or null. The admin map previews the saved point, otherwise the address, otherwise nothing. Emails are unchanged: they keep linking to the saved Maps URL.
 
 Coordinates are derived data for the admin map preview. They are never sent to guests, never used by emails or public pages, and so do not bump `location_revision`; a change to the Maps URL they derive from already does.
+
+## Amendment 2026-11-03
+
+- The location has an optional Waze link next to the Google Maps link (`events.location_waze_url`). Each field accepts only its provider, detected by host, and tells the admin when a link belongs to the other field. Confirming the location needs an address, a Google Maps link or a Waze link.
+- The location message labels its links as "Google Maps: <url>" and "Waze: <url>".
+- The location goes to every person of a PAID reservation (titular and companion), with a unique `(reservation_id, guest_slot, location_revision)`. Besides "send to all", the admin can send it to chosen people with the shared send dialog (ADR-009). The automatic send on payment also covers the companion.
