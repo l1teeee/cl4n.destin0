@@ -58,6 +58,14 @@ export class PostgresMessageTemplateRepository
 {
   constructor(private readonly pool: Pool = applicationPool) {}
 
+  async findTemplateBody(key: TemplateKey): Promise<string | null> {
+    const result = await this.pool.query<{ body: string }>(
+      "SELECT body FROM message_templates WHERE key = $1",
+      [key],
+    );
+    return result.rows[0]?.body ?? null;
+  }
+
   async listTemplates(): Promise<MessageTemplate[]> {
     const result = await this.pool.query<TemplateRow>(
       `SELECT template.key, template.body, template.updated_at,

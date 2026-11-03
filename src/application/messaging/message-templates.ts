@@ -23,6 +23,9 @@ const VARIABLE_MAX_LENGTHS: Record<string, number> = {
   posicion: 3,
   pago: 600,
   ubicacion: 0,
+  consumos: 900,
+  total: 12,
+  datos_pago: 400,
 };
 
 const placeholderPattern = /\{([^{}]+)\}/g;

@@ -27,6 +27,7 @@ import type { InstagramWebhookEvent } from "@/application/messaging/instagram-ev
 import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
 import { ingestConfiguredInstagramEvents } from "@/infrastructure/messaging/ingest-instagram-events";
 import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
+import { consumeAdminMessageRateLimit } from "@/infrastructure/rate-limit/admin-message-rate-limit";
 import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
 const idSchema = z.uuid("El identificador no es válido.");
@@ -101,10 +102,6 @@ function refreshMessages(): void {
   revalidatePath("/admin/mensajes");
   revalidatePath("/admin/mensajes/sin-enviar");
   revalidatePath("/admin");
-}
-
-function consumeAdminMessageRateLimit(adminId: string) {
-  return consume({ scope: "admin-message:send", subject: adminId, limit: 60, windowSeconds: 600 });
 }
 
 export async function sendFreeTextAction(

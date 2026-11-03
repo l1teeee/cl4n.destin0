@@ -17,8 +17,9 @@ export interface RenderedTemplate {
 type RequestReference = Pick<LinkedRequestSummary, "id" | "type">;
 
 // The location has its own send flow (paid guests only, photos, revisions): offering it by hand could leak it.
+// The tab needs consumption data that the chat menu cannot render.
 function isManualTemplate(template: MessageTemplate): boolean {
-  return template.key !== "LOCATION";
+  return template.key !== "LOCATION" && template.key !== "TAB";
 }
 
 function requestSubject(request: RequestReference): RequestMessageSubject {

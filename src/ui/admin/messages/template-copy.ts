@@ -26,4 +26,5 @@ export const TEMPLATE_COPY: Record<TemplateKey, { title: string; timing: string 
     timing: "Al registrar el reembolso, si eliges enviarlo",
   },
   LOCATION: { title: "Ubicación", timing: "Al enviar la ubicación" },
+  TAB: { title: "Cuenta de consumos", timing: "Al enviar la cuenta desde Extras" },
 };

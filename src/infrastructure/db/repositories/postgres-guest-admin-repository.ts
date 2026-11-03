@@ -18,7 +18,7 @@ import type {
   VerifyPaymentCommand,
   WaitlistEntryCommand,
 } from "@/application/guests/guest-admin-repository";
-import type { TemplateKey } from "@/domain/messaging/message-types";
+import type { StatusMessageKind } from "@/domain/messaging/message-types";
 import { generateLinkCode as defaultGenerateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 
 import { pool as applicationPool } from "../client";
@@ -284,7 +284,7 @@ async function isPaymentMissing(client: PoolClient, eventId: string): Promise<bo
 async function enqueueStatusMessage(
   client: PoolClient,
   input: {
-    kind: TemplateKey;
+    kind: StatusMessageKind;
     eventId: string;
     subject: { reservationId: string } | { waitlistEntryId: string };
     actorAdminId: string;
