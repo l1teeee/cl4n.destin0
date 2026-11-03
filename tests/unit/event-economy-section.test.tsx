@@ -91,6 +91,7 @@ function handlersFor(): { [K in keyof EconomyHandlers]: ReturnType<typeof vi.fn>
     settle: vi.fn().mockResolvedValue({ ok: true, message: "Cuenta marcada como pagada." }),
     reopen: vi.fn().mockResolvedValue({ ok: true, message: "Cuenta reabierta." }),
     sendTab: vi.fn(),
+    sendGroupTabs: vi.fn(),
   };
 }
 

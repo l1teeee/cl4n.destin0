@@ -83,6 +83,7 @@ import {
 import {
   addConsumptionAction,
   reopenTabAction,
+  sendGroupTabsAction,
   sendTabAction,
   settleTabAction,
   voidConsumptionAction,
@@ -265,6 +266,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             settle: settleTabAction,
             reopen: reopenTabAction,
             sendTab: sendTabAction,
+            sendGroupTabs: sendGroupTabsAction,
           }}
         />
       ) : null}
