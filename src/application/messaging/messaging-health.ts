@@ -1,7 +1,5 @@
 import type { MessageKind } from "@/domain/messaging/message-types";
 
-import type { InstagramConnection } from "./instagram-connection";
-
 export type UnsentMessageStatus = "FAILED" | "WAITING_WINDOW" | "WAITING_CONTACT" | "RETRYING";
 
 export interface UnsentMessage {
@@ -43,7 +41,8 @@ export interface MessagingHealth {
 }
 
 export interface MessagingHealthDependencies {
-  findConnection(): Promise<InstagramConnection | null>;
+  // Token expiry of the stored connection, null when not connected. Must not read or decrypt the token.
+  findConnectionExpiry(): Promise<Date | null>;
   messages: MessagingHealthRepository;
   // In "log" mode nothing goes through Instagram, so the connection does not matter.
   usesInstagram: boolean;
@@ -52,23 +51,23 @@ export interface MessagingHealthDependencies {
 
 function connectionState(
   usesInstagram: boolean,
-  connection: InstagramConnection | null,
+  expiresAt: Date | null,
   now: Date,
 ): InstagramConnectionState {
   if (!usesInstagram) return "NOT_USED";
-  if (connection === null) return "MISSING";
-  return connection.tokenExpiresAt.getTime() <= now.getTime() ? "EXPIRED" : "CONNECTED";
+  if (expiresAt === null) return "MISSING";
+  return expiresAt.getTime() <= now.getTime() ? "EXPIRED" : "CONNECTED";
 }
 
 export async function getMessagingHealth(
   dependencies: MessagingHealthDependencies,
 ): Promise<MessagingHealth> {
-  const [connection, counts, lastMetaSignalAt] = await Promise.all([
-    dependencies.usesInstagram ? dependencies.findConnection() : Promise.resolve(null),
+  const [expiresAt, counts, lastMetaSignalAt] = await Promise.all([
+    dependencies.usesInstagram ? dependencies.findConnectionExpiry() : Promise.resolve(null),
     dependencies.messages.countUndeliveredMessages(),
     dependencies.messages.lastMetaSignalAt(),
   ]);
-  const state = connectionState(dependencies.usesInstagram, connection, dependencies.now);
+  const state = connectionState(dependencies.usesInstagram, expiresAt, dependencies.now);
   const connectionBroken = state === "MISSING" || state === "EXPIRED";
   return {
     connection: state,
