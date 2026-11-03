@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
@@ -11,6 +12,33 @@ import { publicMessages } from "@/ui/public/i18n/messages";
 import { ReservationExperience } from "@/ui/public/reservation-experience";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const event = (await getPublicEventBySlug(postgresEventRepository, slug)).value;
+
+  if (
+    !event ||
+    event.phase === "DRAFT" ||
+    buildRequestAccessViewModel(event).state !== "RESERVATION"
+  ) {
+    return {};
+  }
+
+  const title = "El clan está abierto · Clandestino";
+  const description = `${formatPublicEventDate(event.startsAt, "es")}. Solicita tu lugar.`;
+
+  return {
+    title,
+    description,
+    openGraph: { title, description, type: "website", siteName: "Clandestino", locale: "es_SV" },
+    twitter: { card: "summary_large_image", title, description },
+  };
+}
 
 export default async function RequestAccessPage({ params }: { params: Promise<{ slug: string }> }) {
   const [{ slug }, requestHeaders] = await Promise.all([params, headers()]);

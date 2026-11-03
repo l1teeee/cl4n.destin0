@@ -27,7 +27,10 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-import { sendEventLocationAction } from "@/app/admin/(protected)/events/actions";
+import {
+  sendEventLocationAction,
+  sendEventLocationToPeopleAction,
+} from "@/app/admin/(protected)/events/actions";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
 import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
 import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
@@ -69,6 +72,70 @@ function sendLocation(
 }
 
 describe("sendEventLocationAction", () => {
+  it("sends a chosen companion and titular only and reports the number delivered", async () => {
+    const eventId = await insertLocationEvent(pool);
+    const companionId = await insertMessagingContact(pool);
+    const couple = await insertGuestReservation(pool, eventId, {
+      contactId: await insertMessagingContact(pool),
+      guest2FullName: "Luis Pérez",
+    });
+    await pool.query("UPDATE reservations SET guest2_contact_id = $2 WHERE id = $1", [
+      couple,
+      companionId,
+    ]);
+    const titular = await insertGuestReservation(pool, eventId, {
+      contactId: await insertMessagingContact(pool),
+    });
+    const form = new FormData();
+    form.append("people", `${couple}:2`);
+    form.append("people", `${titular}:1`);
+    authState.token = sessionToken;
+
+    expect(await sendEventLocationToPeopleAction(eventId, loaded, initialState, form)).toEqual({
+      ok: true,
+      message: "Ubicación enviada a 2 personas.",
+    });
+    const recipients = await pool.query<{ reservation_id: string; guest_slot: number }>(
+      "SELECT reservation_id, guest_slot FROM messages WHERE kind = 'LOCATION' ORDER BY guest_slot",
+    );
+    expect(recipients.rows).toEqual([
+      { reservation_id: titular, guest_slot: 1 },
+      { reservation_id: couple, guest_slot: 2 },
+    ]);
+    expect(scheduleMessageDelivery).toHaveBeenCalledOnce();
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/mensajes/sin-enviar");
+  });
+
+  it.each(["bad:1", "00000000-0000-0000-0000-000000000000:3", "not-a-uuid:2"])(
+    "rejects an invalid chosen person: %s",
+    async (person) => {
+      const eventId = await insertLocationEvent(pool);
+      const reservationId = await insertGuestReservation(pool, eventId);
+      const form = new FormData();
+      form.append("people", `${reservationId}:1`);
+      form.append("people", person);
+      authState.token = sessionToken;
+
+      expect(await sendEventLocationToPeopleAction(eventId, loaded, initialState, form)).toEqual({
+        ok: false,
+        message: "Elige personas válidas para el envío.",
+      });
+      expect(await listLocationMessages(pool, eventId)).toEqual([]);
+    },
+  );
+
+  it("requires an admin session for a chosen send", async () => {
+    const eventId = await insertLocationEvent(pool);
+    const form = new FormData();
+    const reservationId = await insertGuestReservation(pool, eventId);
+    form.append("people", `${reservationId}:1`);
+    expect(await sendEventLocationToPeopleAction(eventId, loaded, initialState, form)).toEqual({
+      ok: false,
+      message: "Tu sesión no es válida. Inicia sesión nuevamente.",
+    });
+    expect(await listLocationMessages(pool, eventId)).toEqual([]);
+  });
+
   it("rejects a request without an admin session and queues nothing", async () => {
     const eventId = await insertLocationEvent(pool);
     await insertGuestReservation(pool, eventId);

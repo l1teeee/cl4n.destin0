@@ -22,7 +22,6 @@ import {
   parseAuditSearchParams,
   parseEventSection,
   parseReservationSearchParams,
-  publicCluesUrl,
   publicEventUrl,
   publicLinkHint,
   reservationStatusLabel,
@@ -31,15 +30,6 @@ import {
 const now = new Date("2026-10-05T12:00:00Z");
 
 describe("public event link", () => {
-  it("builds an absolute encoded clues URL with or without a trailing slash", () => {
-    expect(publicCluesUrl("https://clandestino.example", "cena privada")).toBe(
-      "https://clandestino.example/pistas/cena%20privada",
-    );
-    expect(publicCluesUrl("https://clandestino.example/", "cena/uno")).toBe(
-      "https://clandestino.example/pistas/cena%2Funo",
-    );
-  });
-
   it("builds an absolute encoded URL with or without a trailing slash", () => {
     expect(publicEventUrl("https://clandestino.example", "cena privada")).toBe(
       "https://clandestino.example/solicitar/cena%20privada",

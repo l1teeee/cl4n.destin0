@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { parseDrinkPriceCents } from "@/domain/drink/drink-price";
+import { mapProviderOf } from "@/domain/event/map-links";
 
 // Number("") is 0, which would silently turn an empty field into "waitlist off".
 export function optionalNumber(value: FormDataEntryValue | null): number | undefined {
@@ -73,18 +74,7 @@ const optionalPricePerPerson = z.preprocess(
   pricePerPerson.optional(),
 );
 
-const mapsUrlMessage =
-  "Pega un enlace de Google Maps (https://maps.app.goo.gl/... o https://www.google.com/maps/...).";
-
-const pathPrefixedMapsHosts = new Set([
-  "goo.gl",
-  "google.com",
-  "www.google.com",
-  "google.com.sv",
-  "www.google.com.sv",
-]);
-
-export function isAllowedGoogleMapsUrl(value: string): boolean {
+function isSecureMapUrl(value: string): boolean {
   // WHATWG parsing treats a backslash as a slash, but other consumers do not; refuse the ambiguity.
   if (value.includes("\\")) return false;
   let url: URL;
@@ -97,9 +87,11 @@ export function isAllowedGoogleMapsUrl(value: string): boolean {
   if (url.username !== "" || url.password !== "") return false;
   if (url.port !== "") return false;
 
-  const host = url.hostname.toLowerCase();
-  if (host === "maps.app.goo.gl" || host === "maps.google.com") return true;
-  return pathPrefixedMapsHosts.has(host) && url.pathname.startsWith("/maps");
+  return true;
+}
+
+export function isAllowedMapLinkUrl(value: string): boolean {
+  return isSecureMapUrl(value) && mapProviderOf(value) !== null;
 }
 
 function nullableTrimmedText(max: number) {
@@ -113,7 +105,13 @@ const locationFields = {
   locationName: nullableTrimmedText(120),
   locationAddress: nullableTrimmedText(300),
   locationMapsUrl: nullableTrimmedText(2048)
-    .refine((value) => value === null || isAllowedGoogleMapsUrl(value), mapsUrlMessage)
+    .superRefine((value, context) => {
+      if (value === null || isAllowedMapLinkUrl(value)) return;
+      context.addIssue({
+        code: "custom",
+        message: "Pega un enlace de Google Maps o de Waze.",
+      });
+    })
     .transform((value) => (value === null ? null : new URL(value).href)),
   locationNotes: nullableTrimmedText(1000),
   locationStatus: z.enum(["PENDING", "CONFIRMED"]),

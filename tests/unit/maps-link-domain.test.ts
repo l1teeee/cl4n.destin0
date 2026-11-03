@@ -127,6 +127,36 @@ describe("parseMapsCoordinates", () => {
   });
 });
 
+describe("parseMapsCoordinates for Waze links", () => {
+  it.each([
+    "https://waze.com/ul?ll=13.69,-89.21&navigate=yes",
+    "https://waze.com/ul?ll=13.69%2C-89.21&navigate=yes",
+    "https://www.waze.com/live-map/directions?to=ll.13.69,-89.21",
+    "https://www.waze.com/live-map/directions?to=ll.13.69%2C-89.21",
+  ])("reads the point from %s", (url) => {
+    expect(parseMapsCoordinates(url)).toEqual({ latitude: 13.69, longitude: -89.21 });
+  });
+
+  it("decodes the geohash of a short link", () => {
+    const point = parseMapsCoordinates("https://waze.com/ul/hu4pruydqqvj");
+    expect(point?.latitude).toBeCloseTo(57.6491, 4);
+    expect(point?.longitude).toBeCloseTo(10.4074, 4);
+  });
+
+  it("decodes the geohash on the short link host too", () => {
+    expect(parseMapsCoordinates("https://ul.waze.com/ul/hu4pruydqqvj")).not.toBeNull();
+  });
+
+  it.each([
+    "https://waze.com/ul?ll=91,-89.21",
+    "https://waze.com/ul?to=ll.13.5,-181",
+    "https://waze.com/ul/hu4pruydqqva",
+    "https://waze.com/ul?q=Casa",
+  ])("returns null for %s", (url) => {
+    expect(parseMapsCoordinates(url)).toBeNull();
+  });
+});
+
 describe("chooseStoredCoordinates", () => {
   const stored = { latitude: 1, longitude: 2 };
   const resolved = { latitude: 3, longitude: 4 };

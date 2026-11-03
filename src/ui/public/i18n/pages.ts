@@ -52,37 +52,6 @@ export const drinksMessages: Record<PublicLocale, DrinksMessages> = {
   en: drinksEn,
 };
 
-const cluesEs = {
-  metaTitle: "Pistas · Clandestino",
-  eyebrow: "CLANDESTINO SUPPER CLAN",
-  title: "Pistas",
-  notStarted: "Las pistas aparecerán aquí cuando comience la experiencia.",
-  empty: "Todavía no hay pistas. Mantente atento.",
-  clueLabel: (number: number) => `PISTA ${number}`,
-  imagesAriaLabel: (number: number) => `Imágenes de la pista ${number}`,
-  imageAlt: (imageIndex: number, clueNumber: number) =>
-    `Imagen ${imageIndex} adjunta a la pista ${clueNumber}`,
-};
-
-export type CluesMessages = typeof cluesEs;
-
-const cluesEn: CluesMessages = {
-  metaTitle: "Clues · Clandestino",
-  eyebrow: "CLANDESTINO SUPPER CLAN",
-  title: "Clues",
-  notStarted: "Clues will appear here once the experience begins.",
-  empty: "There are no clues yet. Stay tuned.",
-  clueLabel: (number: number) => `CLUE ${number}`,
-  imagesAriaLabel: (number: number) => `Images for clue ${number}`,
-  imageAlt: (imageIndex: number, clueNumber: number) =>
-    `Image ${imageIndex} attached to clue ${clueNumber}`,
-};
-
-export const cluesMessages: Record<PublicLocale, CluesMessages> = {
-  es: cluesEs,
-  en: cluesEn,
-};
-
 const legalEs = {
   lastUpdated: "Última actualización",
   termsTitle: "Términos",

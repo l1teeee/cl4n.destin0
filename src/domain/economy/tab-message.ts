@@ -9,22 +9,28 @@ export interface TabMessageLine {
   totalCents: number;
 }
 
-export interface TabMessageInput {
-  guestFullName: string;
+export interface GroupTabMessageInput {
+  titularFullName: string;
   eventDate: string;
-  lines: readonly TabMessageLine[];
-  totalCents: number;
+  people: Array<{ fullName: string; lines: readonly TabMessageLine[]; totalCents: number }>;
+  isCouple: boolean;
   settings: PaymentSettings | null;
 }
 
-export function tabMessageValues(input: TabMessageInput): Record<string, string> {
-  return {
-    nombre: firstName(input.guestFullName),
-    fecha: input.eventDate,
-    consumos: input.lines
+export function groupTabMessageValues(input: GroupTabMessageInput): Record<string, string> {
+  const consumos = input.people.map((person) => {
+    const lines = person.lines
       .map((line) => `${line.quantity} × ${line.itemName}: ${formatDrinkPrice(line.totalCents)}`)
-      .join("\n"),
-    total: formatDrinkPrice(input.totalCents),
+      .join("\n");
+    return input.isCouple
+      ? `${firstName(person.fullName)}\n${lines}\nSubtotal: ${formatDrinkPrice(person.totalCents)}`
+      : lines;
+  });
+  return {
+    nombre: firstName(input.titularFullName),
+    fecha: input.eventDate,
+    consumos: consumos.join("\n\n"),
+    total: formatDrinkPrice(input.people.reduce((total, person) => total + person.totalCents, 0)),
     banco: input.settings?.bankName ?? "",
     tipo_cuenta: input.settings?.accountType ?? "",
     cuenta: input.settings?.accountNumber ?? "",

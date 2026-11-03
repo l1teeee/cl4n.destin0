@@ -14,6 +14,7 @@ import {
 import type { AdminRole } from "@/domain/admin/admin-access";
 import { canDeleteEvent } from "@/domain/event/event-lifecycle";
 import type { EventPhase } from "@/domain/event/event-phase";
+import { mapProviderOf } from "@/domain/event/map-links";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import type { BadgeVariant } from "@/ui/primitives/badge";
 
@@ -198,10 +199,6 @@ export function eventPhaseLabel(phase: EventPhase): string {
 
 export function publicEventUrl(appBaseUrl: string, slug: string): string {
   return `${appBaseUrl.replace(/\/+$/, "")}/solicitar/${encodeURIComponent(slug)}`;
-}
-
-export function publicCluesUrl(appBaseUrl: string, slug: string): string {
-  return `${appBaseUrl.replace(/\/+$/, "")}/pistas/${encodeURIComponent(slug)}`;
 }
 
 export function publicLinkHint(phase: EventPhase): string | null {
@@ -410,12 +407,16 @@ export interface LocationMap {
 }
 
 export function locationMap(
-  location: Pick<EventLocationRecord, "name" | "address" | "latitude" | "longitude">,
+  location: Pick<EventLocationRecord, "name" | "address" | "mapsUrl" | "latitude" | "longitude">,
 ): LocationMap | null {
   if (location.latitude !== null && location.longitude !== null) {
+    const provider = location.mapsUrl === null ? null : mapProviderOf(location.mapsUrl);
     return {
       src: `https://www.google.com/maps?q=${location.latitude},${location.longitude}&z=17&output=embed`,
-      caption: "Punto exacto del enlace de Google Maps.",
+      caption:
+        provider === "WAZE"
+          ? "Punto exacto del enlace de Waze."
+          : "Punto exacto del enlace de Google Maps.",
     };
   }
   if (location.address === null) return null;
@@ -424,6 +425,6 @@ export function locationMap(
   return {
     src: `https://www.google.com/maps?q=${encodeURIComponent(query.replace(/\r?\n/g, ", "))}&output=embed`,
     caption:
-      "Ubicación aproximada según la dirección. Pega un enlace de Google Maps para marcar el punto exacto.",
+      "Ubicación aproximada según la dirección. Pega un enlace de Google Maps o de Waze para marcar el punto exacto.",
   };
 }

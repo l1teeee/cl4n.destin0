@@ -1,3 +1,5 @@
+import { mapProviderOf } from "./map-links";
+
 export type EventLocationStatus = "PENDING" | "CONFIRMED";
 
 export interface EventLocationConfirmationInput {
@@ -83,6 +85,8 @@ export function parseMapsCoordinates(value: string): MapsCoordinates | null {
     return null;
   }
 
+  if (mapProviderOf(value) === "WAZE") return parseWazeCoordinates(url);
+
   const decodedPath = decodeURIComponentSafely(url.pathname);
   const pin = coordinatesFromMatch(decodedPath.match(pinPattern));
   if (pin) return pin;
@@ -97,6 +101,51 @@ export function parseMapsCoordinates(value: string): MapsCoordinates | null {
     if (fromQuery) return fromQuery;
   }
   return null;
+}
+
+const wazeGeohashPathPattern = /^\/ul\/h([0-9bcdefghjkmnpqrstuvwxyz]{1,12})\/?$/;
+const wazeDestinationPrefix = "ll.";
+const geohashAlphabet = "0123456789bcdefghjkmnpqrstuvwxyz";
+
+// Waze shares a place as `ll=lat,lng`, as `to=ll.lat,lng` or as a short `/ul/h<geohash>` path.
+function parseWazeCoordinates(url: URL): MapsCoordinates | null {
+  const fromLl = coordinatesFromMatch(
+    (url.searchParams.get("ll") ?? "").trim().match(coordinateValuePattern),
+  );
+  if (fromLl) return fromLl;
+
+  const destination = (url.searchParams.get("to") ?? "").trim();
+  if (destination.startsWith(wazeDestinationPrefix)) {
+    const fromDestination = coordinatesFromMatch(
+      destination.slice(wazeDestinationPrefix.length).match(coordinateValuePattern),
+    );
+    if (fromDestination) return fromDestination;
+  }
+
+  const geohash = url.pathname.match(wazeGeohashPathPattern)?.[1];
+  return geohash === undefined ? null : decodeGeohash(geohash);
+}
+
+// Each geohash character carries 5 bits that alternately halve the longitude and latitude ranges.
+function decodeGeohash(geohash: string): MapsCoordinates | null {
+  let latitudeRange = [-90, 90];
+  let longitudeRange = [-180, 180];
+  let isLongitudeBit = true;
+  for (const character of geohash) {
+    const value = geohashAlphabet.indexOf(character);
+    for (let bit = 4; bit >= 0; bit -= 1) {
+      const range = isLongitudeBit ? longitudeRange : latitudeRange;
+      const middle = (range[0]! + range[1]!) / 2;
+      const upperHalf = ((value >> bit) & 1) === 1;
+      const narrowed = upperHalf ? [middle, range[1]!] : [range[0]!, middle];
+      if (isLongitudeBit) longitudeRange = narrowed;
+      else latitudeRange = narrowed;
+      isLongitudeBit = !isLongitudeBit;
+    }
+  }
+  const latitude = (latitudeRange[0]! + latitudeRange[1]!) / 2;
+  const longitude = (longitudeRange[0]! + longitudeRange[1]!) / 2;
+  return toCoordinates(String(latitude), String(longitude));
 }
 
 function decodeURIComponentSafely(text: string): string {

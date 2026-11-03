@@ -10,6 +10,7 @@ export interface LinkedRequestSummary {
   instagramHandles: string[];
   status: string;
   stage: string | null;
+  role: "TITULAR" | "COMPANION";
 }
 
 export interface ConversationSummary {

@@ -375,12 +375,19 @@ async function updateGuestData(
   table: "reservations" | "waitlist_entries",
   id: string,
   fields: GuestFields,
+  previousGuest2Instagram: string | null,
+  actorAdminId: string,
 ): Promise<void> {
+  const companionRemoved = previousGuest2Instagram !== null && fields.guest2Name === null;
+  const companionHandleChanged = previousGuest2Instagram !== fields.guest2Instagram;
+  const clearCompanionContact =
+    table === "reservations" && (companionRemoved || companionHandleChanged);
   await client.query(
     `UPDATE ${table}
         SET party_size = $2,
             full_name = $3,
             instagram_handle = $4,
+            ${clearCompanionContact ? "guest2_contact_id = NULL," : ""}
             guest2_full_name = $5,
             guest2_instagram_handle = $6,
             allergies = $7,
@@ -397,6 +404,39 @@ async function updateGuestData(
       fields.allergies,
       fields.notes,
     ],
+  );
+  if (!clearCompanionContact) return;
+
+  if (companionRemoved) {
+    await client.query(
+      `UPDATE messages
+          SET status = 'DISCARDED', handled_by = $2, locked_until = NULL,
+              claims_without_progress = 0
+        WHERE reservation_id = $1 AND guest_slot = 2
+          AND status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'FAILED')
+          AND NOT (
+            status = 'QUEUED'
+            AND locked_until IS NOT NULL
+            AND locked_until > clock_timestamp()
+          )`,
+      [id, actorAdminId],
+    );
+    return;
+  }
+
+  await client.query(
+    `UPDATE messages
+        SET contact_id = NULL, status = 'WAITING_CONTACT',
+            parts_sent = 0, external_part_ids = NULL, attempts = 0,
+            claims_without_progress = 0, locked_until = NULL, last_error = NULL
+      WHERE reservation_id = $1 AND guest_slot = 2
+        AND status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'FAILED')
+        AND NOT (
+          status = 'QUEUED'
+          AND locked_until IS NOT NULL
+          AND locked_until > clock_timestamp()
+        )`,
+    [id],
   );
 }
 
@@ -737,7 +777,14 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       }
 
       const changed = changedFields(reservation, command.fields);
-      await updateGuestData(client, "reservations", reservation.id, command.fields);
+      await updateGuestData(
+        client,
+        "reservations",
+        reservation.id,
+        command.fields,
+        reservation.guest2_instagram_handle,
+        command.actorAdminId,
+      );
       let promotions: WaitlistPromotion[] = [];
       if (reservation.status === "CONFIRMED" && seatDelta < 0) {
         await client.query(
@@ -784,7 +831,14 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       });
       if (duplicate) return duplicate;
       const changed = changedFields(entry, command.fields);
-      await updateGuestData(client, "waitlist_entries", entry.id, command.fields);
+      await updateGuestData(
+        client,
+        "waitlist_entries",
+        entry.id,
+        command.fields,
+        entry.guest2_instagram_handle,
+        command.actorAdminId,
+      );
       const promotions = await promoteWaitlistDetailed(client, event.id);
       await insertAudit(client, {
         actorAdminId: command.actorAdminId,

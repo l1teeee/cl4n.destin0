@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
-import { removeEventClue } from "@/application/events/event-clues";
+import { removeEventClue, sendClueToAll, sendClueToPerson } from "@/application/events/event-clues";
 import { resolveCreateSchedule, resolveUpdateSchedule } from "@/application/events/event-schedule";
 import {
   cancelEvent,
@@ -128,6 +128,13 @@ const locationSendMessages: Record<SendLocationError, string> = {
     "La ubicación es demasiado larga para un mensaje de Instagram. Acorta las indicaciones o el enlace.",
   TRY_AGAIN: "Hay reservas entrando en este momento. Intenta enviar de nuevo en unos segundos.",
 };
+
+const clueSendMessages = {
+  EVENT_NOT_FOUND: operationMessages.EVENT_NOT_FOUND,
+  CLUES_CLOSED: "Las pistas solo se pueden enviar mientras la experiencia está cerrada.",
+  CLUE_NOT_FOUND: "No se encontró la pista.",
+  GUEST_NOT_ELIGIBLE: "Solo se puede enviar a invitados con pago verificado.",
+} as const;
 
 const operationErrorFields: Partial<Record<EventOperationErrorCode, string>> = {
   SLUG_TAKEN: "slug",
@@ -440,6 +447,69 @@ export async function sendEventLocationAction(
   };
 }
 
+export async function sendEventLocationToPeopleAction(
+  eventId: string,
+  expectedLocation: LoadedLocationVersion,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  if (!authorization.authorized) return unauthorized();
+  const parsed = locationSendSchema.safeParse({
+    id: eventId,
+    loadedRevision: expectedLocation.revision,
+    loadedStatus: expectedLocation.status,
+  });
+  if (!parsed.success) return firstValidationError(parsed.error);
+  const selected = z
+    .array(z.string().regex(/^[0-9a-f-]{36}:[12]$/i))
+    .min(1)
+    .safeParse(formData.getAll("people"));
+  if (!selected.success) return invalid("Elige personas válidas para el envío.");
+  const people = selected.data.map((value) => {
+    const [reservationId, slot] = value.split(":");
+    return { reservationId, slot: Number(slot) };
+  });
+  const validated = z
+    .array(
+      z.object({
+        reservationId: z.string().uuid(),
+        slot: z.union([z.literal(1), z.literal(2)]),
+      }),
+    )
+    .safeParse(people);
+  if (!validated.success) return invalid("Elige personas válidas para el envío.");
+  const result = await postgresLocationMessageRepository.sendLocationToPeople(
+    parsed.data.id,
+    { revision: parsed.data.loadedRevision, status: parsed.data.loadedStatus },
+    validated.data,
+    authorization.session.admin.id,
+  );
+  if (!result.ok) return invalid(locationSendMessages[result.error]);
+  const delivery = await deliverLocationMessages(result.messageIds);
+  scheduleMessageDelivery();
+  revalidatePath(`/admin/events/${parsed.data.id}`);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  if (!delivery) {
+    const count = result.messageIds.length;
+    const recipients = count === 1 ? "1 persona" : `${count} personas`;
+    return {
+      ok: true,
+      message: `Ubicación en cola para ${recipients}; se enviará en unos minutos.`,
+    };
+  }
+  return {
+    ok: true,
+    message: describeLocationSend(
+      result.messageIds,
+      delivery.outcomes,
+      await pendingAfterEmptySend(parsed.data.id, result.messageIds),
+    ),
+  };
+}
+
 // An empty send must not claim that everybody has the location while earlier messages are pending.
 async function pendingAfterEmptySend(
   eventId: string,
@@ -516,6 +586,145 @@ export async function deleteEventClueAction(
 
   revalidateCluePaths(parsed.data.eventId);
   return { ok: true, message: "Pista eliminada." };
+}
+
+export async function sendClueToAllAction(
+  eventId: string,
+  clueId: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+
+  const parsed = clueActionSchema.safeParse({ eventId, clueId });
+  if (!parsed.success) return formValidationError(parsed.error);
+  const result = await sendClueToAll(postgresEventRepository, postgresEventClueRepository, {
+    ...parsed.data,
+    actorId: authorization.session.admin.id,
+  });
+  if (!result.ok) return invalid(clueSendMessages[result.error]);
+
+  await deliverClueMessages(result.messageIds);
+  revalidateEventPaths(parsed.data.eventId);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  const count = result.messageIds.length;
+  const message =
+    count === 0
+      ? "Todos los invitados con pago verificado ya tienen esta pista."
+      : `Pista enviada a ${count} ${count === 1 ? "invitado" : "invitados"}.`;
+  return { ok: true, message };
+}
+
+export async function sendClueToPersonAction(
+  eventId: string,
+  clueId: string,
+  reservationId: string,
+  slot: 1 | 2,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+
+  const parsed = clueActionSchema.safeParse({ eventId, clueId });
+  if (!parsed.success) return formValidationError(parsed.error);
+  const parsedReservation = z
+    .object({ id: z.string().uuid(), slot: z.union([z.literal(1), z.literal(2)]) })
+    .safeParse({ id: reservationId, slot });
+  if (!parsedReservation.success) return formValidationError(parsedReservation.error);
+  const result = await sendClueToPerson(postgresEventRepository, postgresEventClueRepository, {
+    ...parsed.data,
+    reservationId: parsedReservation.data.id,
+    slot: parsedReservation.data.slot,
+    actorId: authorization.session.admin.id,
+  });
+  if (!result.ok) return invalid(clueSendMessages[result.error]);
+
+  await deliverClueMessages(result.messageIds);
+  revalidateEventPaths(parsed.data.eventId);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  return {
+    ok: true,
+    message: result.messageIds.length > 0 ? "Pista enviada." : "Esta persona ya tiene esta pista.",
+  };
+}
+
+const MAX_CLUE_RECIPIENTS = 100;
+const cluePeopleSchema = z
+  .array(z.string().regex(/^[0-9a-f-]{36}:[12]$/i))
+  .min(1)
+  .max(MAX_CLUE_RECIPIENTS);
+
+export async function sendClueToPeopleAction(
+  eventId: string,
+  clueId: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  if (!authorization.authorized) return unauthorized();
+
+  const parsed = clueActionSchema.safeParse({ eventId, clueId });
+  if (!parsed.success) return formValidationError(parsed.error);
+  const selected = cluePeopleSchema.safeParse(formData.getAll("person"));
+  if (!selected.success) return invalid("Elige personas válidas para el envío.");
+  const people = z
+    .array(
+      z.object({
+        reservationId: z.string().uuid(),
+        slot: z.union([z.literal(1), z.literal(2)]),
+      }),
+    )
+    .safeParse(
+      selected.data.map((value) => {
+        const [reservationId, slot] = value.split(":");
+        return { reservationId, slot: Number(slot) };
+      }),
+    );
+  if (!people.success) return invalid("Elige personas válidas para el envío.");
+
+  const messageIds: string[] = [];
+  for (const person of people.data) {
+    const result = await sendClueToPerson(postgresEventRepository, postgresEventClueRepository, {
+      ...parsed.data,
+      reservationId: person.reservationId,
+      slot: person.slot,
+      actorId: authorization.session.admin.id,
+    });
+    if (!result.ok) return invalid(clueSendMessages[result.error]);
+    messageIds.push(...result.messageIds);
+  }
+
+  await deliverClueMessages(messageIds);
+  revalidateEventPaths(parsed.data.eventId);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  const count = messageIds.length;
+  return {
+    ok: true,
+    message:
+      count === 0
+        ? "Esas personas ya tienen esta pista."
+        : `Pista enviada a ${count} ${count === 1 ? "persona" : "personas"}.`,
+  };
+}
+
+// The send has committed; the scheduled drain and cron retry any delivery failure.
+async function deliverClueMessages(messageIds: readonly string[]): Promise<void> {
+  try {
+    await drainMessagesNow(messageIds, { timeBudgetMs: 6_000 });
+  } catch {
+    log("error", "clue_message_delivery_failed");
+  }
+  scheduleMessageDelivery();
 }
 
 export async function publishEventAction(

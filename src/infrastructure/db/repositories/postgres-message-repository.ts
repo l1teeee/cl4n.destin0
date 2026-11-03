@@ -185,21 +185,25 @@ export class PostgresMessageRepository
     const reservationResult = await this.pool.query(
       `UPDATE messages m
           SET parts_sent = CASE
-                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM r.contact_id
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM
+                  CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
                   THEN 0 ELSE m.parts_sent END,
               external_part_ids = CASE
-                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM r.contact_id
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM
+                  CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
                   THEN NULL ELSE m.external_part_ids END,
               attempts = CASE
-                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM r.contact_id
+                WHEN m.contact_id IS NOT NULL AND m.contact_id IS DISTINCT FROM
+                  CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
                   THEN 0 ELSE m.attempts END,
-              contact_id = r.contact_id, status = 'QUEUED',
+              contact_id = CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END,
+              status = 'QUEUED',
               next_attempt_at = clock_timestamp(), locked_until = NULL, last_error = NULL,
               claims_without_progress = 0
          FROM reservations r
         WHERE m.status = 'WAITING_CONTACT'
           AND m.reservation_id = r.id
-          AND r.contact_id IS NOT NULL`,
+          AND CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END IS NOT NULL`,
     );
     const waitlistResult = await this.pool.query(
       `UPDATE messages m
@@ -254,7 +258,8 @@ export class PostgresMessageRepository
            CROSS JOIN LATERAL (
              VALUES (CASE
                WHEN m.parts_sent <> 0 THEN m.contact_id
-               WHEN m.reservation_id IS NOT NULL THEN r.contact_id
+               WHEN m.reservation_id IS NOT NULL THEN
+                 CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
                WHEN m.waitlist_entry_id IS NOT NULL THEN w.contact_id
                ELSE m.contact_id
              END)
@@ -273,7 +278,8 @@ export class PostgresMessageRepository
                 CROSS JOIN LATERAL (
                   VALUES (CASE
                     WHEN target.parts_sent <> 0 THEN target.contact_id
-                    WHEN target.reservation_id IS NOT NULL THEN target_r.contact_id
+                    WHEN target.reservation_id IS NOT NULL THEN
+                      CASE WHEN target.guest_slot = 2 THEN target_r.guest2_contact_id ELSE target_r.contact_id END
                     WHEN target.waitlist_entry_id IS NOT NULL THEN target_w.contact_id
                     ELSE target.contact_id
                   END)
@@ -285,7 +291,14 @@ export class PostgresMessageRepository
             AND NOT EXISTS (
               SELECT 1
                 FROM messages older
-               WHERE older.contact_id = recipient.contact_id
+                LEFT JOIN reservations older_r ON older_r.id = older.reservation_id
+                LEFT JOIN waitlist_entries older_w ON older_w.id = older.waitlist_entry_id
+               WHERE CASE
+                   WHEN older.parts_sent <> 0 THEN older.contact_id
+                   WHEN older.reservation_id IS NOT NULL THEN
+                     CASE WHEN older.guest_slot = 2 THEN older_r.guest2_contact_id ELSE older_r.contact_id END
+                   WHEN older.waitlist_entry_id IS NOT NULL THEN older_w.contact_id
+                   ELSE older.contact_id END = recipient.contact_id
                  AND older.direction = 'OUTBOUND'
                  AND older.status IN ('QUEUED', 'WAITING_WINDOW')
                  AND (older.created_at, older.id) < (m.created_at, m.id)
@@ -298,7 +311,8 @@ export class PostgresMessageRepository
                   ON leased_w.id = leased_older.waitlist_entry_id
                WHERE leased_older.contact_id IS DISTINCT FROM recipient.contact_id
                  AND CASE
-                   WHEN leased_older.reservation_id IS NOT NULL THEN leased_r.contact_id
+                   WHEN leased_older.reservation_id IS NOT NULL THEN
+                     CASE WHEN leased_older.guest_slot = 2 THEN leased_r.guest2_contact_id ELSE leased_r.contact_id END
                    WHEN leased_older.waitlist_entry_id IS NOT NULL THEN leased_w.contact_id
                    ELSE leased_older.contact_id
                  END = recipient.contact_id
@@ -601,6 +615,7 @@ export class PostgresMessageRepository
     idColumn: "reservation_id" | "waitlist_entry_id",
     subjectId: string,
     contactId: string,
+    slot: 1 | 2 = 1,
   ): Promise<boolean> {
     const result = await client.query(
       `UPDATE messages
@@ -624,13 +639,14 @@ export class PostgresMessageRepository
               locked_until = NULL,
               last_error = CASE WHEN status = 'FAILED' THEN last_error ELSE NULL END
         WHERE ${idColumn} = $2
+          AND guest_slot = $3
           AND status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'FAILED')
           AND NOT (
             status = 'QUEUED'
             AND locked_until IS NOT NULL
             AND locked_until > clock_timestamp()
           )`,
-      [contactId, subjectId],
+      [contactId, subjectId, slot],
     );
     return (result.rowCount ?? 0) > 0;
   }
@@ -644,6 +660,7 @@ export class PostgresMessageRepository
       contactId: string;
       previousContactId: string | null;
       method: "CODE" | "USERNAME" | "MANUAL";
+      companion?: boolean;
     },
   ): Promise<void> {
     await client.query(
@@ -659,6 +676,7 @@ export class PostgresMessageRepository
           contactId: input.contactId,
           previousContactId: input.previousContactId,
           method: input.method,
+          ...(input.companion ? { companion: true } : {}),
         }),
       ],
     );
@@ -954,7 +972,9 @@ export class PostgresMessageRepository
           LIMIT 2`,
         [username],
       );
-      if (requests.rows.length !== 1) return false;
+      if (requests.rows.length !== 1) {
+        return this.linkCompanionByUsername(client, contactId, username);
+      }
 
       let becameQueued = false;
       const requestKey = requests.rows[0]!.request_key;
@@ -992,8 +1012,56 @@ export class PostgresMessageRepository
           });
         }
       }
-      return becameQueued;
+      const companionQueued = await this.linkCompanionByUsername(client, contactId, username);
+      return becameQueued || companionQueued;
     });
+  }
+
+  private async linkCompanionByUsername(
+    client: PoolClient,
+    contactId: string,
+    username: string,
+  ): Promise<boolean> {
+    const candidates = await client.query<{ id: string }>(
+      `SELECT r.id
+         FROM reservations r
+         JOIN events e ON e.id = r.event_id
+        WHERE r.status = 'CONFIRMED'
+          AND r.guest2_instagram_handle = $1
+          AND r.guest2_contact_id IS NULL
+          AND r.contact_id IS DISTINCT FROM $2
+          AND e.deleted_at IS NULL
+          AND e.status NOT IN ('CANCELLED', 'COMPLETED')
+          AND e.starts_at > clock_timestamp()
+        ORDER BY r.id
+        FOR NO KEY UPDATE OF r`,
+      [username, contactId],
+    );
+    if (candidates.rows.length !== 1) return false;
+    const reservationId = candidates.rows[0]!.id;
+    await client.query(
+      `UPDATE reservations
+          SET guest2_contact_id = $2, updated_at = clock_timestamp()
+        WHERE id = $1`,
+      [reservationId, contactId],
+    );
+    const becameQueued = await this.retargetSubjectMessages(
+      client,
+      "reservation_id",
+      reservationId,
+      contactId,
+      2,
+    );
+    await this.auditContactLinked(client, {
+      actorAdminId: null,
+      entityType: "RESERVATION",
+      entityId: reservationId,
+      contactId,
+      previousContactId: null,
+      method: "USERNAME",
+      companion: true,
+    });
+    return becameQueued;
   }
 
   async storeAttachment(input: {
@@ -1159,7 +1227,6 @@ export class PostgresMessageRepository
       contact_id: string | null;
       instagram_username: string | null;
       full_name: string | null;
-      guest2_full_name: string | null;
       event_name: string | null;
       event_starts_at: Date | null;
     }>(
@@ -1167,15 +1234,26 @@ export class PostgresMessageRepository
               CASE WHEN m.status = 'QUEUED' THEN 'RETRYING' ELSE m.status END AS status,
               m.kind, m.body,
               COALESCE(cardinality(m.attachment_urls), 0)::integer AS attachment_count,
-              m.last_error, m.created_at, m.contact_id,
-              COALESCE(c.username, r.instagram_handle, w.instagram_handle) AS instagram_username,
-              COALESCE(r.full_name, w.full_name) AS full_name,
-              COALESCE(r.guest2_full_name, w.guest2_full_name) AS guest2_full_name,
+              m.last_error, m.created_at,
+              CASE
+                WHEN m.reservation_id IS NOT NULL THEN
+                  CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
+                WHEN m.waitlist_entry_id IS NOT NULL THEN w.contact_id
+                ELSE m.contact_id END AS contact_id,
+              COALESCE(c.username,
+                CASE WHEN m.guest_slot = 2 THEN r.guest2_instagram_handle ELSE r.instagram_handle END,
+                w.instagram_handle) AS instagram_username,
+              CASE WHEN m.guest_slot = 2 THEN r.guest2_full_name
+                   ELSE COALESCE(r.full_name, w.full_name) END AS full_name,
               e.internal_name AS event_name, e.starts_at AS event_starts_at
          FROM messages m
-         LEFT JOIN messaging_contacts c ON c.id = m.contact_id
          LEFT JOIN reservations r ON r.id = m.reservation_id
          LEFT JOIN waitlist_entries w ON w.id = m.waitlist_entry_id
+         LEFT JOIN messaging_contacts c ON c.id = CASE
+           WHEN m.reservation_id IS NOT NULL THEN
+             CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
+           WHEN m.waitlist_entry_id IS NOT NULL THEN w.contact_id
+           ELSE m.contact_id END
          LEFT JOIN events e ON e.id = m.event_id
         WHERE m.direction = 'OUTBOUND'
           AND (m.status IN ('FAILED', 'WAITING_WINDOW', 'WAITING_CONTACT')
@@ -1194,12 +1272,7 @@ export class PostgresMessageRepository
       createdAt: row.created_at,
       contactId: row.contact_id,
       instagramUsername: row.instagram_username,
-      guestName:
-        row.full_name === null
-          ? null
-          : row.guest2_full_name === null
-            ? row.full_name
-            : `${row.full_name} y ${row.guest2_full_name}`,
+      guestName: row.full_name,
       eventName: row.event_name,
       eventStartsAt: row.event_starts_at,
     }));
@@ -1221,7 +1294,8 @@ export class PostgresMessageRepository
       `SELECT m.status,
               m.status = 'QUEUED' AND m.locked_until > clock_timestamp() AS live_lease,
               CASE
-                WHEN m.reservation_id IS NOT NULL THEN r.contact_id
+                WHEN m.reservation_id IS NOT NULL THEN
+                  CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
                 WHEN m.waitlist_entry_id IS NOT NULL THEN w.contact_id
                 ELSE m.contact_id
               END AS resolved_contact_id
@@ -1360,23 +1434,29 @@ export class PostgresMessageRepository
       const id = reservation ? subject.reservationId : subject.waitlistEntryId;
       const idColumn = reservation ? "reservation_id" : "waitlist_entry_id";
       const entityType = reservation ? "RESERVATION" : "WAITLIST_ENTRY";
-      const current = await client.query(
-        `SELECT 1 FROM ${table} WHERE id = $1 AND contact_id = $2 FOR UPDATE`,
+      const current = await client.query<{ slot: 1 | 2 }>(
+        `SELECT CASE WHEN contact_id = $2 THEN 1 ELSE 2 END AS slot
+           FROM ${table}
+          WHERE id = $1 AND (contact_id = $2 ${reservation ? "OR guest2_contact_id = $2" : ""})
+          FOR UPDATE`,
         [id, contactId],
       );
       if (current.rowCount !== 1) return "NOT_UPDATED";
+      const slot = current.rows[0]!.slot;
       const pending = await client.query<{ live_lease: boolean }>(
         `SELECT status = 'QUEUED' AND locked_until > clock_timestamp() AS live_lease
            FROM messages
           WHERE ${idColumn} = $1
+            AND guest_slot = $2
             AND status IN ('QUEUED', 'WAITING_WINDOW', 'FAILED')
           FOR UPDATE`,
-        [id],
+        [id, slot],
       );
       if (pending.rows.some((row) => row.live_lease)) return "LIVE_LEASE";
       await client.query(
         `UPDATE ${table}
-            SET contact_id = NULL, contact_linked_by = NULL, updated_at = clock_timestamp()
+            SET ${slot === 2 ? "guest2_contact_id = NULL" : "contact_id = NULL, contact_linked_by = NULL"},
+                updated_at = clock_timestamp()
           WHERE id = $1`,
         [id],
       );
@@ -1385,9 +1465,9 @@ export class PostgresMessageRepository
             SET contact_id = NULL, status = 'WAITING_CONTACT',
                 parts_sent = 0, external_part_ids = NULL, attempts = 0,
                 claims_without_progress = 0, locked_until = NULL, last_error = NULL
-          WHERE ${idColumn} = $1 AND contact_id = $2
+          WHERE ${idColumn} = $1 AND guest_slot = $2
             AND status IN ('QUEUED', 'WAITING_WINDOW', 'FAILED')`,
-        [id, contactId],
+        [id, slot],
       );
       await client.query(
         `INSERT INTO audit_logs (
@@ -1401,11 +1481,27 @@ export class PostgresMessageRepository
 
   async isBlockedByWaitingWindow(id: string): Promise<boolean> {
     const result = await this.pool.query(
-      `SELECT 1
-         FROM messages target
-         JOIN messages older ON older.contact_id = target.contact_id
-        WHERE target.id = $1
-          AND older.direction = 'OUTBOUND'
+      `WITH target AS (
+         SELECT m.id, m.created_at, CASE
+           WHEN m.reservation_id IS NOT NULL THEN
+             CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
+           WHEN m.waitlist_entry_id IS NOT NULL THEN w.contact_id
+           ELSE m.contact_id END AS contact_id
+         FROM messages m
+         LEFT JOIN reservations r ON r.id = m.reservation_id
+         LEFT JOIN waitlist_entries w ON w.id = m.waitlist_entry_id
+         WHERE m.id = $1
+       )
+       SELECT 1
+         FROM target
+         JOIN messages older ON older.direction = 'OUTBOUND'
+         LEFT JOIN reservations r ON r.id = older.reservation_id
+         LEFT JOIN waitlist_entries w ON w.id = older.waitlist_entry_id
+        WHERE CASE
+            WHEN older.reservation_id IS NOT NULL THEN
+              CASE WHEN older.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END
+            WHEN older.waitlist_entry_id IS NOT NULL THEN w.contact_id
+            ELSE older.contact_id END = target.contact_id
           AND older.status = 'WAITING_WINDOW'
           AND (older.created_at, older.id) < (target.created_at, target.id)
         LIMIT 1`,
@@ -1442,18 +1538,21 @@ export class PostgresMessageRepository
       guest2_instagram_handle: string | null;
       status: string;
       stage: string | null;
+      role: "TITULAR" | "COMPANION";
     }>(
-      `SELECT r.contact_id, r.id, 'RESERVATION'::text AS type, r.event_id,
+      `SELECT person.contact_id, r.id, 'RESERVATION'::text AS type, r.event_id,
               e.internal_name AS event_name, e.starts_at, r.full_name,
               r.guest2_full_name, r.instagram_handle, r.guest2_instagram_handle,
-              r.status::text, r.stage
+              r.status::text, r.stage, person.role
          FROM reservations r JOIN events e ON e.id = r.event_id
-        WHERE r.contact_id = ANY($1::uuid[])
+         CROSS JOIN LATERAL (VALUES (r.contact_id, 'TITULAR'::text),
+                                    (r.guest2_contact_id, 'COMPANION'::text)) person(contact_id, role)
+        WHERE person.contact_id = ANY($1::uuid[])
        UNION ALL
        SELECT w.contact_id, w.id, 'WAITLIST_ENTRY'::text AS type, w.event_id,
               e.internal_name, e.starts_at, w.full_name,
               w.guest2_full_name, w.instagram_handle, w.guest2_instagram_handle,
-              w.status, NULL::text
+              w.status, NULL::text, 'TITULAR'::text
          FROM waitlist_entries w JOIN events e ON e.id = w.event_id
         WHERE w.contact_id = ANY($1::uuid[])
        ORDER BY starts_at DESC, id`,
@@ -1475,6 +1574,7 @@ export class PostgresMessageRepository
         ),
         status: row.status,
         stage: row.stage,
+        role: row.role,
       });
       grouped.set(row.contact_id, requests);
     }
@@ -1493,7 +1593,8 @@ export class PostgresMessageRepository
     const where = `($1::text IS NULL OR contact.username ILIKE '%' || $1 || '%'
                     OR contact.display_name ILIKE '%' || $1 || '%')
        AND (NOT $2::boolean OR (
-         NOT EXISTS (SELECT 1 FROM reservations r WHERE r.contact_id = contact.id)
+         NOT EXISTS (SELECT 1 FROM reservations r
+                      WHERE r.contact_id = contact.id OR r.guest2_contact_id = contact.id)
          AND NOT EXISTS (SELECT 1 FROM waitlist_entries w WHERE w.contact_id = contact.id)
        ))`;
     const [rows, count] = await Promise.all([

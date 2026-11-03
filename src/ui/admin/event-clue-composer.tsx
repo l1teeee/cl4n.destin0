@@ -113,18 +113,22 @@ export function EventClueComposer({ eventId }: EventClueComposerProps) {
           "error" in result &&
           typeof result.error === "string"
             ? result.error
-            : "No se pudo publicar la pista. Inténtalo de nuevo.";
+            : "No se pudo guardar la pista. Inténtalo de nuevo.";
         setError(message);
         return;
       }
       setBody("");
       clearPreviews();
       setImages([]);
-      setStatus("Pista publicada.");
+      const savedMessage =
+        result && typeof result === "object" && "message" in result ? result.message : null;
+      setStatus(
+        typeof savedMessage === "string" ? savedMessage : "La pista está lista para enviar.",
+      );
       router.refresh();
     } catch {
       setError(
-        "No se pudo conectar para publicar la pista. Revisa tu conexión e inténtalo de nuevo.",
+        "No se pudo conectar para guardar la pista. Revisa tu conexión e inténtalo de nuevo.",
       );
     } finally {
       setPending(false);
@@ -198,7 +202,7 @@ export function EventClueComposer({ eventId }: EventClueComposerProps) {
         </p>
       ) : null}
       <Button type="submit" disabled={pending || preparingImages || !body.trim()}>
-        {pending ? "Publicando..." : preparingImages ? "Preparando imágenes..." : "Generar pista"}
+        {pending ? "Guardando..." : preparingImages ? "Preparando imágenes..." : "Generar pista"}
       </Button>
     </form>
   );

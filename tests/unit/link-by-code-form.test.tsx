@@ -110,6 +110,7 @@ describe("ConversationControls", () => {
             instagramHandles: [],
             status: "CONFIRMED",
             stage: null,
+            role: "TITULAR",
           },
         ]}
         unlinkAction={createAction({ ok: true, message: "" })}

@@ -31,7 +31,7 @@ import { resetTestDatabase, testDatabaseUrl } from "../helpers/test-db";
 
 const APP_BASE_URL = "http://localhost:3000";
 const DEFAULT_LOCATION_TEXT =
-  "Casa Secreta\nCalle 1, San Salvador\nToca el timbre\nhttps://maps.google.com/?q=casa";
+  "Casa Secreta\nCalle 1, San Salvador\nToca el timbre\nGoogle Maps: https://maps.google.com/?q=casa";
 
 let pool: Pool;
 let repository: PostgresLocationMessageRepository;
@@ -155,9 +155,13 @@ describe("queueLocationMessage", () => {
       ]);
     }
 
-    const [message] = await locationMessages(eventId);
-    expect(message!.body).toBe(
+    const messages = await locationMessages(eventId);
+    expect(messages).toHaveLength(2);
+    expect(messages.map((message) => message.body)).toContain(
       `Hola Ana y Luis (Ana), ${formatPublicEventDate(STARTS_AT)}:\n${DEFAULT_LOCATION_TEXT}`,
+    );
+    expect(messages.map((message) => message.body)).toContain(
+      `Hola Ana y Luis (Luis), ${formatPublicEventDate(STARTS_AT)}:\n${DEFAULT_LOCATION_TEXT}`,
     );
   });
 
@@ -237,15 +241,15 @@ describe("queueLocationMessage", () => {
   });
 
   it("accepts a body of exactly 2000 characters and rejects one character more", async () => {
-    // address 300 + notes 1000 + Maps link 698 + two line breaks = 2000 with a bare {ubicacion} template.
+    // Address 300 + notes 1000 + labeled Maps link 698 + two line breaks = 2000.
     const fixture = { name: null, address: "a".repeat(300), notes: "b".repeat(1000) };
     const fittingEvent = await insertEvent({
       ...fixture,
-      mapsUrl: `https://maps.google.com/?q=${"c".repeat(671)}`,
+      mapsUrl: `https://maps.google.com/?q=${"c".repeat(658)}`,
     });
     const overflowingEvent = await insertEvent({
       ...fixture,
-      mapsUrl: `https://maps.google.com/?q=${"c".repeat(672)}`,
+      mapsUrl: `https://maps.google.com/?q=${"c".repeat(659)}`,
     });
     const fittingReservation = await insertReservation(fittingEvent);
     const overflowingReservation = await insertReservation(overflowingEvent);

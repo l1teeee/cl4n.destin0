@@ -1,3 +1,5 @@
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
+
 export interface EventClue {
   id: string;
   body: string;
@@ -10,7 +12,7 @@ export interface StoredEventClueImage {
   data: Uint8Array;
 }
 
-// How far one clue got among the reservations that are CONFIRMED with stage PAID right now.
+// How far one clue got among the people in CONFIRMED reservations with stage PAID right now.
 export interface EventClueDelivery {
   paid: number;
   received: number;
@@ -18,9 +20,12 @@ export interface EventClueDelivery {
   failed: number;
 }
 
-// messageIds are the CLUE messages queued for PAID guests in the same transaction as the clue.
 export type AddEventClueResult =
-  { ok: true; value: EventClue; messageIds: string[] } | { ok: false; error: "EVENT_NOT_FOUND" };
+  { ok: true; value: EventClue } | { ok: false; error: "EVENT_NOT_FOUND" };
+
+export type SendClueResult =
+  | { ok: true; messageIds: string[] }
+  | { ok: false; error: "CLUE_NOT_FOUND" | "GUEST_NOT_ELIGIBLE" };
 
 export interface EventClueRepository {
   add(input: {
@@ -30,8 +35,16 @@ export interface EventClueRepository {
     images?: StoredEventClueImage[];
   }): Promise<AddEventClueResult>;
   remove(input: { eventId: string; clueId: string; actorId: string }): Promise<boolean>;
+  sendToAll(input: { eventId: string; clueId: string; actorId: string }): Promise<SendClueResult>;
+  sendToPerson(input: {
+    eventId: string;
+    clueId: string;
+    reservationId: string;
+    slot: 1 | 2;
+    actorId: string;
+  }): Promise<SendClueResult>;
+  listRecipients(eventId: string): Promise<RecipientGroup[]>;
   listForEvent(eventId: string): Promise<EventClue[]>;
   getDeliveryForEvent(eventId: string): Promise<Record<string, EventClueDelivery>>;
-  listForSlug(slug: string): Promise<EventClue[]>;
   getImageForSlug(slug: string, imageId: string): Promise<StoredEventClueImage | null>;
 }

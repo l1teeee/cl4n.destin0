@@ -35,6 +35,24 @@ describe("GoogleMapsLinkResolver", () => {
     ]);
   });
 
+  it.each(["https://waze.com/ul", "https://www.waze.com/live-map", "https://ul.waze.com/ul"])(
+    "follows a hop to the Waze host %s",
+    async (wazeLink) => {
+      const { resolver, fetchFake } = resolverWith([
+        redirectTo(wazeLink),
+        new Response(null, { status: 200 }),
+      ]);
+      expect(await resolver.expand(shortLink)).toBe(wazeLink);
+      expect(fetchFake).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("rejects a hop to a lookalike Waze host without requesting it", async () => {
+    const { resolver, fetchFake } = resolverWith([redirectTo("https://waze.com.evil.example/ul")]);
+    expect(await resolver.expand(shortLink)).toBeNull();
+    expect(fetchFake).toHaveBeenCalledTimes(1);
+  });
+
   it("stops at a host outside the allowlist without requesting it", async () => {
     const { resolver, fetchFake } = resolverWith([redirectTo("https://evil.example/maps")]);
     expect(await resolver.expand(shortLink)).toBeNull();

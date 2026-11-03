@@ -1,9 +1,13 @@
+"use client";
+
 import Link from "next/link";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import type { LocationDeliverySummary } from "@/application/events/location-message-repository";
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
 import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
-import { MutationForm } from "@/ui/admin/mutation-form";
+import { GuestSendDialog } from "@/ui/admin/guest-send/guest-send-dialog";
+import { toGuestSendGroups } from "@/ui/admin/guest-send/recipient-groups-view";
 import { formatAdminDate } from "@/ui/admin/view-model";
 import { Button } from "@/ui/primitives/button";
 
@@ -17,39 +21,24 @@ interface LocationDeliveryPanelProps {
   locationConfirmed: boolean;
   // False once the experience is cancelled or completed: the server refuses those sends.
   acceptsSends: boolean;
+  recipients: readonly RecipientGroup[];
+  currentRevision: number;
   sendAction: SendLocationAction;
+  sendToPeopleAction: SendLocationAction;
 }
 
-interface SendOffer {
-  label: string;
-  confirmation: string;
-}
-
-function people(count: number): string {
-  return count === 1 ? "1 persona" : `${count} personas`;
-}
-
-// Failed guests are included because the send retries them together with the missing ones.
-function sendOffer(summary: LocationDeliverySummary): SendOffer | null {
-  const recipients = summary.neverQueued + summary.outdated + summary.failed;
-  if (recipients === 0) return null;
-
-  const onlyOutdatedRemain = summary.neverQueued + summary.failed === 0;
-  return {
-    label: onlyOutdatedRemain
-      ? `Enviar ubicación actualizada (${recipients})`
-      : `Enviar ubicación a confirmados (${recipients})`,
-    confirmation: `La ubicación se enviará por Instagram a ${people(recipients)}.`,
-  };
-}
+const IDLE: AdminActionState = { ok: false, message: "" };
 
 export function LocationDeliveryPanel({
   summary,
   locationConfirmed,
   acceptsSends,
+  recipients,
+  currentRevision,
   sendAction,
+  sendToPeopleAction,
 }: LocationDeliveryPanelProps) {
-  const offer = locationConfirmed && acceptsSends ? sendOffer(summary) : null;
+  const canSend = locationConfirmed && acceptsSends;
   const needsAttention = summary.pending + summary.failed > 0;
 
   return (
@@ -65,12 +54,19 @@ export function LocationDeliveryPanel({
         {locationConfirmed ? null : (
           <p className="admin-muted">Confirma la ubicación para poder enviarla.</p>
         )}
-        {offer ? (
-          <MutationForm
-            action={sendAction}
-            label={offer.label}
-            confirmation={offer.confirmation}
-            reportToSection
+        {canSend ? (
+          <GuestSendDialog
+            triggerLabel="Enviar ubicación"
+            title="Enviar ubicación"
+            description="Se envía por Instagram a cada persona con pago verificado: titular y acompañante."
+            target="PERSON"
+            groups={toGuestSendGroups(recipients, String(currentRevision))}
+            sendAll={() => sendAction(IDLE, new FormData())}
+            sendSelected={(keys) => {
+              const formData = new FormData();
+              keys.forEach((key) => formData.append("people", key));
+              return sendToPeopleAction(IDLE, formData);
+            }}
           />
         ) : null}
         <p className="admin-muted">

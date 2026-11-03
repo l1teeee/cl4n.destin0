@@ -10,7 +10,6 @@ const publish = vi.hoisted(() =>
   vi.fn(async () => ({
     ok: true as const,
     value: { id: "clue-id" },
-    messageIds: ["message-1", "message-2"],
   })),
 );
 const getImage = vi.hoisted(() => vi.fn(async () => state.image));
@@ -64,10 +63,13 @@ beforeEach(() => {
 });
 
 describe("event clue image routes", () => {
-  it("publishes text and magic-byte-validated images", async () => {
+  it("prepares text and magic-byte-validated images with a ready-to-send answer", async () => {
     const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ id: "clue-id" });
+    expect(await response.json()).toEqual({
+      id: "clue-id",
+      message: "La pista está lista para enviar.",
+    });
     expect(publish).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -80,17 +82,7 @@ describe("event clue image routes", () => {
     );
   });
 
-  it("delivers the queued clue messages with a 6 s budget, then schedules the rest", async () => {
-    const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
-
-    expect(response.status).toBe(201);
-    expect(drain).toHaveBeenCalledWith(["message-1", "message-2"], { timeBudgetMs: 6_000 });
-    expect(scheduleDelivery).toHaveBeenCalledOnce();
-  });
-
-  it("skips delivery when no paid guest received the clue", async () => {
-    publish.mockResolvedValueOnce({ ok: true as const, value: { id: "clue-id" }, messageIds: [] });
-
+  it("does not attempt or schedule delivery when a clue is prepared", async () => {
     const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
 
     expect(response.status).toBe(201);
@@ -119,16 +111,6 @@ describe("event clue image routes", () => {
     await expect(POST(postRequest(), { params: Promise.resolve({ id: eventId }) })).rejects.toThrow(
       "unique",
     );
-  });
-
-  it("keeps the published clue when the inline delivery fails and still schedules a retry", async () => {
-    drain.mockRejectedValue(new Error("database unavailable"));
-
-    const response = await POST(postRequest(), { params: Promise.resolve({ id: eventId }) });
-
-    expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ id: "clue-id" });
-    expect(scheduleDelivery).toHaveBeenCalledOnce();
   });
 
   it("rejects unauthorized and cross-origin writes", async () => {

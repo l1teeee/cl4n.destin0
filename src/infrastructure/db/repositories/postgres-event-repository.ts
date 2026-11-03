@@ -387,9 +387,6 @@ export class PostgresEventRepository implements EventRepository {
     if (command.closesAt <= command.opensAt) {
       return failed("INVALID_WINDOW");
     }
-    if (!isEventLocationConfirmationValid(command.location)) {
-      return failed("LOCATION_CONFIRMATION_INCOMPLETE");
-    }
     if (command.maxPartySize !== 1 && command.maxPartySize !== 2) {
       return failed("MAX_PARTY_SIZE_NOT_ALLOWED");
     }
