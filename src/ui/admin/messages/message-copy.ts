@@ -168,6 +168,9 @@ export function messageKindLabel(kind: MessageKind): string {
   return kindLabels[kind];
 }
 
+export const META_FAILING_COMPOSER_COPY =
+  "Instagram no está enviando mensajes automáticos. Usa Enviar por Instagram y después Ya lo envié para guardarlo.";
+
 export function windowCopy({ open, closesAt }: { open: boolean; closesAt: Date | null }): string {
   if (!open) {
     return "La ventana de 24 horas está cerrada: lo que envíes saldrá cuando la persona vuelva a escribir. También puedes copiarlo y enviarlo desde Instagram.";

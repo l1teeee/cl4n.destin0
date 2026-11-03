@@ -6,6 +6,7 @@ import {
   linkContactByCodeAction,
   markConversationReadAction,
   markSentManuallyAction,
+  recordManualMessageAction,
   retryMessageAction,
   sendFreeTextAction,
   simulateInboundMessageAction,
@@ -18,6 +19,7 @@ import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { postgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
 import { postgresMessageTemplateRepository } from "@/infrastructure/db/repositories/postgres-message-template-repository";
+import { loadMessagingHealth } from "@/infrastructure/messaging/load-messaging-health";
 import { ConversationAutoRefresh } from "@/ui/admin/messages/conversation-auto-refresh";
 import { ConversationControls } from "@/ui/admin/messages/conversation-controls";
 import { ConversationHeader } from "@/ui/admin/messages/conversation-header";
@@ -27,6 +29,8 @@ import { MessageComposer } from "@/ui/admin/messages/message-composer";
 import { MessageSimulatorPanel } from "@/ui/admin/messages/message-simulator-panel";
 import { MessageThread } from "@/ui/admin/messages/message-thread";
 import { MessagesLayout } from "@/ui/admin/messages/messages-layout";
+import { MessagingHealthBanner } from "@/ui/admin/messages/messaging-health-banner";
+import { messagingHealthView } from "@/ui/admin/messages/messaging-health-view";
 import {
   composerTemplatesView,
   conversationHeaderView,
@@ -69,7 +73,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
     page: pageNumber(query.page),
   };
   const now = new Date();
-  const [result, selectedConversation] = await Promise.all([
+  const [result, selectedConversation, health] = await Promise.all([
     listConversations(postgresMessageRepository, {
       search: filters.search || undefined,
       unlinkedOnly: filters.unlinkedOnly,
@@ -79,7 +83,9 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
     selectedContactId
       ? getConversation(postgresMessageRepository, selectedContactId)
       : Promise.resolve(null),
+    loadMessagingHealth(),
   ]);
+  const healthView = messagingHealthView(health);
   const items = result.items.map((conversation) =>
     conversationListItemView(conversation, filters, now),
   );
@@ -87,15 +93,21 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
 
   const list = (
     <>
-      <div className="flex items-center justify-between gap-3 border-b border-border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
         <div>
           <p className="admin-eyebrow">Administración</p>
           <h1 className="text-xl font-semibold text-[#fffbf4]">Mensajes</h1>
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/admin/mensajes/plantillas">Plantillas</Link>
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/admin/mensajes/sin-enviar">Sin enviar</Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/admin/mensajes/plantillas">Plantillas</Link>
+          </Button>
+        </div>
       </div>
+      <MessagingHealthBanner view={healthView} showUnsentLink className="mx-4 mt-3" />
       {canSend ? (
         <MessageSimulatorPanel
           mode={env.MESSAGING_MODE}
@@ -184,7 +196,9 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
             windowOpen={header.windowOpen}
             windowClosesAt={header.windowClosesAt}
             username={selectedConversation.contact.username}
+            metaFailing={health.failing}
             sendAction={sendFreeTextAction}
+            recordAction={recordManualMessageAction}
             templates={composerTemplatesView(header, renderedTemplates)}
           />
         ) : (

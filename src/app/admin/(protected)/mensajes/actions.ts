@@ -99,6 +99,7 @@ function subjectFrom(formData: FormData): MessageSubject | null {
 
 function refreshMessages(): void {
   revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
   revalidatePath("/admin");
 }
 

@@ -11,6 +11,7 @@ import {
   MessageCircle,
   Sandwich,
   ScrollText,
+  TriangleAlert,
   Users,
   Wine,
   type LucideIcon,
@@ -48,6 +49,7 @@ interface AdminSidebarProps {
   showUsersLink: boolean;
   signOutAction: () => Promise<void>;
   unreadMessageCount?: number;
+  messagingFailing?: boolean;
 }
 
 interface AdminNavItem {
@@ -124,12 +126,14 @@ function AdminNavigation({
   reduceMotion,
   closeMobileSidebar,
   unreadMessageCount,
+  messagingFailing,
 }: {
   items: AdminNavItem[];
   pathname: string;
   reduceMotion: boolean;
   closeMobileSidebar: () => void;
   unreadMessageCount: number;
+  messagingFailing: boolean;
 }) {
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
@@ -163,7 +167,16 @@ function AdminNavigation({
                       <Icon className="relative z-10" />
                       <span className={menuLabelClassName}>{item.label}</span>
                       {item.showsUnreadMessages ? (
-                        <span className="relative z-10 ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-0 group-data-[collapsible=icon]:-right-1.5">
+                        <span className="relative z-10 ml-auto flex items-center gap-1 group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-0 group-data-[collapsible=icon]:-right-1.5">
+                          {messagingFailing ? (
+                            <>
+                              <TriangleAlert
+                                aria-hidden="true"
+                                className="size-3.5 text-destructive"
+                              />
+                              <span className="sr-only">Instagram no está enviando</span>
+                            </>
+                          ) : null}
                           <UnreadCountBadge count={unreadMessageCount} />
                         </span>
                       ) : null}
@@ -184,6 +197,7 @@ export function AdminSidebar({
   showUsersLink,
   signOutAction,
   unreadMessageCount = 0,
+  messagingFailing = false,
 }: AdminSidebarProps) {
   const liveUnreadCount = useUnreadCount(unreadMessageCount);
   const pathname = usePathname();
@@ -218,6 +232,7 @@ export function AdminSidebar({
           reduceMotion={reduceMotion}
           closeMobileSidebar={closeMobileSidebar}
           unreadMessageCount={liveUnreadCount}
+          messagingFailing={messagingFailing}
         />
       </SidebarContent>
 
