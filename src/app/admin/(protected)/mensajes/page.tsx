@@ -31,6 +31,7 @@ import { MessageThread } from "@/ui/admin/messages/message-thread";
 import { MessagesLayout } from "@/ui/admin/messages/messages-layout";
 import { MessagingHealthBanner } from "@/ui/admin/messages/messaging-health-banner";
 import { messagingHealthView } from "@/ui/admin/messages/messaging-health-view";
+import { RefreshButton } from "@/ui/admin/messages/refresh-button";
 import {
   composerTemplatesView,
   conversationHeaderView,
@@ -99,6 +100,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
           <h1 className="text-xl font-semibold text-[#fffbf4]">Mensajes</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <RefreshButton />
           <Button variant="outline" size="sm" asChild>
             <Link href="/admin/mensajes/sin-enviar">Sin enviar</Link>
           </Button>
@@ -150,6 +152,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
     </>
   );
 
+  let newestInboundMessageId: string | null = null;
   let conversation = null;
   if (selectedConversation) {
     const header = conversationHeaderView(selectedConversation, now);
@@ -159,7 +162,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
         ? await renderTemplatesForRequest(postgresMessageTemplateRepository, primaryRequest)
         : null;
     const threadMessages = selectedConversation.messages.map(threadMessageView);
-    const newestInboundMessageId =
+    newestInboundMessageId =
       threadMessages.filter((message) => message.direction === "INBOUND").at(-1)?.id ?? null;
     const controls = canSend ? (
       <ConversationControls
@@ -206,10 +209,6 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
             Solo lectura: solo un superadministrador puede enviar mensajes.
           </p>
         )}
-        <ConversationAutoRefresh
-          key={`refresh-${selectedConversation.contact.id}`}
-          newestInboundMessageId={newestInboundMessageId}
-        />
       </>
     );
   }
@@ -220,6 +219,10 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
         list={list}
         conversation={conversation}
         backHref={conversationHref(null, filters)}
+      />
+      <ConversationAutoRefresh
+        key={selectedContactId ?? "list"}
+        newestInboundMessageId={newestInboundMessageId}
       />
     </main>
   );
