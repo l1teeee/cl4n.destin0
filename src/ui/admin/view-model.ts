@@ -201,10 +201,6 @@ export function publicEventUrl(appBaseUrl: string, slug: string): string {
   return `${appBaseUrl.replace(/\/+$/, "")}/solicitar/${encodeURIComponent(slug)}`;
 }
 
-export function publicCluesUrl(appBaseUrl: string, slug: string): string {
-  return `${appBaseUrl.replace(/\/+$/, "")}/pistas/${encodeURIComponent(slug)}`;
-}
-
 export function publicLinkHint(phase: EventPhase): string | null {
   switch (phase) {
     case "DRAFT":

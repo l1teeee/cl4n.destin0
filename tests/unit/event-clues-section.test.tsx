@@ -4,7 +4,8 @@ import type { ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { EventClue, EventClueDelivery } from "@/application/events/event-clue-repository";
+import type { EventClue } from "@/application/events/event-clue-repository";
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
 import { EventCluesSection } from "@/ui/admin/event-clues-section";
 import { TooltipProvider } from "@/ui/primitives/tooltip";
 
@@ -14,6 +15,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 vi.mock("@/app/admin/(protected)/events/actions", () => ({
   deleteEventClueAction: vi.fn(async () => ({ ok: true, message: "Pista eliminada." })),
+  sendClueToAllAction: vi.fn(async () => ({ ok: true, message: "Pista enviada." })),
+  sendClueToPeopleAction: vi.fn(async () => ({ ok: true, message: "Pista enviada." })),
 }));
 
 beforeAll(() => {
@@ -30,19 +33,42 @@ const clues: EventClue[] = [
   { id: "clue-3", body: "Tercera pista", createdAt: new Date("2026-10-28T22:45:00Z"), images: [] },
 ];
 
-const delivery: Record<string, EventClueDelivery> = {
-  "clue-1": { paid: 5, received: 5, pending: 0, failed: 0 },
-  "clue-2": { paid: 5, received: 3, pending: 2, failed: 0 },
-  "clue-3": { paid: 5, received: 2, pending: 1, failed: 2 },
-};
+type Status = "NOT_SENT" | "SENT" | "PENDING" | "FAILED";
+
+function person(slot: 1 | 2, statuses: readonly [Status, Status, Status]) {
+  return {
+    slot,
+    name: `Persona ${slot}`,
+    instagram: `persona${slot}`,
+    linked: true,
+    statusByItem: { "clue-1": statuses[0], "clue-2": statuses[1], "clue-3": statuses[2] },
+  };
+}
+
+const recipients: RecipientGroup[] = [
+  {
+    reservationId: "11111111-1111-4111-8111-111111111111",
+    reservationNumber: 1,
+    people: [person(1, ["SENT", "SENT", "SENT"]), person(2, ["SENT", "SENT", "PENDING"])],
+  },
+  {
+    reservationId: "22222222-2222-4222-8222-222222222222",
+    reservationNumber: 2,
+    people: [person(1, ["SENT", "SENT", "FAILED"]), person(2, ["SENT", "PENDING", "FAILED"])],
+  },
+  {
+    reservationId: "33333333-3333-4333-8333-333333333333",
+    reservationNumber: 3,
+    people: [person(1, ["SENT", "PENDING", "SENT"])],
+  },
+];
 
 function section(overrides: Partial<ComponentProps<typeof EventCluesSection>> = {}) {
   return (
     <TooltipProvider>
       <EventCluesSection
-        appBaseUrl="https://clandestino.example/"
         clues={clues}
-        delivery={delivery}
+        recipients={recipients}
         eventId="event-1"
         phase="CLOSED"
         slug="cena privada"
@@ -82,16 +108,28 @@ describe("EventCluesSection while the experience is closed", () => {
     render(
       section({
         clues: [clues[0]!],
-        delivery: { "clue-1": { paid: 4, received: 3, pending: 0, failed: 1 } },
+        recipients: [
+          {
+            reservationId: "44444444-4444-4444-8444-444444444444",
+            reservationNumber: 4,
+            people: [
+              person(1, ["SENT", "SENT", "SENT"]),
+              person(2, ["SENT", "SENT", "SENT"]),
+              person(1, ["SENT", "SENT", "SENT"]),
+              person(2, ["FAILED", "SENT", "SENT"]),
+            ],
+          },
+        ],
       }),
     );
 
     expect(screen.getByText("Enviada a 3 de 4 · 0 pendientes · 1 fallido")).toBeDefined();
   });
 
-  it("omits the delivery line for a clue without counts yet", () => {
-    render(section({ delivery: {} }));
+  it("says the clue is ready to send when nobody has received it", () => {
+    render(section({ recipients: [] }));
 
+    expect(screen.getAllByText("Lista para enviar")).toHaveLength(3);
     expect(screen.queryByText(/Enviada a/)).toBeNull();
   });
 
@@ -112,33 +150,20 @@ describe("EventCluesSection while the experience is closed", () => {
     expect(details.open).toBe(false);
   });
 
-  it("offers the publish form, the clues link and one delete button per clue", () => {
+  it("offers the publish form, a send button and a delete button per clue", () => {
     render(section());
 
     expect(screen.getByRole("heading", { name: "Pistas" })).toBeDefined();
     expect(
       screen.getByText(
-        "Los comensales ven las pistas en la página de pistas. Una pista nueva aparece ahí en menos de un minuto.",
+        "Genera la pista con texto e imágenes; queda lista para enviar. Envíala por Instagram a todos los que vienen o a quienes elijas.",
       ),
     ).toBeDefined();
-    expect(screen.getByRole("button", { name: "Ver enlace de pistas" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Generar pista" })).toBeDefined();
+    expect(screen.getAllByRole("button", { name: "Enviar" })).toHaveLength(3);
     expect(screen.getAllByRole("button", { name: "Eliminar pista" })).toHaveLength(3);
-  });
-
-  it("reveals the public clues URL", async () => {
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      configurable: true,
-    });
-    render(section());
-
-    fireEvent.click(screen.getByRole("button", { name: "Ver enlace de pistas" }));
-
-    expect(
-      (screen.getByRole("textbox", { name: "Enlace público" }) as HTMLInputElement).value,
-    ).toBe("https://clandestino.example/pistas/cena%20privada");
-    await screen.findByText("Enlace copiado.");
+    expect(screen.queryByRole("link", { name: "Vista previa pública" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ver enlace de pistas" })).toBeNull();
   });
 
   it("provides clue text and optional image fields", () => {
@@ -149,10 +174,6 @@ describe("EventCluesSection while the experience is closed", () => {
     expect(textarea.maxLength).toBe(500);
     expect(textarea.required).toBe(true);
     expect(screen.getByLabelText(/Imágenes/).getAttribute("multiple")).not.toBeNull();
-    const preview = screen.getByRole("link", { name: "Vista previa pública" });
-    expect(preview.getAttribute("href")).toBe("https://clandestino.example/pistas/cena%20privada");
-    expect(preview.getAttribute("target")).toBe("_blank");
-    expect(preview.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
   it("shows the empty state when there are no clues", () => {
@@ -169,7 +190,9 @@ describe("EventCluesSection while the experience is closed", () => {
     fireEvent.click(screen.getByRole("button", { name: "Eliminar pista" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(
-      within(dialog).getByText("La pista dejará de verse en la página de pistas."),
+      within(dialog).getByText(
+        "La pista se eliminará. Los mensajes ya enviados no se borran de Instagram.",
+      ),
     ).toBeDefined();
     fireEvent.click(within(dialog).getByRole("button", { name: "Eliminar pista" }));
     await screen.findByText("Pista eliminada.");
@@ -197,7 +220,8 @@ describe("EventCluesSection after the experience is completed", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
     expect(screen.queryByRole("button", { name: "Generar pista" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Eliminar pista" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Ver enlace de pistas" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Enviar" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Vista previa pública" })).toBeNull();
   });
 
   it("shows the empty state without a publish form", () => {

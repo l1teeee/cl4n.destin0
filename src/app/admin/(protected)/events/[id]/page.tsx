@@ -6,12 +6,18 @@ import {
   loadEventEconomy,
 } from "@/application/economy/economy-use-cases";
 import { buildTabMessages } from "@/application/economy/tab-messages";
-import { getAdminAuditLog, getAdminEventDetail } from "@/application/events/event-use-cases";
+import { listClueRecipients } from "@/application/events/event-clues";
+import {
+  getAdminAuditLog,
+  getAdminEventDetail,
+  listLocationRecipients,
+} from "@/application/events/event-use-cases";
 import { listActiveExtras } from "@/application/extras/extra-use-cases";
 import type { EventGuestView } from "@/application/guests/guest-views";
 import { loadPaymentSettings } from "@/application/payments/payment-settings";
 import { hasPermission } from "@/domain/admin/admin-access";
 import { areCluesVisible } from "@/domain/event/event-clues";
+import { mapProviderOf } from "@/domain/event/map-links";
 import { auditPageSizeFor } from "@/ui/admin/view-model";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
@@ -71,6 +77,7 @@ import {
   publishEventAction,
   reopenEventAction,
   sendEventLocationAction,
+  sendEventLocationToPeopleAction,
   setEventLocationStatusAction,
 } from "../actions";
 import {
@@ -136,21 +143,33 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const sections = eventSections(cluesVisible);
   const paymentSettings =
     section === "invitados" ? await loadPaymentSettings(postgresPaymentSettingsRepository) : null;
-  const [guests, economy, audit, images, locationDelivery, clues, clueDelivery] = await Promise.all(
-    [
-      section === "invitados" ? loadEventGuests(id, guestView) : Promise.resolve(null),
-      section === "economia" ? loadEconomy(id) : Promise.resolve(null),
-      getAdminAuditLog(postgresEventRepository, {
-        eventId: id,
-        page: auditPage,
-        pageSize: auditPageSizeFor("desktop"),
-      }),
-      postgresEventImageRepository.list(id),
-      postgresLocationMessageRepository.getLocationDeliverySummary(id),
-      cluesVisible ? postgresEventClueRepository.listForEvent(id) : Promise.resolve([]),
-      cluesVisible ? postgresEventClueRepository.getDeliveryForEvent(id) : Promise.resolve({}),
-    ],
-  );
+  const [
+    guests,
+    economy,
+    audit,
+    images,
+    locationDelivery,
+    clues,
+    clueRecipients,
+    locationRecipients,
+  ] = await Promise.all([
+    section === "invitados" ? loadEventGuests(id, guestView) : Promise.resolve(null),
+    section === "economia" ? loadEconomy(id) : Promise.resolve(null),
+    getAdminAuditLog(postgresEventRepository, {
+      eventId: id,
+      page: auditPage,
+      pageSize: auditPageSizeFor("desktop"),
+    }),
+    postgresEventImageRepository.list(id),
+    postgresLocationMessageRepository.getLocationDeliverySummary(id),
+    cluesVisible ? postgresEventClueRepository.listForEvent(id) : Promise.resolve([]),
+    section === "pistas" && cluesVisible
+      ? listClueRecipients(postgresEventClueRepository, id)
+      : Promise.resolve([]),
+    section === "ubicacion"
+      ? listLocationRecipients(postgresLocationMessageRepository, id)
+      : Promise.resolve([]),
+  ]);
   const tabPreviews =
     canSendMessages && economy
       ? await buildTabMessages(
@@ -225,9 +244,8 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
 
       {section === "pistas" && cluesVisible ? (
         <EventCluesSection
-          appBaseUrl={env.APP_BASE_URL}
           clues={clues}
-          delivery={clueDelivery}
+          recipients={clueRecipients}
           eventId={id}
           phase={event.phase}
           slug={event.slug}
@@ -293,7 +311,9 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             {event.location.mapsUrl ? (
               <Button variant="link" asChild>
                 <a href={event.location.mapsUrl} target="_blank" rel="noopener noreferrer">
-                  Abrir en Google Maps
+                  {mapProviderOf(event.location.mapsUrl) === "WAZE"
+                    ? "Abrir en Waze"
+                    : "Abrir en Google Maps"}
                 </a>
               </Button>
             ) : null}
@@ -355,6 +375,9 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           locationConfirmed={event.location.status === "CONFIRMED"}
           acceptsSends={event.status !== "COMPLETED" && event.status !== "CANCELLED"}
           sendAction={sendEventLocationAction.bind(null, id, loadedLocation)}
+          sendToPeopleAction={sendEventLocationToPeopleAction.bind(null, id, loadedLocation)}
+          recipients={locationRecipients}
+          currentRevision={event.locationRevision}
         />
       </section>
 
