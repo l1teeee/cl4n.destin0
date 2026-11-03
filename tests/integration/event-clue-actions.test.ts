@@ -24,9 +24,14 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-import { deleteEventClueAction } from "@/app/admin/(protected)/events/actions";
+import {
+  deleteEventClueAction,
+  sendClueToAllAction,
+  sendClueToGuestAction,
+} from "@/app/admin/(protected)/events/actions";
 import { POST } from "@/app/admin/(protected)/events/[id]/clues/route";
 import { postgresAdminAuthRepository } from "@/infrastructure/auth/session-store";
+import * as messageDelivery from "@/infrastructure/messaging/drain-message-outbox";
 import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 
 import { insertGuestReservation, insertMessagingContact } from "../helpers/guest-flow-test-data";
@@ -40,7 +45,9 @@ let adminId: string;
 let sessionToken: string;
 
 beforeEach(async () => {
+  vi.restoreAllMocks();
   vi.mocked(revalidatePath).mockClear();
+  vi.mocked(scheduleMessageDelivery).mockClear();
   authState.token = undefined;
   if (pool) await pool.end();
   await resetTestDatabase();
@@ -124,7 +131,7 @@ describe("POST /admin/events/[id]/clues", () => {
     expect(audit.rows).toEqual([{ actor_admin_id: adminId, action: "EVENT_UPDATED" }]);
   });
 
-  it("queues the clue for the paid guests and delivers it before answering", async () => {
+  it("prepares the clue, then queues and delivers it only on an explicit send", async () => {
     const eventId = await insertEvent("CLOSED");
     const contactId = await insertMessagingContact(pool);
     await insertGuestReservation(pool, eventId, { contactId });
@@ -137,12 +144,76 @@ describe("POST /admin/events/[id]/clues", () => {
     });
 
     expect(response.status).toBe(201);
+    const clue = await response.json();
+    expect(clue).toEqual({ id: expect.any(String), message: "La pista está lista para enviar." });
+    expect(
+      (await pool.query("SELECT 1 FROM messages WHERE event_id = $1", [eventId])).rows,
+    ).toEqual([]);
+    expect(scheduleMessageDelivery).not.toHaveBeenCalled();
+    const drain = vi.spyOn(messageDelivery, "drainMessagesNow");
+    expect(await sendClueToAllAction(eventId, clue.id, initialState, new FormData())).toEqual({
+      ok: true,
+      message: "Pista enviada a 1 invitado.",
+    });
     const messages = await pool.query<{ kind: string; status: string; body: string }>(
       "SELECT kind, status, body FROM messages WHERE event_id = $1",
       [eventId],
     );
     expect(messages.rows).toEqual([{ kind: "CLUE", status: "SENT", body: "Mira bajo la mesa." }]);
+    expect(drain).toHaveBeenCalledWith([expect.any(String)], { timeBudgetMs: 6_000 });
     expect(scheduleMessageDelivery).toHaveBeenCalledOnce();
+    expect(revalidatePath).toHaveBeenCalledWith(`/admin/events/${eventId}`);
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/mensajes");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/mensajes/sin-enviar");
+    expect(await sendClueToAllAction(eventId, clue.id, initialState, new FormData())).toEqual({
+      ok: true,
+      message: "Todos los invitados con pago verificado ya tienen esta pista.",
+    });
+  });
+
+  it("keeps queued messages and schedules a retry if immediate delivery fails", async () => {
+    const eventId = await insertEvent("CLOSED");
+    await insertGuestReservation(pool, eventId, { contactId: await insertMessagingContact(pool) });
+    await insertGuestReservation(pool, eventId);
+    const clueId = await insertClue(eventId);
+    authState.token = sessionToken;
+    vi.spyOn(messageDelivery, "drainMessagesNow").mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    expect(await sendClueToAllAction(eventId, clueId, initialState, new FormData())).toEqual({
+      ok: true,
+      message: "Pista enviada a 2 invitados.",
+    });
+    const messages = await pool.query<{ status: string }>(
+      "SELECT status FROM messages WHERE clue_id = $1 ORDER BY status",
+      [clueId],
+    );
+    expect(messages.rows).toEqual([{ status: "QUEUED" }, { status: "WAITING_CONTACT" }]);
+    expect(scheduleMessageDelivery).toHaveBeenCalledOnce();
+  });
+
+  it("sends to one guest explicitly and reports a repeat without duplicating messages", async () => {
+    const eventId = await insertEvent("CLOSED");
+    const reservationId = await insertGuestReservation(pool, eventId);
+    await insertGuestReservation(pool, eventId);
+    const clueId = await insertClue(eventId);
+    authState.token = sessionToken;
+
+    expect(
+      await sendClueToGuestAction(eventId, clueId, reservationId, initialState, new FormData()),
+    ).toEqual({ ok: true, message: "Pista enviada." });
+    expect(
+      await sendClueToGuestAction(eventId, clueId, reservationId, initialState, new FormData()),
+    ).toEqual({ ok: true, message: "Este invitado ya tiene esta pista." });
+    const messages = await pool.query<{ reservation_id: string }>(
+      "SELECT reservation_id FROM messages WHERE clue_id = $1",
+      [clueId],
+    );
+    expect(messages.rows).toEqual([{ reservation_id: reservationId }]);
+    expect(revalidatePath).toHaveBeenCalledWith(`/admin/events/${eventId}`);
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/mensajes");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/mensajes/sin-enviar");
   });
 
   it("does not schedule any delivery when nobody is paid yet", async () => {

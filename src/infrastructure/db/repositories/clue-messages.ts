@@ -1,6 +1,6 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 
-import type { EventClueDelivery } from "@/application/events/event-clue-repository";
+import type { ClueRecipient, EventClueDelivery } from "@/application/events/event-clue-repository";
 import { clueImageUrl } from "@/domain/messaging/message-attachment-urls";
 import { env } from "@/infrastructure/config/env";
 
@@ -13,7 +13,7 @@ interface ClueDeliveryRow extends QueryResultRow {
 }
 
 /**
- * Runs inside the clue insert transaction. It deliberately takes no lock on the event row (ADR-007
+ * Runs inside the clue send transaction. It deliberately takes no lock on the event row (ADR-007
  * decision 8): a guest who turns PAID at the same moment may miss this clue, which ADR-007 accepts.
  */
 export async function enqueueClueMessages(
@@ -25,6 +25,7 @@ export async function enqueueClueMessages(
     body: string;
     imageIds: readonly string[];
     actorId: string;
+    reservationId?: string;
   },
 ): Promise<string[]> {
   const imageUrls = input.imageIds.map((imageId) =>
@@ -40,6 +41,7 @@ export async function enqueueClueMessages(
         WHERE r.event_id = $1
           AND r.status = 'CONFIRMED'
           AND r.stage = 'PAID'
+          ${input.reservationId ? "AND r.id = $6::uuid" : ""}
           FOR SHARE OF r
      )
      INSERT INTO messages (
@@ -59,9 +61,46 @@ export async function enqueueClueMessages(
       input.body,
       imageUrls.length > 0 ? imageUrls : null,
       input.actorId,
+      ...(input.reservationId ? [input.reservationId] : []),
     ],
   );
   return result.rows.map((row) => row.id);
+}
+
+export async function queryClueRecipients(pool: Pool, eventId: string): Promise<ClueRecipient[]> {
+  const result = await pool.query<{
+    reservation_id: string;
+    guest_name: string;
+    instagram: string | null;
+    status_by_clue: ClueRecipient["statusByClue"];
+  }>(
+    `SELECT r.id AS reservation_id,
+            r.full_name || CASE WHEN r.guest2_full_name IS NULL THEN ''
+                               ELSE ' y ' || r.guest2_full_name END AS guest_name,
+            COALESCE(contact.username, r.instagram_handle) AS instagram,
+            COALESCE(jsonb_object_agg(c.id::text,
+              CASE
+                WHEN m.status IN ('SENT', 'READ', 'SENT_MANUALLY') THEN 'SENT'
+                WHEN m.status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED') THEN 'PENDING'
+                WHEN m.status = 'FAILED' THEN 'FAILED'
+                ELSE 'NOT_SENT'
+              END
+            ) FILTER (WHERE c.id IS NOT NULL), '{}'::jsonb) AS status_by_clue
+       FROM reservations r
+       LEFT JOIN messaging_contacts contact ON contact.id = r.contact_id
+       LEFT JOIN event_clues c ON c.event_id = r.event_id
+       LEFT JOIN messages m ON m.reservation_id = r.id AND m.clue_id = c.id AND m.kind = 'CLUE'
+      WHERE r.event_id = $1 AND r.status = 'CONFIRMED' AND r.stage = 'PAID'
+      GROUP BY r.id, contact.username
+      ORDER BY r.reservation_number`,
+    [eventId],
+  );
+  return result.rows.map((row) => ({
+    reservationId: row.reservation_id,
+    guestName: row.guest_name,
+    instagram: row.instagram,
+    statusByClue: row.status_by_clue,
+  }));
 }
 
 export async function queryClueDelivery(

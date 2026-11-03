@@ -2,15 +2,17 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import type {
   AddEventClueResult,
+  ClueRecipient,
   EventClue,
   EventClueDelivery,
   EventClueRepository,
+  SendClueResult,
 } from "@/application/events/event-clue-repository";
 import type { ImageContentType } from "@/contracts/image-upload";
 
 import { pool as applicationPool } from "../client";
 import { inTransaction } from "../transaction";
-import { enqueueClueMessages, queryClueDelivery } from "./clue-messages";
+import { enqueueClueMessages, queryClueDelivery, queryClueRecipients } from "./clue-messages";
 
 interface EventClueRow extends QueryResultRow {
   id: string;
@@ -58,12 +60,11 @@ export class PostgresEventClueRepository implements EventClueRepository {
     images?: Array<{ contentType: ImageContentType; data: Uint8Array }>;
   }): Promise<AddEventClueResult> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
-      const event = await client.query<{ slug: string }>(
-        "SELECT slug FROM events WHERE id = $1 AND deleted_at IS NULL",
+      const event = await client.query<{ id: string }>(
+        "SELECT id FROM events WHERE id = $1 AND deleted_at IS NULL",
         [input.eventId],
       );
-      const eventSlug = event.rows[0]?.slug;
-      if (!eventSlug) return { ok: false, error: "EVENT_NOT_FOUND" };
+      if (event.rowCount === 0) return { ok: false, error: "EVENT_NOT_FOUND" };
 
       const inserted = await client.query<EventClueRow>(
         `INSERT INTO event_clues (event_id, body, created_by)
@@ -83,16 +84,8 @@ export class PostgresEventClueRepository implements EventClueRepository {
         imageIds.push(insertedImage.rows[0]!.id);
       }
       clue.images = imageIds.map((id) => ({ id }));
-      const messageIds = await enqueueClueMessages(client, {
-        eventId: input.eventId,
-        eventSlug,
-        clueId: clue.id,
-        body: clue.body,
-        imageIds,
-        actorId: input.actorId,
-      });
       await insertAudit(client, input.actorId, input.eventId, { clueAdded: clue.id });
-      return { ok: true, value: clue, messageIds };
+      return { ok: true, value: clue };
     });
   }
 
@@ -126,20 +119,67 @@ export class PostgresEventClueRepository implements EventClueRepository {
     return queryClueDelivery(this.pool, eventId);
   }
 
-  async listForSlug(slug: string): Promise<EventClue[]> {
-    const result = await this.pool.query<EventClueRow>(
-      `SELECT c.id, c.body, c.created_at,
-              COALESCE(array_agg(i.id ORDER BY i.position) FILTER (WHERE i.id IS NOT NULL), '{}') AS image_ids
-         FROM event_clues c
-         JOIN events e ON e.id = c.event_id
-         LEFT JOIN event_clue_images i ON i.clue_id = c.id
-        WHERE e.slug = $1
-          AND e.deleted_at IS NULL
-        GROUP BY c.id
-        ORDER BY c.created_at, c.id`,
-      [slug],
-    );
-    return result.rows.map(eventClue);
+  sendToAll(input: { eventId: string; clueId: string; actorId: string }): Promise<SendClueResult> {
+    return this.sendClue(input);
+  }
+
+  sendToGuest(input: {
+    eventId: string;
+    clueId: string;
+    reservationId: string;
+    actorId: string;
+  }): Promise<SendClueResult> {
+    return this.sendClue(input);
+  }
+
+  private sendClue(input: {
+    eventId: string;
+    clueId: string;
+    actorId: string;
+    reservationId?: string;
+  }): Promise<SendClueResult> {
+    return inTransaction(this.pool, transactionSettings, async (client) => {
+      const result = await client.query<{ body: string; slug: string; image_ids: string[] }>(
+        `SELECT c.body, e.slug,
+                COALESCE(array_agg(i.id ORDER BY i.position) FILTER (WHERE i.id IS NOT NULL), '{}') AS image_ids
+           FROM event_clues c
+           JOIN events e ON e.id = c.event_id
+           LEFT JOIN event_clue_images i ON i.clue_id = c.id
+          WHERE c.id = $1 AND c.event_id = $2 AND e.deleted_at IS NULL
+          GROUP BY c.id, e.slug`,
+        [input.clueId, input.eventId],
+      );
+      const clue = result.rows[0];
+      if (!clue) return { ok: false, error: "CLUE_NOT_FOUND" };
+
+      if (input.reservationId) {
+        const guest = await client.query(
+          `SELECT id FROM reservations
+            WHERE id = $1 AND event_id = $2 AND status = 'CONFIRMED' AND stage = 'PAID'
+            FOR SHARE`,
+          [input.reservationId, input.eventId],
+        );
+        if (guest.rowCount === 0) return { ok: false, error: "GUEST_NOT_ELIGIBLE" };
+      }
+
+      const messageIds = await enqueueClueMessages(client, {
+        ...input,
+        eventSlug: clue.slug,
+        body: clue.body,
+        imageIds: clue.image_ids,
+      });
+      if (messageIds.length > 0) {
+        await insertAudit(client, input.actorId, input.eventId, {
+          clueSent: input.clueId,
+          recipients: messageIds.length,
+        });
+      }
+      return { ok: true, messageIds };
+    });
+  }
+
+  listRecipients(eventId: string): Promise<ClueRecipient[]> {
+    return queryClueRecipients(this.pool, eventId);
   }
 
   async getImageForSlug(slug: string, imageId: string) {

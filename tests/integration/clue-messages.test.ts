@@ -73,7 +73,7 @@ async function clueMessages(eventId: string): Promise<ClueMessageRow[]> {
   return result.rows;
 }
 
-async function addClue(eventId: string, body = "Mira bajo la mesa.", withImages = 0) {
+async function addAndSendClue(eventId: string, body = "Mira bajo la mesa.", withImages = 0) {
   const result = await clueRepository.add({
     eventId,
     body,
@@ -81,7 +81,13 @@ async function addClue(eventId: string, body = "Mira bajo la mesa.", withImages 
     images: Array.from({ length: withImages }, () => image),
   });
   if (!result.ok) throw new Error(result.error);
-  return result;
+  const sent = await clueRepository.sendToAll({
+    eventId,
+    clueId: result.value.id,
+    actorId: adminId,
+  });
+  if (!sent.ok) throw new Error(sent.error);
+  return { value: result.value, messageIds: sent.messageIds };
 }
 
 function fakeMessenger(): InstagramMessenger {
@@ -109,7 +115,7 @@ function deliver(messageIds: string[], messenger: InstagramMessenger) {
   );
 }
 
-describe("publishing a clue queues it for the paid guests", () => {
+describe("explicitly sending a clue queues it for the paid guests", () => {
   it("queues one CLUE message per paid reservation with the clue text and image URLs", async () => {
     const event = await insertClosedEvent();
     const contactId = await insertMessagingContact(pool);
@@ -127,9 +133,16 @@ describe("publishing a clue queues it for the paid guests", () => {
     });
 
     if (!result.ok) throw new Error(result.error);
+    expect(await clueMessages(event.id)).toEqual([]);
+    const sent = await clueRepository.sendToAll({
+      eventId: event.id,
+      clueId: result.value.id,
+      actorId: adminId,
+    });
+    if (!sent.ok) throw new Error(sent.error);
     const rows = await clueMessages(event.id);
     expect(rows).toHaveLength(2);
-    expect(result.messageIds.sort()).toEqual(rows.map((row) => row.id).sort());
+    expect(sent.messageIds.sort()).toEqual(rows.map((row) => row.id).sort());
     const imageUrls = result.value.images.map(
       (stored) => `${APP_BASE_URL}/pistas/${event.slug}/imagenes/${stored.id}`,
     );
@@ -156,7 +169,7 @@ describe("publishing a clue queues it for the paid guests", () => {
     const event = await insertClosedEvent();
     await insertGuestReservation(pool, event.id);
 
-    await addClue(event.id, "Solo texto.");
+    await addAndSendClue(event.id, "Solo texto.");
 
     const [row] = await clueMessages(event.id);
     expect(row).toMatchObject({ body: "Solo texto.", attachment_urls: null });
@@ -166,7 +179,7 @@ describe("publishing a clue queues it for the paid guests", () => {
     const event = await insertClosedEvent();
     await insertGuestReservation(pool, event.id, { stage: "ON_LIST" });
 
-    const clue = await addClue(event.id);
+    const clue = await addAndSendClue(event.id);
 
     expect(clue.messageIds).toEqual([]);
     expect(await clueMessages(event.id)).toEqual([]);
@@ -177,9 +190,9 @@ describe("publishing a clue queues it for the paid guests", () => {
     const event = await insertClosedEvent();
     await insertGuestReservation(pool, event.id);
     await insertGuestReservation(pool, event.id);
-    const clue = await addClue(event.id, "Primera pista.", 1);
+    const clue = await addAndSendClue(event.id, "Primera pista.", 1);
 
-    const second = await addClue(event.id, "Segunda pista.");
+    const second = await addAndSendClue(event.id, "Segunda pista.");
     const rerun = await (async () => {
       const client = await pool.connect();
       try {
@@ -203,10 +216,10 @@ describe("publishing a clue queues it for the paid guests", () => {
     expect(rows.filter((row) => row.clue_id === second.value.id)).toHaveLength(2);
   });
 
-  it("does not reach a guest who became paid after the clue was published", async () => {
+  it("does not automatically reach a guest who became paid after the explicit send", async () => {
     const event = await insertClosedEvent();
     await insertGuestReservation(pool, event.id);
-    const clue = await addClue(event.id);
+    const clue = await addAndSendClue(event.id);
     const latecomer = await insertGuestReservation(pool, event.id);
 
     const rows = await clueMessages(event.id);
@@ -227,7 +240,7 @@ describe("publishing a clue queues it for the paid guests", () => {
       ]);
 
       const result = await Promise.race([
-        addClue(event.id),
+        addAndSendClue(event.id),
         new Promise<"BLOCKED">((resolve) => setTimeout(() => resolve("BLOCKED"), 2_000)),
       ]);
 
@@ -239,7 +252,7 @@ describe("publishing a clue queues it for the paid guests", () => {
     expect(await clueMessages(event.id)).toHaveLength(1);
   });
 
-  it("leaves no QUEUED row on a conversation that is unlinked while the clue is published", async () => {
+  it("leaves no QUEUED row on a conversation that is unlinked while the clue is sent", async () => {
     const event = await insertClosedEvent();
     const contactId = await insertMessagingContact(pool);
     const reservationId = await insertGuestReservation(pool, event.id, { contactId });
@@ -250,11 +263,11 @@ describe("publishing a clue queues it for the paid guests", () => {
       [reservationId],
     );
 
-    const publishing = addClue(event.id);
+    const sending = addAndSendClue(event.id);
     await waitUntilSomeoneIsBlocked(pool);
     await unlink.query("COMMIT");
     unlink.release();
-    const clue = await publishing;
+    const clue = await sending;
 
     expect(clue.messageIds).toHaveLength(1);
     expect(await clueMessages(event.id)).toMatchObject([
@@ -277,7 +290,7 @@ describe("delivering and deleting clue messages", () => {
   it("sends the clue text and each image to a guest whose window is open", async () => {
     const event = await insertClosedEvent();
     await insertGuestReservation(pool, event.id, { contactId: await insertMessagingContact(pool) });
-    const clue = await addClue(event.id, "Busca la puerta azul.", 2);
+    const clue = await addAndSendClue(event.id, "Busca la puerta azul.", 2);
     const messenger = fakeMessenger();
 
     const summary = await deliver(clue.messageIds, messenger);
@@ -298,7 +311,7 @@ describe("delivering and deleting clue messages", () => {
         contactId: await insertMessagingContact(pool),
       });
     }
-    const clue = await addClue(event.id, "Pista que se borra.");
+    const clue = await addAndSendClue(event.id, "Pista que se borra.");
 
     await expect(
       removeEventClue(eventRepository, clueRepository, {
@@ -325,7 +338,7 @@ describe("delivering and deleting clue messages", () => {
     const reservationId = await insertGuestReservation(pool, event.id, {
       contactId: await insertMessagingContact(pool),
     });
-    const clue = await addClue(event.id);
+    const clue = await addAndSendClue(event.id);
     await pool.query(
       "UPDATE reservations SET status = 'CANCELLED', cancelled_at = now() WHERE id = $1",
       [reservationId],
@@ -350,8 +363,8 @@ describe("getDeliveryForEvent", () => {
         }),
       );
     }
-    const first = await addClue(event.id, "Primera.");
-    const second = await addClue(event.id, "Segunda.");
+    const first = await addAndSendClue(event.id, "Primera.");
+    const second = await addAndSendClue(event.id, "Segunda.");
     await insertGuestReservation(pool, event.id);
     const statuses = ["SENT", "READ", "FAILED", "WAITING_WINDOW", "QUEUED"];
     for (const [index, reservationId] of reservations.entries()) {

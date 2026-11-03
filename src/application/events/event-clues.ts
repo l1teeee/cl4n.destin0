@@ -46,3 +46,35 @@ export async function removeEventClue(
   const removed = await clues.remove(input);
   return removed ? { ok: true as const } : { ok: false as const, error: "CLUE_NOT_FOUND" as const };
 }
+
+export async function sendClueToAll(
+  events: EventRepository,
+  clues: EventClueRepository,
+  input: RemoveEventClueInput,
+) {
+  const detail = (await events.getAdminEvent(input.eventId)).value;
+  if (!detail) return { ok: false as const, error: "EVENT_NOT_FOUND" as const };
+  if (!canPublishClues(detail.phase)) {
+    return { ok: false as const, error: "CLUES_CLOSED" as const };
+  }
+
+  return clues.sendToAll(input);
+}
+
+export async function sendClueToGuest(
+  events: EventRepository,
+  clues: EventClueRepository,
+  input: RemoveEventClueInput & { reservationId: string },
+) {
+  const detail = (await events.getAdminEvent(input.eventId)).value;
+  if (!detail) return { ok: false as const, error: "EVENT_NOT_FOUND" as const };
+  if (!canPublishClues(detail.phase)) {
+    return { ok: false as const, error: "CLUES_CLOSED" as const };
+  }
+
+  return clues.sendToGuest(input);
+}
+
+export function listClueRecipients(clues: EventClueRepository, eventId: string) {
+  return clues.listRecipients(eventId);
+}

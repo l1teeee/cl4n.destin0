@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
-import { removeEventClue } from "@/application/events/event-clues";
+import { removeEventClue, sendClueToAll, sendClueToGuest } from "@/application/events/event-clues";
 import { resolveCreateSchedule, resolveUpdateSchedule } from "@/application/events/event-schedule";
 import {
   cancelEvent,
@@ -128,6 +128,13 @@ const locationSendMessages: Record<SendLocationError, string> = {
     "La ubicación es demasiado larga para un mensaje de Instagram. Acorta las indicaciones o el enlace.",
   TRY_AGAIN: "Hay reservas entrando en este momento. Intenta enviar de nuevo en unos segundos.",
 };
+
+const clueSendMessages = {
+  EVENT_NOT_FOUND: operationMessages.EVENT_NOT_FOUND,
+  CLUES_CLOSED: "Las pistas solo se pueden enviar mientras la experiencia está cerrada.",
+  CLUE_NOT_FOUND: "No se encontró la pista.",
+  GUEST_NOT_ELIGIBLE: "Solo se puede enviar a invitados con pago verificado.",
+} as const;
 
 const operationErrorFields: Partial<Record<EventOperationErrorCode, string>> = {
   SLUG_TAKEN: "slug",
@@ -516,6 +523,80 @@ export async function deleteEventClueAction(
 
   revalidateCluePaths(parsed.data.eventId);
   return { ok: true, message: "Pista eliminada." };
+}
+
+export async function sendClueToAllAction(
+  eventId: string,
+  clueId: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+
+  const parsed = clueActionSchema.safeParse({ eventId, clueId });
+  if (!parsed.success) return formValidationError(parsed.error);
+  const result = await sendClueToAll(postgresEventRepository, postgresEventClueRepository, {
+    ...parsed.data,
+    actorId: authorization.session.admin.id,
+  });
+  if (!result.ok) return invalid(clueSendMessages[result.error]);
+
+  await deliverClueMessages(result.messageIds);
+  revalidateEventPaths(parsed.data.eventId);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  const count = result.messageIds.length;
+  const message =
+    count === 0
+      ? "Todos los invitados con pago verificado ya tienen esta pista."
+      : `Pista enviada a ${count} ${count === 1 ? "invitado" : "invitados"}.`;
+  return { ok: true, message };
+}
+
+export async function sendClueToGuestAction(
+  eventId: string,
+  clueId: string,
+  reservationId: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized();
+
+  const parsed = clueActionSchema.safeParse({ eventId, clueId });
+  if (!parsed.success) return formValidationError(parsed.error);
+  const parsedReservation = idSchema.safeParse({ id: reservationId });
+  if (!parsedReservation.success) return formValidationError(parsedReservation.error);
+  const result = await sendClueToGuest(postgresEventRepository, postgresEventClueRepository, {
+    ...parsed.data,
+    reservationId: parsedReservation.data.id,
+    actorId: authorization.session.admin.id,
+  });
+  if (!result.ok) return invalid(clueSendMessages[result.error]);
+
+  await deliverClueMessages(result.messageIds);
+  revalidateEventPaths(parsed.data.eventId);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  return {
+    ok: true,
+    message: result.messageIds.length > 0 ? "Pista enviada." : "Este invitado ya tiene esta pista.",
+  };
+}
+
+// The send has committed; the scheduled drain and cron retry any delivery failure.
+async function deliverClueMessages(messageIds: readonly string[]): Promise<void> {
+  try {
+    await drainMessagesNow(messageIds, { timeBudgetMs: 6_000 });
+  } catch {
+    log("error", "clue_message_delivery_failed");
+  }
+  scheduleMessageDelivery();
 }
 
 export async function publishEventAction(
