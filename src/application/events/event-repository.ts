@@ -33,6 +33,11 @@ export interface EventRepository {
   ): Promise<EventOperationResult<EventRecord>>;
   publish(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   openNow(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
+  reopen(
+    id: string,
+    closesAt: Date,
+    actorAdminId: string,
+  ): Promise<EventOperationResult<EventRecord>>;
   closeNow(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   complete(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   cancel(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;

@@ -591,6 +591,44 @@ export class PostgresEventRepository implements EventRepository {
     });
   }
 
+  async reopen(
+    id: string,
+    closesAt: Date,
+    actorAdminId: string,
+  ): Promise<EventOperationResult<EventRecord>> {
+    return inTransaction(this.pool, async (client) => {
+      const locked = await lockEvent(client, id);
+      if (!locked) {
+        return failed("EVENT_NOT_FOUND");
+      }
+      if (locked.status !== "SCHEDULED" && locked.status !== "CLOSED") {
+        return failed("INVALID_TRANSITION");
+      }
+      if (closesAt.getTime() < locked.db_now!.getTime() + 60_000) {
+        return failed("CLOSES_AT_IN_PAST");
+      }
+      if (closesAt > locked.starts_at) {
+        return failed("CLOSES_AFTER_START");
+      }
+
+      const updated = await client.query<EventRow>(
+        `UPDATE events
+            SET status = 'SCHEDULED',
+                opens_at = clock_timestamp(),
+                closes_at = $2,
+                updated_at = clock_timestamp()
+          WHERE id = $1
+          RETURNING ${eventColumns}`,
+        [id, closesAt],
+      );
+      const after = eventRecord(updated.rows[0]!);
+      await insertAudit(client, actorAdminId, "EVENT_OPENED", id, {
+        closesAt: closesAt.toISOString(),
+      });
+      return successful(after);
+    });
+  }
+
   closeNow(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>> {
     return this.transition(id, "CLOSED", actorAdminId, "EVENT_CLOSED");
   }

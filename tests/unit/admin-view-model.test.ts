@@ -158,14 +158,36 @@ describe("admin dashboard actions", () => {
         }),
         now,
       ),
-    ).toEqual(["CANCEL"]);
+    ).toEqual(["REOPEN", "CANCEL"]);
     expect(lifecycleActions(event({ status: "CLOSED", phase: "CLOSED" }), now)).toEqual([
-      "OPEN_NOW",
+      "REOPEN",
       "COMPLETE",
       "CANCEL",
     ]);
     expect(lifecycleActions(event({ status: "CANCELLED", phase: "CANCELLED" }), now)).toEqual([]);
   });
+
+  it.each(["CLOSED", "SCHEDULED"] as const)(
+    "offers REOPEN for %s when the closing date equals database time",
+    (status) => {
+      const actions = lifecycleActions(event({ status, phase: "CLOSED", closesAt: now }), now);
+      expect(actions).toContain("REOPEN");
+      expect(actions).not.toContain("OPEN_NOW");
+    },
+  );
+
+  it.each(["CLOSED", "SCHEDULED"] as const)(
+    "does not reopen %s once the dinner has started",
+    (status) => {
+      for (const startsAt of [now, new Date(now.getTime() - 1)]) {
+        const actions = lifecycleActions(
+          event({ status, phase: "CLOSED", startsAt, closesAt: new Date(now.getTime() - 1) }),
+          now,
+        );
+        expect(actions).not.toContain("REOPEN");
+      }
+    },
+  );
 });
 
 describe("event detail sections", () => {
