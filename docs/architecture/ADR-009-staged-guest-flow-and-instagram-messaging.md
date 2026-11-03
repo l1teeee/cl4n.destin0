@@ -1,6 +1,7 @@
 # ADR-009: Staged guest flow and Instagram DM messaging
 
 - Status: Accepted - 2026-10-30. Owner decisions of the same date.
+- Amended 2026-11-03: companion contact, per-person recipients, tabs, contingency (see "Amendment 2026-11-03").
 - Extends: ADR-001 (sections 7, 9, 18), ADR-002 (waitlist), ADR-003 (outbox pattern), ADR-005 (location sending), ADR-007/008 (clues).
 - Supersedes: guest email (ADR-003 guest kinds, ADR-005 parts 2 and 3 email delivery). Admin email is unchanged.
 
@@ -156,3 +157,12 @@ Guest email kinds are no longer written. Their templates and composer branches a
 - The webhook needs a public HTTPS URL, so the real Instagram connection is tested only after the owner approves a deployment.
 - Receiving messages from the public most likely needs Meta App Review and Business Verification; until then only app testers work.
 - Migration 0013 is additive (new columns, tables, enum values, relaxed NOT NULLs). A code-only rollback keeps working on the expanded schema, but requests made in the new flow (no email or phone) would show empty contact cells in old code.
+
+## Amendment 2026-11-03
+
+- Companion contact: `reservations.guest2_contact_id` links the companion when they write to us and their Instagram username equals the handle typed in the form (ambiguous matches link nothing). Instagram does not let us start a chat, so until then their messages wait as WAITING_CONTACT and appear in Mensajes > Sin enviar with "Enviar por Instagram" (copies the text and opens their chat).
+- Recipient rule: messages carry `guest_slot`. For a reservation message the recipient is `reservations.contact_id` for slot 1 and `guest2_contact_id` for slot 2. Clues and location are per person; status messages, tabs and free text stay slot 1.
+- Tabs: one bill per reservation (group), sent only to the titular, with each person's consumption and the group total, from the editable `TAB` template ("Cuenta de consumos", migration 0019). "Enviar cuentas" sends all or chosen groups.
+- Contingency when Meta fails: a health banner (connection missing or expired, failed or retrying messages, last webhook signal), the Sin enviar page, one-click "Enviar por Instagram" and "Ya lo envié" (stored as SENT_MANUALLY, never delivered).
+- One shared send dialog (all or chosen, people grouped by reservation with one color per group) is used for clues, location and tabs.
+- Deploy note: migration 0020 drops and re-creates the CLUE and LOCATION unique indexes. Run it right before pushing the code that uses them, at a quiet time, because old code cannot queue clues or locations between the migration and the new deployment.

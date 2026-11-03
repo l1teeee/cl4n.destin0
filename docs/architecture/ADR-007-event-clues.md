@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-28.
 
+Amended 2026-11-03: decisions 3, 4, 5 and 9 replaced (see "Amendment 2026-11-03").
+
 ## Context
 
 During an experience, the owner needs to publish short text clues for diners. The admin must be able to add and remove clues only while the experience is closed, while diners need a simple public page that updates during the dinner without requiring a manual reload.
@@ -33,3 +35,9 @@ The public URL is easy to share and operate during dinner, but the clues are not
 ## Rollback
 
 The migration is additive, and old application code ignores the `event_clues` table. Rolling back the feature code therefore leaves existing reservation, event, and admin behavior unchanged.
+
+## Amendment 2026-11-03
+
+- Decisions 3, 4 and 5 are replaced: there is no public clue link, preview or page, and `/pistas/<slug>` is gone. `/pistas/<slug>/imagenes/<imageId>` stays only because Instagram downloads DM attachments from it (image ids are random UUIDs).
+- Decision 9 is replaced: generating a clue stores its text and images and shows "La pista está lista para enviar"; nothing is queued. The admin sends it with the shared send dialog. "A todos" queues it for every person (titular and companion) of each CONFIRMED + PAID reservation who does not have it yet; "Elegir" queues it for chosen people. The unique `(reservation_id, guest_slot, clue_id)` for CLUE keeps both paths idempotent. Someone who pays later gets earlier clues only when an admin sends them.
+- Sending follows decision 2 (phase CLOSED) and decision 8 (no FOR UPDATE on the event row), and writes EVENT_UPDATED with `clueSent` and the recipient count.
