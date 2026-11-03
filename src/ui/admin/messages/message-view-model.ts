@@ -8,14 +8,17 @@ import type {
   ConversationSummary,
   LinkedRequestSummary,
 } from "@/application/messaging/conversation-queries";
+import type { RenderedTemplate } from "@/application/messaging/manual-templates";
 import { isMessagingWindowOpen } from "@/domain/messaging/messaging-window";
 
 import {
   conversationPreviewText,
+  type ComposerTemplates,
   type ConversationHeaderView,
   type ConversationListItemView,
   type ThreadMessageView,
 } from "./message-copy";
+import { TEMPLATE_COPY } from "./template-copy";
 
 const TIME_ZONE = "America/El_Salvador";
 const WINDOW_MS = (24 * 60 - 5) * 60 * 1000;
@@ -160,5 +163,21 @@ export function threadMessageView(message: ConversationMessage): ThreadMessageVi
         : message.attachmentUrls,
     createdAt: message.createdAt,
     lastError: message.lastError,
+  };
+}
+
+export function composerTemplatesView(
+  header: ConversationHeaderView,
+  rendered: readonly RenderedTemplate[] | null,
+): ComposerTemplates | null {
+  const source = header.linked[0];
+  if (!source || rendered === null) return null;
+  return {
+    sourceLabel: source.label,
+    options: rendered.map((template) => ({
+      key: template.key,
+      title: TEMPLATE_COPY[template.key].title,
+      text: template.text,
+    })),
   };
 }

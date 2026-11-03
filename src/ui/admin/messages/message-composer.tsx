@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, type KeyboardEvent } from "react";
+import { useActionState, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUp, Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
@@ -8,7 +8,8 @@ import { Alert } from "@/ui/primitives/alert";
 import { FieldError } from "@/ui/primitives/field-error";
 
 import { CopyTextButton, OpenInstagramChatLink } from "./manual-send-buttons";
-import { windowCopy, type ComposerAction } from "./message-copy";
+import { windowCopy, type ComposerAction, type ComposerTemplates } from "./message-copy";
+import { TemplateMenu } from "./template-menu";
 
 const MAX_TEXT_LENGTH = 1000;
 const COUNTER_THRESHOLD = MAX_TEXT_LENGTH * 0.8;
@@ -22,6 +23,7 @@ interface MessageComposerProps {
   windowClosesAt: Date | null;
   username: string | null;
   sendAction: ComposerAction;
+  templates: ComposerTemplates | null;
 }
 
 export function MessageComposer({
@@ -30,8 +32,10 @@ export function MessageComposer({
   windowClosesAt,
   username,
   sendAction,
+  templates,
 }: MessageComposerProps) {
   const [text, setText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [state, formAction, pending] = useActionState(
     async (previousState: AdminActionState, formData: FormData) => {
       const result = await sendAction(contactId, previousState, formData);
@@ -64,8 +68,15 @@ export function MessageComposer({
             </div>
           </div>
         ) : null}
-        <div className="flex items-end gap-2 rounded-[22px] border border-border bg-background p-1.5 pl-4 transition-colors duration-200 focus-within:border-primary/50 has-[[aria-invalid=true]]:border-destructive">
+        <div className="flex items-end gap-2 rounded-[22px] border border-border bg-background p-1.5 transition-colors duration-200 focus-within:border-primary/50 has-[[aria-invalid=true]]:border-destructive">
+          <TemplateMenu
+            templates={templates}
+            disabled={pending}
+            textareaRef={textareaRef}
+            onChoose={setText}
+          />
           <textarea
+            ref={textareaRef}
             name="text"
             aria-label="Mensaje"
             aria-invalid={Boolean(textError)}
@@ -78,7 +89,7 @@ export function MessageComposer({
             value={text}
             onChange={(event) => setText(event.currentTarget.value)}
             onKeyDown={sendOnEnter}
-            className="block max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-base leading-6 text-foreground field-sizing-content placeholder:text-muted-foreground focus-visible:outline-none read-only:opacity-50"
+            className="block max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 pl-1 text-base leading-6 text-foreground field-sizing-content placeholder:text-muted-foreground focus-visible:outline-none read-only:opacity-50"
           />
           <button
             type="submit"

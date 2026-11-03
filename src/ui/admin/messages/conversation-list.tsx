@@ -82,7 +82,7 @@ function ConversationRow({ item, active }: { item: ConversationListItemView; act
         )}
       >
         <ConversationAvatar title={item.title} />
-        <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="grid min-w-0 flex-1 grid-cols-1 gap-0.5">
           <span className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate text-sm font-semibold text-[#fffbf4]">{item.title}</span>

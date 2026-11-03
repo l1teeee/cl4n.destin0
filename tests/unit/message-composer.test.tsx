@@ -37,6 +37,7 @@ function renderComposer(props: Partial<ComponentProps<typeof MessageComposer>> =
       windowClosesAt={new Date("2026-11-03T20:30:00.000Z")}
       username="ana.perez"
       sendAction={sendAction}
+      templates={null}
       {...props}
     />,
   );

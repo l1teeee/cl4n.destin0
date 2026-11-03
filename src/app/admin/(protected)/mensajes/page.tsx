@@ -12,10 +12,12 @@ import {
   unlinkContactAction,
 } from "@/app/admin/(protected)/mensajes/actions";
 import { getConversation, listConversations } from "@/application/messaging/conversation-queries";
+import { renderTemplatesForRequest } from "@/application/messaging/manual-templates";
 import { hasPermission } from "@/domain/admin/admin-access";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { env } from "@/infrastructure/config/env";
 import { postgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
+import { postgresMessageTemplateRepository } from "@/infrastructure/db/repositories/postgres-message-template-repository";
 import { ConversationAutoRefresh } from "@/ui/admin/messages/conversation-auto-refresh";
 import { ConversationControls } from "@/ui/admin/messages/conversation-controls";
 import { ConversationHeader } from "@/ui/admin/messages/conversation-header";
@@ -26,6 +28,7 @@ import { MessageSimulatorPanel } from "@/ui/admin/messages/message-simulator-pan
 import { MessageThread } from "@/ui/admin/messages/message-thread";
 import { MessagesLayout } from "@/ui/admin/messages/messages-layout";
 import {
+  composerTemplatesView,
   conversationHeaderView,
   conversationHref,
   conversationListItemView,
@@ -138,6 +141,11 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
   let conversation = null;
   if (selectedConversation) {
     const header = conversationHeaderView(selectedConversation, now);
+    const primaryRequest = selectedConversation.linkedRequests[0];
+    const renderedTemplates =
+      canSend && primaryRequest
+        ? await renderTemplatesForRequest(postgresMessageTemplateRepository, primaryRequest)
+        : null;
     const threadMessages = selectedConversation.messages.map(threadMessageView);
     const newestInboundMessageId =
       threadMessages.filter((message) => message.direction === "INBOUND").at(-1)?.id ?? null;
@@ -177,6 +185,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
             windowClosesAt={header.windowClosesAt}
             username={selectedConversation.contact.username}
             sendAction={sendFreeTextAction}
+            templates={composerTemplatesView(header, renderedTemplates)}
           />
         ) : (
           <p className="admin-muted">

@@ -21,7 +21,7 @@ export function MessagesLayout({ list, conversation, backHref }: MessagesLayoutP
       <section
         aria-label="Conversaciones"
         className={cn(
-          "min-h-0 w-full overflow-y-auto md:block md:w-80 md:shrink-0 md:border-r md:border-border",
+          "relative min-h-0 w-full overflow-y-auto md:block md:w-80 md:shrink-0 md:border-r md:border-border",
           hasConversation ? "hidden" : "block",
         )}
       >
