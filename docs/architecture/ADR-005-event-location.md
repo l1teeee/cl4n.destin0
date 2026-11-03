@@ -70,3 +70,5 @@ Coordinates are derived data for the admin map preview. They are never sent to g
 ## Part 5 amendment: one link field for Google Maps or Waze
 
 The event keeps one location link field (`location_maps_url`). It accepts a Google Maps or a Waze link, detected by host in the domain (`mapProviderOf`); any other host is rejected with "Pega un enlace de Google Maps o de Waze.". The location message labels the link "Google Maps: <url>" or "Waze: <url>" by that detection. Coordinates are read from Google Maps links as described in Part 4 and from Waze links (`ll` parameter, `to=ll.<lat>,<lng>` or a `/ul/h<geohash>` short path); the short-link expansion also accepts the Waze hosts on every hop.
+
+- The location goes to every person of a PAID reservation (titular and companion) with unique (reservation_id, guest_slot, location_revision); besides send to all, the admin can send it to chosen people with the shared send dialog. The automatic send on payment also covers the companion.
