@@ -90,6 +90,7 @@ function handlersFor(): { [K in keyof EconomyHandlers]: ReturnType<typeof vi.fn>
     voidLine: vi.fn().mockResolvedValue({ ok: true, message: "Consumo anulado." }),
     settle: vi.fn().mockResolvedValue({ ok: true, message: "Cuenta marcada como pagada." }),
     reopen: vi.fn().mockResolvedValue({ ok: true, message: "Cuenta reabierta." }),
+    sendTab: vi.fn(),
   };
 }
 
@@ -104,6 +105,7 @@ function renderSection(
       economy={data}
       drinks={props.drinks ?? drinks}
       extras={props.extras ?? extras}
+      tabPreviews={[]}
       handlers={handlers as unknown as EconomyHandlers}
     />,
   );
@@ -336,6 +338,7 @@ describe("EventEconomySection", () => {
         economy={economy()}
         drinks={drinks}
         extras={extras}
+        tabPreviews={[]}
         handlers={handlers as unknown as EconomyHandlers}
       />,
     );
@@ -350,6 +353,7 @@ describe("EventEconomySection", () => {
         economy={updated}
         drinks={drinks}
         extras={extras}
+        tabPreviews={[]}
         handlers={handlers as unknown as EconomyHandlers}
       />,
     );

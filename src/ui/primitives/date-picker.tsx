@@ -21,6 +21,13 @@ function formatDateLabel(date: Date) {
   return format(date, "d MMM yyyy", { locale: es });
 }
 
+function disabledMatchers(disabledBefore?: Date, disabledAfter?: Date) {
+  const matchers: ({ before: Date } | { after: Date })[] = [];
+  if (disabledBefore) matchers.push({ before: disabledBefore });
+  if (disabledAfter) matchers.push({ after: disabledAfter });
+  return matchers.length > 0 ? matchers : undefined;
+}
+
 interface DatePickerProps {
   id?: string;
   name: string;
@@ -28,6 +35,8 @@ interface DatePickerProps {
   placeholder?: string;
   invalid?: boolean;
   describedBy?: string;
+  disabledBefore?: Date;
+  disabledAfter?: Date;
 }
 
 function DatePicker({
@@ -37,10 +46,13 @@ function DatePicker({
   placeholder = "Selecciona una fecha",
   invalid = false,
   describedBy,
+  disabledBefore,
+  disabledAfter,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState(defaultValue);
   const selected = parseLocalDate(value);
+  const disabled = disabledMatchers(disabledBefore, disabledAfter);
 
   function selectDate(date: Date | undefined) {
     if (!date) return;
@@ -68,11 +80,17 @@ function DatePicker({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="p-0">
-        <Calendar mode="single" selected={selected} defaultMonth={selected} onSelect={selectDate} />
+        <Calendar
+          mode="single"
+          selected={selected}
+          defaultMonth={selected}
+          disabled={disabled}
+          onSelect={selectDate}
+        />
       </PopoverContent>
       <input type="hidden" name={name} value={value} />
     </Popover>
   );
 }
 
-export { DatePicker, formatDateLabel, formatLocalDate, parseLocalDate };
+export { DatePicker, disabledMatchers, formatDateLabel, formatLocalDate, parseLocalDate };

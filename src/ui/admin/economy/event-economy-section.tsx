@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import type { EventEconomy } from "@/application/economy/economy-repository";
+import type { TabMessagePreview } from "@/application/economy/tab-messages";
 import type { PickerItem } from "@/application/extras/extra-repository";
 import { formatDrinkPrice } from "@/domain/drink/drink-price";
 import { Badge } from "@/ui/primitives/badge";
@@ -26,6 +27,7 @@ interface EventEconomySectionProps {
   economy: EventEconomy;
   drinks: readonly PickerItem[];
   extras: readonly PickerItem[];
+  tabPreviews: readonly TabMessagePreview[];
   handlers: EconomyHandlers;
 }
 
@@ -34,6 +36,7 @@ export function EventEconomySection({
   economy,
   drinks,
   extras,
+  tabPreviews,
   handlers,
 }: EventEconomySectionProps) {
   const [filter, setFilter] = useState<TabFilter>("ALL");
@@ -43,6 +46,12 @@ export function EventEconomySection({
   const visibleGuests = filterGuests(economy.guests, filter, query);
   // The sheet reads the guest from the latest data, so it stays open and current after each action.
   const selectedGuest = economy.guests.find((guest) => guestKey(guest) === selectedKey) ?? null;
+  const preview = selectedGuest
+    ? tabPreviews.find(
+        (item) =>
+          item.reservationId === selectedGuest.reservationId && item.slot === selectedGuest.slot,
+      )
+    : undefined;
 
   return (
     <section className="admin-section admin-tab-section space-y-5">
@@ -116,6 +125,7 @@ export function EventEconomySection({
         guest={selectedGuest}
         drinks={drinks}
         extras={extras}
+        tabMessage={preview?.text ?? null}
         handlers={handlers}
         onClose={() => setSelectedKey(null)}
       />

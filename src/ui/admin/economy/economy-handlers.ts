@@ -29,6 +29,7 @@ export interface EconomyHandlers {
   voidLine: VoidConsumptionHandler;
   settle: TabHandler;
   reopen: TabHandler;
+  sendTab: TabHandler;
 }
 
 export const IDLE_ACTION_STATE: AdminActionState = { ok: false, message: "" };

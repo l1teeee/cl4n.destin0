@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react";
 
 import type { PickerItem } from "@/application/extras/extra-repository";
+import { formatDrinkPrice } from "@/domain/drink/drink-price";
 import { Button } from "@/ui/primitives/button";
 
 import { itemButtonLabel } from "./economy-view";
@@ -36,7 +37,7 @@ function ItemGroup({ title, emptyText, source, items, pendingKey, onAdd }: ItemG
       {items.length === 0 ? (
         <p className="admin-muted">{emptyText}</p>
       ) : (
-        <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2">
+        <div className="flex flex-wrap gap-2">
           {items.map((item) => {
             const key = catalogKey(source, item);
             const pending = pendingKey === key;
@@ -44,13 +45,16 @@ function ItemGroup({ title, emptyText, source, items, pendingKey, onAdd }: ItemG
               <Button
                 key={item.id}
                 type="button"
+                size="sm"
                 variant="outline"
-                className="h-auto min-h-11 justify-between gap-3 px-4 py-2 text-left tracking-normal whitespace-normal"
+                className="h-auto min-h-10 max-w-full gap-2 px-3.5 py-1.5 text-left text-sm font-normal tracking-normal whitespace-normal sm:min-h-9"
+                aria-label={itemButtonLabel(item)}
                 disabled={pendingKey !== null}
                 aria-busy={pending}
                 onClick={() => onAdd(source, item)}
               >
-                <span>{itemButtonLabel(item)}</span>
+                <span>{item.name}</span>
+                <span className="text-muted-foreground">{formatDrinkPrice(item.priceCents)}</span>
                 {pending ? <Loader2 className="animate-spin" /> : null}
               </Button>
             );
