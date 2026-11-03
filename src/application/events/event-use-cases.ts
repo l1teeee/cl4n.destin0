@@ -88,6 +88,15 @@ export function openEventNow(repository: EventRepository, id: string, actorId: s
   return repository.openNow(id, actorId);
 }
 
+export function reopenEvent(
+  repository: EventRepository,
+  id: string,
+  closesAt: Date,
+  actorId: string,
+) {
+  return repository.reopen(id, closesAt, actorId);
+}
+
 export function closeEventNow(repository: EventRepository, id: string, actorId: string) {
   return repository.closeNow(id, actorId);
 }

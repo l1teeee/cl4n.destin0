@@ -184,6 +184,10 @@ export const updateAdminEventSchema = z
   .strict()
   .transform(({ price, ...input }) => ({ ...input, priceCents: price }));
 
+export const reopenEventSchema = z.object({
+  closesAt: localDateTime("Elige hasta cuándo estará abierta."),
+});
+
 export const changeWaitlistCapacitySchema = z
   .object({
     id: z.string().uuid("El identificador no es válido."),
