@@ -78,6 +78,14 @@ export class PostgresInstagramConnectionRepository implements InstagramConnectio
     };
   }
 
+  // Health checks must keep working even when the token cannot be decrypted.
+  async findTokenExpiry(): Promise<Date | null> {
+    const result = await this.pool.query<{ token_expires_at: Date }>(
+      "SELECT token_expires_at FROM instagram_connection WHERE id = 1",
+    );
+    return result.rows[0]?.token_expires_at ?? null;
+  }
+
   async save(input: Parameters<InstagramConnectionRepository["save"]>[0]): Promise<void> {
     const ciphertext = encryptSecret(input.accessToken, tokenKey(), TOKEN_CONTEXT);
     await inTransaction(this.pool, transactionSettings, async (client) => {
