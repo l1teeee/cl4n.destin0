@@ -22,19 +22,31 @@ export interface PaymentMessageInput {
 
 export type PaymentMessageValues = Record<(typeof PAYMENT_MESSAGE_VARIABLES)[number], string>;
 
+function labelledPaymentLines(values: Record<string, string>): string[] {
+  const labelled: [string, string][] = [
+    ["Monto", values.monto ?? ""],
+    ["Banco", values.banco ?? ""],
+    ["Tipo de cuenta", values.tipo_cuenta ?? ""],
+    ["Cuenta", values.cuenta ?? ""],
+    ["Titular", values.titular ?? ""],
+    ["Enlace de pago", values.enlace_pago ?? ""],
+  ];
+  return labelled.filter(([, value]) => value !== "").map(([label, value]) => `${label}: ${value}`);
+}
+
+export function paymentAccountBlock(settings: PaymentSettings | null): string {
+  return labelledPaymentLines({
+    banco: settings?.bankName ?? "",
+    tipo_cuenta: settings?.accountType ?? "",
+    cuenta: settings?.accountNumber ?? "",
+    titular: settings?.accountHolder ?? "",
+    enlace_pago: settings?.paymentLink ?? "",
+  }).join("\n");
+}
+
 // The composed block keeps templates written before the split variables working.
 function composePaymentBlock(values: PaymentMessageValues): string {
-  const labelled: [string, string][] = [
-    ["Monto", values.monto],
-    ["Banco", values.banco],
-    ["Tipo de cuenta", values.tipo_cuenta],
-    ["Cuenta", values.cuenta],
-    ["Titular", values.titular],
-    ["Enlace de pago", values.enlace_pago],
-  ];
-  const lines = labelled
-    .filter(([, value]) => value !== "")
-    .map(([label, value]) => `${label}: ${value}`);
+  const lines = labelledPaymentLines(values);
   if (values.nota_pago !== "") lines.push(values.nota_pago);
   return lines.join("\n");
 }

@@ -19,6 +19,7 @@ const templateGroups: Partial<Record<TemplateKey, TemplateGroupTitle>> = {
   CANCELLED_UNPAID: "Lista y pago",
   CANCELLED_PAID: "Lista y pago",
   REFUNDED: "Lista y pago",
+  TAB: "Lista y pago",
   LOCATION: "Ubicación y pistas",
 };
 

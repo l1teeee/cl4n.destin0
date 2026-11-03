@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
@@ -29,6 +29,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/ui/primitives/sheet";
+import { Textarea } from "@/ui/primitives/textarea";
 
 import { ConsumptionLines, voidKey } from "./consumption-lines";
 import { CustomItemForm } from "./custom-item-form";
@@ -44,12 +45,14 @@ import { catalogKey, QuickAdd, type CatalogSource } from "./quick-add";
 const CUSTOM_KEY = "CUSTOM";
 const SETTLE_KEY = "SETTLE";
 const REOPEN_KEY = "REOPEN";
+const SEND_TAB_KEY = "SEND_TAB";
 
 interface GuestTabSheetProps {
   eventId: string;
   guest: EconomyGuest | null;
   drinks: readonly PickerItem[];
   extras: readonly PickerItem[];
+  tabMessage: string | null;
   handlers: EconomyHandlers;
   onClose: () => void;
 }
@@ -58,10 +61,19 @@ interface GuestTabPanelProps extends Omit<GuestTabSheetProps, "guest" | "onClose
   guest: EconomyGuest;
 }
 
-function GuestTabPanel({ eventId, guest, drinks, extras, handlers }: GuestTabPanelProps) {
+function GuestTabPanel({
+  eventId,
+  guest,
+  drinks,
+  extras,
+  tabMessage,
+  handlers,
+}: GuestTabPanelProps) {
   const [quantity, setQuantity] = useState(1);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<AdminActionState | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   async function run(
     key: string,
@@ -116,6 +128,20 @@ function GuestTabPanel({ eventId, guest, drinks, extras, handlers }: GuestTabPan
     );
   }
 
+  async function sendTab(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSendError(null);
+    const result = await run(SEND_TAB_KEY, () =>
+      handlers.sendTab(eventId, guest.reservationId, guest.slot, IDLE_ACTION_STATE, formData),
+    );
+    if (result.ok) {
+      setSendOpen(false);
+    } else {
+      setSendError(result.message);
+    }
+  }
+
   const busy = pendingKey !== null;
 
   return (
@@ -156,6 +182,55 @@ function GuestTabPanel({ eventId, guest, drinks, extras, handlers }: GuestTabPan
           <span className="text-sm text-muted-foreground">Total de la cuenta</span>
           <span className="text-2xl font-semibold">{formatDrinkPrice(guest.totalCents)}</span>
         </div>
+        {tabMessage !== null && !guest.settled ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                setSendError(null);
+                setSendOpen(true);
+              }}
+            >
+              Enviar cuenta a pagar
+            </Button>
+            <AlertDialog open={sendOpen} onOpenChange={setSendOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Enviar cuenta a pagar</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Se envía por Instagram al chat de la reserva. Revisa el texto antes de enviarlo.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <form className="grid gap-4" onSubmit={(event) => void sendTab(event)}>
+                  <Textarea
+                    name="text"
+                    aria-label="Texto de la cuenta"
+                    defaultValue={tabMessage}
+                    rows={12}
+                    maxLength={2000}
+                    required
+                  />
+                  {sendError ? (
+                    <Alert variant="destructive" role="status">
+                      {sendError}
+                    </Alert>
+                  ) : null}
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <Button type="submit" disabled={busy}>
+                      {pendingKey === SEND_TAB_KEY ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : null}
+                      Enviar cuenta
+                    </Button>
+                  </AlertDialogFooter>
+                </form>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        ) : null}
         {guest.settled ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>

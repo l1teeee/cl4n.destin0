@@ -67,7 +67,8 @@ describe("message template repository", () => {
       },
     });
     const listed = await repository.listTemplates();
-    expect(listed).toHaveLength(10);
+    expect(listed).toHaveLength(11);
+    expect(listed.at(-1)?.key).toBe("TAB");
     expect(listed.find((template) => template.key === "ON_LIST")).toMatchObject({
       body: "Hola {nombres}.\n\nPaga así: {pago}.",
       updatedBy: "Ana Admin",

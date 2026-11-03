@@ -6,7 +6,12 @@ import { CalendarDays } from "lucide-react";
 
 import { cn } from "@/ui/cn";
 import { Calendar } from "@/ui/primitives/calendar";
-import { formatDateLabel, formatLocalDate, parseLocalDate } from "@/ui/primitives/date-picker";
+import {
+  disabledMatchers,
+  formatDateLabel,
+  formatLocalDate,
+  parseLocalDate,
+} from "@/ui/primitives/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/primitives/popover";
 import { TimeColumns } from "@/ui/primitives/time-picker";
 
@@ -18,6 +23,8 @@ interface DateTimePickerProps {
   todayShortcut?: boolean;
   invalid?: boolean;
   describedBy?: string;
+  disabledBefore?: Date;
+  disabledAfter?: Date;
 }
 
 function DateTimePicker({
@@ -28,6 +35,8 @@ function DateTimePicker({
   todayShortcut = false,
   invalid = false,
   describedBy,
+  disabledBefore,
+  disabledAfter,
 }: DateTimePickerProps) {
   const [dateValue, initialTime = ""] = defaultValue.split("T");
   const [date, setDate] = React.useState(dateValue || "");
@@ -36,6 +45,7 @@ function DateTimePicker({
   const [month, setMonth] = React.useState<Date>(selected ?? new Date());
   const [hour = "", minute = ""] = time.split(":");
   const value = date && time ? `${date}T${time}` : "";
+  const disabled = disabledMatchers(disabledBefore, disabledAfter);
 
   function selectDate(nextDate: Date | undefined) {
     if (!nextDate) return;
@@ -89,6 +99,7 @@ function DateTimePicker({
             mode="single"
             selected={selected}
             month={month}
+            disabled={disabled}
             onMonthChange={setMonth}
             onSelect={selectDate}
           />

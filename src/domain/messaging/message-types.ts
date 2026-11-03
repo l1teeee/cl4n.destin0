@@ -42,6 +42,7 @@ export const TEMPLATE_KEYS = [
   "CANCELLED_PAID",
   "REFUNDED",
   "LOCATION",
+  "TAB",
 ] as const;
 
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
@@ -49,6 +50,8 @@ export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
 export type MessageDirection = (typeof MESSAGE_DIRECTIONS)[number];
 export type TemplateKey = (typeof TEMPLATE_KEYS)[number];
+// Templates sent as their own message kind; TAB goes out as an admin FREE_TEXT message.
+export type StatusMessageKind = Extract<TemplateKey, MessageKind>;
 
 const COMMON_VARIABLES = ["nombre", "nombres", "fecha"] as const;
 
@@ -63,4 +66,16 @@ export const TEMPLATE_VARIABLES: Record<TemplateKey, readonly string[]> = {
   CANCELLED_PAID: COMMON_VARIABLES,
   REFUNDED: COMMON_VARIABLES,
   LOCATION: [...COMMON_VARIABLES, "ubicacion"],
+  TAB: [
+    "nombre",
+    "fecha",
+    "consumos",
+    "total",
+    "banco",
+    "tipo_cuenta",
+    "cuenta",
+    "titular",
+    "enlace_pago",
+    "datos_pago",
+  ],
 };

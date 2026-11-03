@@ -17,6 +17,7 @@ import {
   settleTab,
   voidConsumption,
 } from "@/application/economy/economy-use-cases";
+import { sendTabMessage } from "@/application/economy/tab-messages";
 import {
   consumptionFormSchema,
   economyConsumptionIdSchema,
@@ -25,8 +26,11 @@ import {
   guestSlotSchema,
   readConsumptionFormData,
 } from "@/contracts/admin-economy";
-import { requireAdmin } from "@/infrastructure/auth/require-admin";
+import { requireAdmin, requirePermission } from "@/infrastructure/auth/require-admin";
 import { postgresEconomyRepository } from "@/infrastructure/db/repositories/postgres-economy-repository";
+import { postgresMessageRepository } from "@/infrastructure/db/repositories/postgres-message-repository";
+import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbox";
+import { consumeAdminMessageRateLimit } from "@/infrastructure/rate-limit/admin-message-rate-limit";
 
 const UNAUTHORIZED: AdminActionState = {
   ok: false,
@@ -187,4 +191,74 @@ export async function reopenTabAction(
 
   revalidateEconomyPaths(reference.data.eventId);
   return { ok: true, message: "Cuenta reabierta." };
+}
+
+export async function sendTabAction(
+  eventId: string,
+  reservationId: string,
+  slot: number,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requirePermission("messages.send", "action");
+  void _previousState;
+  if (!authorization.authorized) {
+    return authorization.error === "FORBIDDEN"
+      ? { ok: false, message: "Solo un superadministrador puede enviar mensajes." }
+      : UNAUTHORIZED;
+  }
+
+  const reference = tabReferenceSchema.safeParse({ eventId, reservationId, slot });
+  if (!reference.success) return { ok: false, message: reference.error.issues[0]!.message };
+
+  const result = await sendTabMessage(
+    {
+      consumeRateLimit: consumeAdminMessageRateLimit,
+      enqueueTabMessage: (input) => postgresMessageRepository.enqueueTabMessage(input),
+      deliver: (ids) => drainMessagesNow(ids, { timeBudgetMs: 6_000 }),
+      getDeliveryState: (id) => postgresMessageRepository.getDeliveryState(id),
+    },
+    {
+      eventId: reference.data.eventId,
+      reservationId: reference.data.reservationId,
+      text: String(formData.get("text") ?? ""),
+      adminId: authorization.session.admin.id,
+    },
+  );
+  if (!result.ok) {
+    const messages = {
+      INVALID_TEXT: "La cuenta debe tener entre 1 y 2000 caracteres.",
+      RATE_LIMITED: "Alcanzaste el límite de mensajes. Intenta de nuevo más tarde.",
+      RESERVATION_NOT_FOUND: "No se encontró la reservación.",
+    };
+    return { ok: false, message: messages[result.error] };
+  }
+
+  revalidateEconomyPaths(reference.data.eventId);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  if (result.status === "SENT" || result.status === "READ") {
+    return { ok: true, message: "Cuenta enviada por Instagram." };
+  }
+  if (result.status === "QUEUED") {
+    return { ok: true, message: "La cuenta quedó en cola de envío." };
+  }
+  if (result.status === "WAITING_CONTACT") {
+    return {
+      ok: true,
+      message:
+        "La cuenta saldrá cuando la persona nos escriba por Instagram. También puedes enviarla a mano desde Mensajes > Sin enviar.",
+    };
+  }
+  if (result.status === "WAITING_WINDOW") {
+    return {
+      ok: true,
+      message:
+        "La ventana de 24 horas está cerrada: la cuenta saldrá cuando la persona vuelva a escribir. También puedes enviarla a mano desde Mensajes > Sin enviar.",
+    };
+  }
+  return {
+    ok: false,
+    message: "No se pudo enviar por Instagram. Envíala a mano desde Mensajes > Sin enviar.",
+  };
 }

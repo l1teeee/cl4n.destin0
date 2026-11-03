@@ -18,7 +18,8 @@ import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import type { BadgeVariant } from "@/ui/primitives/badge";
 
 export type DashboardAction = "OPEN_NOW" | "CLOSE_NOW" | "EDIT" | "RESERVATIONS" | "DELETE";
-export type LifecycleAction = "PUBLISH" | "OPEN_NOW" | "CLOSE_NOW" | "COMPLETE" | "CANCEL";
+export type LifecycleAction =
+  "PUBLISH" | "OPEN_NOW" | "REOPEN" | "CLOSE_NOW" | "COMPLETE" | "CANCEL";
 
 export interface ReservationSearchParams {
   q?: string;
@@ -85,13 +86,19 @@ export function lifecycleActions(event: AdminEventSummary, databaseTime: Date): 
     actions.push("PUBLISH");
   }
   if (
-    (event.status === "DRAFT" || event.status === "SCHEDULED" || event.status === "CLOSED") &&
+    (event.status === "DRAFT" || event.status === "SCHEDULED") &&
     event.closesAt > databaseTime &&
     event.phase !== "OPEN" &&
     event.phase !== "WAITLIST" &&
     event.phase !== "FULL"
   ) {
     actions.push("OPEN_NOW");
+  }
+  if (
+    event.startsAt > databaseTime &&
+    (event.status === "CLOSED" || (event.status === "SCHEDULED" && event.closesAt <= databaseTime))
+  ) {
+    actions.push("REOPEN");
   }
   if (
     event.status === "SCHEDULED" &&

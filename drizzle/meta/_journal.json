@@ -134,6 +134,13 @@
       "when": 1793836800000,
       "tag": "0018_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793923200000,
+      "tag": "0019_tab_message_template",
+      "breakpoints": true
     }
   ]
 }

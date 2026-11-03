@@ -17,6 +17,7 @@ import {
   deleteEvent,
   openEventNow,
   publishEvent,
+  reopenEvent,
   setLocationStatus,
   updateEvent,
 } from "@/application/events/event-use-cases";
@@ -32,6 +33,7 @@ import {
   createAdminEventSchema,
   optionalNumber,
   readCreateEventFormData,
+  reopenEventSchema,
   updateAdminEventSchema,
 } from "@/contracts/admin-event";
 import type { ScheduleErrors } from "@/domain/event/event-schedule";
@@ -46,6 +48,7 @@ import { drainMessagesNow } from "@/infrastructure/messaging/drain-message-outbo
 import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
 import { log } from "@/infrastructure/observability/logger";
 import {
+  formatUtcForElSalvador,
   localDateTimeToUtc,
   localEventDateTimeToUtc,
 } from "@/infrastructure/time/el-salvador-time";
@@ -104,6 +107,7 @@ const operationMessages: Record<EventOperationErrorCode, string> = {
   INVALID_WINDOW: "La fecha de cierre debe ser posterior a la fecha de apertura.",
   INVALID_TRANSITION: "La experiencia ya no permite esta acción.",
   CLOSES_AT_IN_PAST: "No se puede abrir una experiencia cuya fecha de cierre ya pasó.",
+  CLOSES_AFTER_START: "La fecha de cierre debe ser antes del inicio de la experiencia.",
   CAPACITY_BELOW_ALLOCATED: "La capacidad no puede ser menor que los cupos reservados.",
   CAPACITY_BELOW_MAX_PARTY_SIZE: "La capacidad no puede ser menor que el tamaño máximo del grupo.",
   WAITLIST_CAPACITY_BELOW_WAITING: "No puedes dejar menos lugares en cola que personas esperando.",
@@ -131,6 +135,7 @@ const operationErrorFields: Partial<Record<EventOperationErrorCode, string>> = {
   MAX_PARTY_SIZE_NOT_ALLOWED: "maxPartySize",
   MAX_PARTY_SIZE_ABOVE_CAPACITY: "maxPartySize",
   INVALID_WINDOW: "closesAt",
+  CLOSES_AFTER_START: "closesAt",
   LOCATION_CONFIRMATION_INCOMPLETE: "locationAddress",
 };
 
@@ -553,6 +558,57 @@ export async function openEventNowAction(
   if (!result.ok) return operationError(result.error);
   revalidateEventPaths(result.value.id, result.value.slug);
   return { ok: true, message: "Experiencia abierta." };
+}
+
+export async function reopenEventAction(
+  id: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  if (!authorization.authorized) return unauthorized();
+  const parsedId = idSchema.safeParse({ id });
+  if (!parsedId.success) return firstValidationError(parsedId.error);
+  const parsed = reopenEventSchema.safeParse({ closesAt: formData.get("closesAt") });
+  if (!parsed.success) return formValidationError(parsed.error);
+
+  let closesAt: Date;
+  try {
+    closesAt = localDateTimeToUtc(parsed.data.closesAt);
+  } catch (error) {
+    return dateConversionError(error, "closesAt");
+  }
+
+  const result = await reopenEvent(
+    postgresEventRepository,
+    parsedId.data.id,
+    closesAt,
+    authorization.session.admin.id,
+  );
+  if (!result.ok) {
+    if (result.error === "CLOSES_AT_IN_PAST") {
+      return {
+        ok: false,
+        message: "Revisa la fecha de cierre.",
+        fieldErrors: { closesAt: "Elige una fecha y hora futura." },
+      };
+    }
+    if (result.error === "CLOSES_AFTER_START") {
+      return {
+        ok: false,
+        message: "Revisa la fecha de cierre.",
+        fieldErrors: { closesAt: "Debe cerrar antes de que empiece la experiencia." },
+      };
+    }
+    return operationError(result.error);
+  }
+
+  revalidateEventPaths(result.value.id, result.value.slug);
+  return {
+    ok: true,
+    message: `Experiencia abierta hasta ${formatUtcForElSalvador(closesAt, "dd/MM/yyyy HH:mm")}.`,
+  };
 }
 
 export async function closeEventNowAction(

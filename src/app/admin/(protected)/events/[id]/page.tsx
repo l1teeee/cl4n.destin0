@@ -5,10 +5,12 @@ import {
   listActiveDrinksForEconomy,
   loadEventEconomy,
 } from "@/application/economy/economy-use-cases";
+import { buildTabMessages } from "@/application/economy/tab-messages";
 import { getAdminAuditLog, getAdminEventDetail } from "@/application/events/event-use-cases";
 import { listActiveExtras } from "@/application/extras/extra-use-cases";
 import type { EventGuestView } from "@/application/guests/guest-views";
 import { loadPaymentSettings } from "@/application/payments/payment-settings";
+import { hasPermission } from "@/domain/admin/admin-access";
 import { areCluesVisible } from "@/domain/event/event-clues";
 import { auditPageSizeFor } from "@/ui/admin/view-model";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
@@ -22,9 +24,11 @@ import {
   previewPromotion,
 } from "@/infrastructure/db/repositories/event-guest-queries";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
+import { postgresMessageTemplateRepository } from "@/infrastructure/db/repositories/postgres-message-template-repository";
 import { postgresPaymentSettingsRepository } from "@/infrastructure/db/repositories/postgres-payment-settings-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
 import { postgresLocationMessageRepository } from "@/infrastructure/db/repositories/postgres-location-message-repository";
+import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import {
   discardMessageAction,
   markSentManuallyAction,
@@ -40,6 +44,7 @@ import { LocationDeliveryPanel } from "@/ui/admin/location-delivery-panel";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { Pagination } from "@/ui/admin/pagination";
 import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
+import { ReopenEventDialog } from "@/ui/admin/reopen-event-dialog";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import {
   eventPhaseLabel,
@@ -64,12 +69,14 @@ import {
   completeEventAction,
   openEventNowAction,
   publishEventAction,
+  reopenEventAction,
   sendEventLocationAction,
   setEventLocationStatusAction,
 } from "../actions";
 import {
   addConsumptionAction,
   reopenTabAction,
+  sendTabAction,
   settleTabAction,
   voidConsumptionAction,
 } from "../economy-actions";
@@ -113,7 +120,8 @@ async function loadEconomy(eventId: string) {
 }
 
 export default async function EventDetailPage({ params, searchParams }: EventDetailPageProps) {
-  await requireAdmin("page");
+  const authorization = await requireAdmin("page");
+  const canSendMessages = hasPermission(authorization.session.admin.role, "messages.send");
   const { id } = await params;
   const eventResult = await getAdminEventDetail(postgresEventRepository, id);
   const event = eventResult.value;
@@ -143,6 +151,16 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
       cluesVisible ? postgresEventClueRepository.getDeliveryForEvent(id) : Promise.resolve({}),
     ],
   );
+  const tabPreviews =
+    canSendMessages && economy
+      ? await buildTabMessages(
+          {
+            findTemplateBody: (key) => postgresMessageTemplateRepository.findTemplateBody(key),
+            findPaymentSettings: () => postgresPaymentSettingsRepository.find(),
+          },
+          { eventDate: formatPublicEventDate(event.startsAt), guests: economy.economy.guests },
+        )
+      : null;
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
   const controls = lifecycleActions(event, eventResult.databaseTime);
   const map = locationMap(event.location);
@@ -222,11 +240,13 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           economy={economy.economy}
           drinks={economy.drinks}
           extras={economy.extras}
+          tabPreviews={tabPreviews ?? []}
           handlers={{
             add: addConsumptionAction,
             voidLine: voidConsumptionAction,
             settle: settleTabAction,
             reopen: reopenTabAction,
+            sendTab: sendTabAction,
           }}
         />
       ) : null}
@@ -347,6 +367,12 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           {controls.includes("OPEN_NOW") ? (
             <MutationForm action={openEventNowAction.bind(null, id)} label="Abrir ahora" />
           ) : null}
+          {controls.includes("REOPEN") ? (
+            <ReopenEventDialog
+              action={reopenEventAction.bind(null, id)}
+              startsAt={event.startsAt}
+            />
+          ) : null}
           {controls.includes("CLOSE_NOW") ? (
             <MutationForm
               action={closeEventNowAction.bind(null, id)}
@@ -380,9 +406,9 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         </p>
         {event.status === "CLOSED" ? (
           <p className="admin-muted">
-            {event.closesAt > eventResult.databaseTime
-              ? 'El formulario está cerrado. Usa "Abrir ahora" para recibir nuevas solicitudes.'
-              : "El formulario está cerrado y su fecha de cierre ya pasó. Edita la fecha de cierre para volver a abrirlo."}
+            {controls.includes("REOPEN")
+              ? 'El formulario está cerrado. Usa "Abrir de nuevo la experiencia" en Ciclo de vida para recibir nuevas solicitudes.'
+              : "El formulario está cerrado."}
           </p>
         ) : null}
         {event.status !== "COMPLETED" && event.status !== "CANCELLED" ? (

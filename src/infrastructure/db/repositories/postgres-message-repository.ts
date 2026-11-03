@@ -35,6 +35,7 @@ import { extractLinkCode, isLinkCode } from "@/domain/messaging/link-code";
 import { log } from "@/infrastructure/observability/logger";
 
 import { pool as applicationPool } from "../client";
+import { enqueueGuestMessage } from "./guest-messages";
 
 interface DeliverableRecord extends QueryResultRow {
   id: string;
@@ -1067,6 +1068,31 @@ export class PostgresMessageRepository
     }>("SELECT content_type, data FROM message_attachments WHERE id = $1", [id]);
     const row = result.rows[0];
     return row ? { contentType: row.content_type, data: row.data } : null;
+  }
+
+  enqueueTabMessage(input: {
+    eventId: string;
+    reservationId: string;
+    text: string;
+    adminId: string;
+  }): Promise<string | null> {
+    return this.withTransaction(async (client) => {
+      const reservation = await client.query(
+        "SELECT 1 FROM reservations WHERE id = $1 AND event_id = $2",
+        [input.reservationId, input.eventId],
+      );
+      if (reservation.rowCount === 0) return null;
+
+      const message = await enqueueGuestMessage(client, {
+        kind: "FREE_TEXT",
+        subject: { reservationId: input.reservationId },
+        eventId: input.eventId,
+        body: input.text,
+        source: "ADMIN",
+        createdBy: input.adminId,
+      });
+      return message.id;
+    });
   }
 
   async createFreeText(contactId: string, text: string, adminId: string): Promise<string | null> {

@@ -158,6 +158,10 @@ describe("migration 0013 staged guest flow and messaging", () => {
             "¡Felicidades, {nombre}! Completaste el formulario para la experiencia del {fecha}. Te confirmaremos por aquí para saber si estás en la lista.",
           ],
           [
+            "TAB",
+            "Hola {nombre}, esta es tu cuenta de consumos de la experiencia del {fecha}:\n\n{consumos}\n\nTotal a pagar: {total}\n\n{datos_pago}\n\nCuando transfieras, envíanos el comprobante por aquí. ¡Gracias!",
+          ],
+          [
             "WAITLISTED",
             "Hola, {nombre}. Completaste el formulario, pero el cupo ya se llenó: quedaste en la cola en la posición {posicion}. Si se libera un lugar te escribiremos por aquí.",
           ],
