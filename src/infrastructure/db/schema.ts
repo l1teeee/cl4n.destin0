@@ -1010,7 +1010,7 @@ export const messageTemplates = pgTable(
     }).onDelete("no action"),
     check(
       "message_templates_key_chk",
-      sql`${table.key} IN ('REQUEST_RECEIVED', 'WAITLISTED', 'PROMOTED', 'ON_LIST', 'PAID', 'REJECTED', 'CANCELLED_UNPAID', 'CANCELLED_PAID', 'REFUNDED', 'LOCATION')`,
+      sql`${table.key} IN ('REQUEST_RECEIVED', 'WAITLISTED', 'PROMOTED', 'ON_LIST', 'PAID', 'REJECTED', 'CANCELLED_UNPAID', 'CANCELLED_PAID', 'REFUNDED', 'LOCATION', 'TAB')`,
     ),
     check("message_templates_body_chk", sql`char_length(${table.body}) BETWEEN 1 AND 1000`),
   ],
