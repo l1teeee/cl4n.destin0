@@ -1,40 +1,69 @@
+"use client";
+
 import { ChevronDown, Trash2 } from "lucide-react";
 
-import { deleteEventClueAction } from "@/app/admin/(protected)/events/actions";
-import type { EventClue, EventClueDelivery } from "@/application/events/event-clue-repository";
+import {
+  deleteEventClueAction,
+  sendClueToAllAction,
+  sendClueToPeopleAction,
+  type AdminActionState,
+} from "@/app/admin/(protected)/events/actions";
+import type { EventClue } from "@/application/events/event-clue-repository";
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
 import { canPublishClues, numberCluesNewestFirst } from "@/domain/event/event-clues";
 import type { EventPhase } from "@/domain/event/event-phase";
 import { ActionFeedbackProvider } from "@/ui/admin/action-feedback";
 import { EventClueComposer } from "@/ui/admin/event-clue-composer";
+import { GuestSendDialog } from "@/ui/admin/guest-send/guest-send-dialog";
+import { toGuestSendGroups } from "@/ui/admin/guest-send/recipient-groups-view";
 import { MutationForm } from "@/ui/admin/mutation-form";
-import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
-import { formatAdminDate, publicCluesUrl } from "@/ui/admin/view-model";
+import { formatAdminDate } from "@/ui/admin/view-model";
 
 interface EventCluesSectionProps {
-  appBaseUrl: string;
   clues: readonly EventClue[];
-  delivery: Readonly<Record<string, EventClueDelivery>>;
   eventId: string;
   phase: EventPhase;
+  recipients: readonly RecipientGroup[];
   slug: string;
 }
 
-function ClueDeliveryLine({ delivery }: { delivery: EventClueDelivery | undefined }) {
-  // A clue published a moment ago may not have its delivery counts yet.
-  if (!delivery) return null;
+const IDLE: AdminActionState = { ok: false, message: "" };
 
-  const pending = delivery.pending === 1 ? "1 pendiente" : `${delivery.pending} pendientes`;
-  const failed = delivery.failed === 1 ? "1 fallido" : `${delivery.failed} fallidos`;
-  const sentLine = `Enviada a ${delivery.received} de ${delivery.paid} · ${pending}`;
-  return <span>{delivery.failed > 0 ? `${sentLine} · ${failed}` : sentLine}</span>;
+interface ClueDeliveryCounts {
+  total: number;
+  sent: number;
+  pending: number;
+  failed: number;
+}
+
+function countClueDelivery(recipients: readonly RecipientGroup[], clueId: string) {
+  const counts: ClueDeliveryCounts = { total: 0, sent: 0, pending: 0, failed: 0 };
+  for (const group of recipients) {
+    for (const person of group.people) {
+      counts.total += 1;
+      const status = person.statusByItem[clueId] ?? "NOT_SENT";
+      if (status === "SENT") counts.sent += 1;
+      if (status === "PENDING") counts.pending += 1;
+      if (status === "FAILED") counts.failed += 1;
+    }
+  }
+  return counts;
+}
+
+function ClueDeliveryLine({ counts }: { counts: ClueDeliveryCounts }) {
+  if (counts.sent + counts.pending + counts.failed === 0) return <span>Lista para enviar</span>;
+
+  const pending = counts.pending === 1 ? "1 pendiente" : `${counts.pending} pendientes`;
+  const failed = counts.failed === 1 ? "1 fallido" : `${counts.failed} fallidos`;
+  const sentLine = `Enviada a ${counts.sent} de ${counts.total} · ${pending}`;
+  return <span>{counts.failed > 0 ? `${sentLine} · ${failed}` : sentLine}</span>;
 }
 
 export function EventCluesSection({
-  appBaseUrl,
   clues,
-  delivery,
   eventId,
   phase,
+  recipients,
   slug,
 }: EventCluesSectionProps) {
   const publishingAllowed = canPublishClues(phase);
@@ -45,22 +74,9 @@ export function EventCluesSection({
       <h2 className="admin-section-title">Pistas</h2>
       <p className="admin-muted">
         {publishingAllowed
-          ? "Los comensales ven las pistas en la página de pistas. Una pista nueva aparece ahí en menos de un minuto."
+          ? "Genera la pista con texto e imágenes; queda lista para enviar. Envíala por Instagram a todos los que vienen o a quienes elijas."
           : "La experiencia terminó. Las pistas quedan como registro."}
       </p>
-      <PublicLinkPanel
-        url={publicCluesUrl(appBaseUrl, slug)}
-        hint={null}
-        revealLabel="Ver enlace de pistas"
-      />
-      <a
-        className="inline-flex min-h-11 items-center rounded-full border border-primary px-5 text-sm font-bold tracking-[0.08em]"
-        href={publicCluesUrl(appBaseUrl, slug)}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Vista previa pública
-      </a>
       {publishingAllowed ? <EventClueComposer eventId={eventId} /> : null}
       {/* The provider also wraps the empty state so the message for deleting the last clue stays. */}
       <ActionFeedbackProvider>
@@ -75,7 +91,7 @@ export function EventCluesSection({
                         Pista {clue.number}
                       </span>
                       <span>{formatAdminDate(clue.createdAt)}</span>
-                      <ClueDeliveryLine delivery={delivery[clue.id]} />
+                      <ClueDeliveryLine counts={countClueDelivery(recipients, clue.id)} />
                     </span>
                     <ChevronDown
                       aria-hidden="true"
@@ -105,14 +121,29 @@ export function EventCluesSection({
                   </div>
                 </details>
                 {publishingAllowed ? (
-                  <MutationForm
-                    action={deleteEventClueAction.bind(null, eventId, clue.id)}
-                    icon={<Trash2 />}
-                    danger
-                    reportToSection
-                    label="Eliminar pista"
-                    confirmation="La pista dejará de verse en la página de pistas."
-                  />
+                  <div className="flex shrink-0 items-center gap-2">
+                    <GuestSendDialog
+                      triggerLabel="Enviar"
+                      title={`Enviar Pista ${clue.number}`}
+                      description="Se envía por Instagram a cada persona con pago verificado: titular y acompañante."
+                      target="PERSON"
+                      groups={toGuestSendGroups(recipients, clue.id)}
+                      sendAll={() => sendClueToAllAction(eventId, clue.id, IDLE, new FormData())}
+                      sendSelected={(keys) => {
+                        const formData = new FormData();
+                        keys.forEach((key) => formData.append("person", key));
+                        return sendClueToPeopleAction(eventId, clue.id, IDLE, formData);
+                      }}
+                    />
+                    <MutationForm
+                      action={deleteEventClueAction.bind(null, eventId, clue.id)}
+                      icon={<Trash2 />}
+                      danger
+                      reportToSection
+                      label="Eliminar pista"
+                      confirmation="La pista se eliminará. Los mensajes ya enviados no se borran de Instagram."
+                    />
+                  </div>
                 ) : null}
               </li>
             ))}

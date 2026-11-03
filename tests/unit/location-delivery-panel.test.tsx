@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import type { ComponentProps } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import type { LocationDeliverySummary } from "@/application/events/location-message-repository";
+import type { RecipientGroup } from "@/application/messaging/recipient-groups";
 import { LocationDeliveryPanel } from "@/ui/admin/location-delivery-panel";
 
 vi.mock("next/link", () => ({
@@ -23,6 +25,18 @@ const everyoneHasIt: LocationDeliverySummary = {
   lastDeliveredAt: null,
 };
 
+const reservationId = "11111111-1111-4111-8111-111111111111";
+
+const recipients: RecipientGroup[] = [
+  {
+    reservationId,
+    reservationNumber: 1,
+    people: [
+      { slot: 1, name: "Ana", instagram: "ana", linked: true, statusByItem: { "3": "NOT_SENT" } },
+    ],
+  },
+];
+
 const explanation =
   "Quien quede confirmado con la ubicación lista la recibe automáticamente por Instagram. Si alguien no nos ha escrito en las últimas 24 horas, el mensaje queda pendiente hasta que escriba, o puedes enviarlo a mano desde Mensajes.";
 
@@ -35,7 +49,10 @@ function panel(
       summary={{ ...everyoneHasIt, ...summary }}
       locationConfirmed
       acceptsSends
+      recipients={recipients}
+      currentRevision={3}
       sendAction={vi.fn(async () => ({ ok: true, message: "Enviada." }))}
+      sendToPeopleAction={vi.fn(async () => ({ ok: true, message: "Enviada." }))}
       {...props}
     />
   );
@@ -71,127 +88,72 @@ describe("LocationDeliveryPanel summary", () => {
   });
 });
 
-describe("LocationDeliveryPanel send button", () => {
-  it("offers the first send when some confirmed guests never got the location", () => {
-    render(panel({ paid: 8, received: 5, neverQueued: 3 }));
-
-    expect(
-      screen.getByRole("button", { name: "Enviar ubicación a confirmados (3)" }),
-    ).toBeDefined();
-  });
-
-  it("offers the updated send when only outdated guests remain", () => {
-    render(panel({ paid: 8, received: 5, outdated: 3 }));
-
-    expect(screen.getByRole("button", { name: "Enviar ubicación actualizada (3)" })).toBeDefined();
-    expect(screen.queryByRole("button", { name: /a confirmados/ })).toBeNull();
-  });
-
-  it("keeps the first-send label and counts everybody the send will reach", () => {
-    render(panel({ paid: 10, received: 4, neverQueued: 2, outdated: 3, failed: 1 }));
-
-    expect(
-      screen.getByRole("button", { name: "Enviar ubicación a confirmados (6)" }),
-    ).toBeDefined();
-  });
-
-  it("offers a retry for failed guests only", () => {
-    render(panel({ paid: 8, received: 6, failed: 2 }));
-
-    expect(
-      screen.getByRole("button", { name: "Enviar ubicación a confirmados (2)" }),
-    ).toBeDefined();
-  });
-
-  it("hides the button when everyone has the current location", () => {
+describe("LocationDeliveryPanel send dialog", () => {
+  it("offers the send dialog when the location is confirmed", () => {
     render(panel());
 
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Enviar ubicación" })).toBeDefined();
   });
 
-  it("hides the button when the rest is only waiting for Instagram", () => {
-    render(panel({ paid: 8, received: 5, pending: 3 }));
+  it("lists the people grouped by reservation", async () => {
+    render(panel());
 
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("asks for confirmation and says how many people receive it", async () => {
-    render(panel({ paid: 8, received: 5, neverQueued: 3 }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación a confirmados (3)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación" }));
 
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog.textContent).toContain("La ubicación se enviará por Instagram a 3 personas.");
+    expect(dialog.textContent).toContain("#001");
+    expect(dialog.textContent).toContain("Ana");
+    expect(dialog.textContent).toContain("Se enviará a 1 personas que aún no lo tienen.");
   });
 
-  it("uses the singular in the confirmation for one person", async () => {
-    render(panel({ paid: 8, received: 7, outdated: 1 }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación actualizada (1)" }));
-
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog.textContent).toContain("La ubicación se enviará por Instagram a 1 persona.");
-  });
-
-  it("runs the send action only after the confirmation", async () => {
+  it("runs the send-all action from the dialog", async () => {
     const sendAction = vi.fn(async () => ({
       ok: true,
-      message: "Ubicación enviada a 3 personas.",
+      message: "Ubicación enviada a 1 persona.",
     }));
-    render(panel({ paid: 8, received: 5, neverQueued: 3 }, { sendAction }));
+    render(panel({}, { sendAction }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación a confirmados (3)" }));
-    expect(sendAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación" }));
     const dialog = await screen.findByRole("alertdialog");
-    const confirm = Array.from(dialog.querySelectorAll("button")).find(
-      (button) => button.textContent === "Enviar ubicación a confirmados (3)",
-    )!;
-    fireEvent.click(confirm);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enviar a todos (1)" }));
 
     await waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1));
     expect((await screen.findByRole("status")).textContent).toContain(
-      "Ubicación enviada a 3 personas.",
+      "Ubicación enviada a 1 persona.",
     );
   });
 
-  it("keeps the success message visible when the revalidated summary hides the button", async () => {
-    const sendAction = vi.fn(async () => ({
+  it("sends only the chosen people with their keys", async () => {
+    const sendToPeopleAction = vi.fn(async (_state: AdminActionState, formData: FormData) => ({
       ok: true,
-      message: "Ubicación enviada a 2 personas.",
+      message: `Enviada a ${formData.getAll("people").length}.`,
     }));
-    const { rerender } = render(panel({ paid: 8, received: 6, neverQueued: 2 }, { sendAction }));
+    render(panel({}, { sendToPeopleAction }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación a confirmados (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación" }));
     const dialog = await screen.findByRole("alertdialog");
-    const confirm = Array.from(dialog.querySelectorAll("button")).find(
-      (button) => button.textContent === "Enviar ubicación a confirmados (2)",
-    )!;
-    fireEvent.click(confirm);
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Elegir" }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Elegir Ana" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enviar a seleccionados (1)" }));
 
-    await waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1));
-    await screen.findByRole("status");
-    rerender(panel({}, { sendAction }));
-
-    expect(screen.queryByRole("button", { name: /Enviar ubicación/ })).toBeNull();
-    expect(screen.getByRole("status").textContent).toContain("Ubicación enviada a 2 personas.");
+    await waitFor(() => expect(sendToPeopleAction).toHaveBeenCalledTimes(1));
+    const formData = sendToPeopleAction.mock.calls[0]![1];
+    expect(formData.getAll("people")).toEqual([`${reservationId}:1`]);
   });
 
-  it("shows an error next to the form when the send action fails", async () => {
+  it("shows an error in the dialog when the send fails", async () => {
     const sendAction = vi.fn(async () => ({
       ok: false,
       message: "Confirma la ubicación antes de enviarla.",
     }));
-    render(panel({ paid: 8, received: 6, neverQueued: 2 }, { sendAction }));
+    render(panel({}, { sendAction }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación a confirmados (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación" }));
     const dialog = await screen.findByRole("alertdialog");
-    const confirm = Array.from(dialog.querySelectorAll("button")).find(
-      (button) => button.textContent === "Enviar ubicación a confirmados (2)",
-    )!;
-    fireEvent.click(confirm);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enviar a todos (1)" }));
 
     await waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1));
-    expect((await screen.findByRole("status")).textContent).toContain(
+    expect((await screen.findByRole("alert")).textContent).toContain(
       "Confirma la ubicación antes de enviarla.",
     );
   });

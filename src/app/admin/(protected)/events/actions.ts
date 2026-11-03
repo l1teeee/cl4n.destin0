@@ -659,6 +659,67 @@ export async function sendClueToPersonAction(
   };
 }
 
+const MAX_CLUE_RECIPIENTS = 100;
+const cluePeopleSchema = z
+  .array(z.string().regex(/^[0-9a-f-]{36}:[12]$/i))
+  .min(1)
+  .max(MAX_CLUE_RECIPIENTS);
+
+export async function sendClueToPeopleAction(
+  eventId: string,
+  clueId: string,
+  _previousState: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requireAdmin("action");
+  void _previousState;
+  if (!authorization.authorized) return unauthorized();
+
+  const parsed = clueActionSchema.safeParse({ eventId, clueId });
+  if (!parsed.success) return formValidationError(parsed.error);
+  const selected = cluePeopleSchema.safeParse(formData.getAll("person"));
+  if (!selected.success) return invalid("Elige personas válidas para el envío.");
+  const people = z
+    .array(
+      z.object({
+        reservationId: z.string().uuid(),
+        slot: z.union([z.literal(1), z.literal(2)]),
+      }),
+    )
+    .safeParse(
+      selected.data.map((value) => {
+        const [reservationId, slot] = value.split(":");
+        return { reservationId, slot: Number(slot) };
+      }),
+    );
+  if (!people.success) return invalid("Elige personas válidas para el envío.");
+
+  const messageIds: string[] = [];
+  for (const person of people.data) {
+    const result = await sendClueToPerson(postgresEventRepository, postgresEventClueRepository, {
+      ...parsed.data,
+      reservationId: person.reservationId,
+      slot: person.slot,
+      actorId: authorization.session.admin.id,
+    });
+    if (!result.ok) return invalid(clueSendMessages[result.error]);
+    messageIds.push(...result.messageIds);
+  }
+
+  await deliverClueMessages(messageIds);
+  revalidateEventPaths(parsed.data.eventId);
+  revalidatePath("/admin/mensajes");
+  revalidatePath("/admin/mensajes/sin-enviar");
+  const count = messageIds.length;
+  return {
+    ok: true,
+    message:
+      count === 0
+        ? "Esas personas ya tienen esta pista."
+        : `Pista enviada a ${count} ${count === 1 ? "persona" : "personas"}.`,
+  };
+}
+
 // The send has committed; the scheduled drain and cron retry any delivery failure.
 async function deliverClueMessages(messageIds: readonly string[]): Promise<void> {
   try {
