@@ -617,7 +617,7 @@ export const reservations = pgTable(
       "reservations_guest2_contact_distinct_chk",
       sql`${table.guest2ContactId} IS NULL OR ${table.guest2ContactId} IS DISTINCT FROM ${table.contactId}`,
     ),
-    check("reservations_source_chk",sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
+    check("reservations_source_chk", sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
     check(
       "reservations_admin_source_chk",
       sql`(${table.source} = 'ADMIN') = (${table.createdBy} IS NOT NULL)`,
@@ -893,7 +893,7 @@ export const messages = pgTable(
       "messages_guest_slot_subject_chk",
       sql`${table.guestSlot} = 1 OR ${table.reservationId} IS NOT NULL`,
     ),
-    check("messages_direction_chk",sql`${table.direction} IN ('OUTBOUND', 'INBOUND')`),
+    check("messages_direction_chk", sql`${table.direction} IN ('OUTBOUND', 'INBOUND')`),
     check(
       "messages_kind_chk",
       sql`${table.kind} IN ('REQUEST_RECEIVED', 'WAITLISTED', 'PROMOTED', 'ON_LIST', 'PAID', 'REJECTED', 'CANCELLED_UNPAID', 'CANCELLED_PAID', 'REFUNDED', 'LOCATION', 'CLUE', 'FREE_TEXT', 'INBOUND')`,
