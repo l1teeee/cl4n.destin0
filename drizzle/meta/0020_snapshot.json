@@ -1,5 +1,5 @@
 {
-  "id": "9f35e5ba-6e46-4e72-b6cb-5377361c1546",
+  "id": "2320d906-9271-4f15-8d62-1d719ee8fbc5",
   "prevId": "29c9c03d-688a-4387-be69-4ff35f8603f3",
   "version": "7",
   "dialect": "postgresql",
@@ -1624,12 +1624,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "location_waze_url": {
-          "name": "location_waze_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "location_notes": {
           "name": "location_notes",
           "type": "text",
@@ -1871,10 +1865,6 @@
           "name": "events_location_maps_url_chk",
           "value": "\"events\".\"location_maps_url\" IS NULL OR (char_length(\"events\".\"location_maps_url\") BETWEEN 1 AND 2048 AND \"events\".\"location_maps_url\" LIKE 'https://%')"
         },
-        "events_location_waze_url_chk": {
-          "name": "events_location_waze_url_chk",
-          "value": "\"events\".\"location_waze_url\" IS NULL OR (char_length(\"events\".\"location_waze_url\") BETWEEN 1 AND 2048 AND \"events\".\"location_waze_url\" LIKE 'https://%')"
-        },
         "events_location_notes_length_chk": {
           "name": "events_location_notes_length_chk",
           "value": "\"events\".\"location_notes\" IS NULL OR char_length(\"events\".\"location_notes\") BETWEEN 1 AND 1000"
@@ -1885,7 +1875,7 @@
         },
         "events_location_confirmation_complete_chk": {
           "name": "events_location_confirmation_complete_chk",
-          "value": "\"events\".\"location_status\" <> 'CONFIRMED' OR \"events\".\"location_address\" IS NOT NULL OR \"events\".\"location_maps_url\" IS NOT NULL OR \"events\".\"location_waze_url\" IS NOT NULL"
+          "value": "\"events\".\"location_status\" <> 'CONFIRMED' OR \"events\".\"location_address\" IS NOT NULL OR \"events\".\"location_maps_url\" IS NOT NULL"
         },
         "events_location_revision_nonnegative_chk": {
           "name": "events_location_revision_nonnegative_chk",

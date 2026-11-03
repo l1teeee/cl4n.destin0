@@ -28,7 +28,6 @@ export function readCreateEventFormData(formData: FormData) {
     locationName: formData.get("locationName"),
     locationAddress: formData.get("locationAddress"),
     locationMapsUrl: formData.get("locationMapsUrl"),
-    locationWazeUrl: formData.get("locationWazeUrl"),
     locationNotes: formData.get("locationNotes"),
     locationStatus: formData.get("locationStatus"),
   };
@@ -91,8 +90,8 @@ function isSecureMapUrl(value: string): boolean {
   return true;
 }
 
-export function isAllowedGoogleMapsUrl(value: string): boolean {
-  return isSecureMapUrl(value) && mapProviderOf(value) === "GOOGLE_MAPS";
+export function isAllowedMapLinkUrl(value: string): boolean {
+  return isSecureMapUrl(value) && mapProviderOf(value) !== null;
 }
 
 function nullableTrimmedText(max: number) {
@@ -107,29 +106,13 @@ const locationFields = {
   locationAddress: nullableTrimmedText(300),
   locationMapsUrl: nullableTrimmedText(2048)
     .superRefine((value, context) => {
-      if (value === null || isAllowedGoogleMapsUrl(value)) return;
+      if (value === null || isAllowedMapLinkUrl(value)) return;
       context.addIssue({
         code: "custom",
-        message:
-          mapProviderOf(value) === "WAZE"
-            ? "Este enlace es de Waze: pégalo en el campo de Waze."
-            : "Este enlace no es de Google Maps.",
+        message: "Pega un enlace de Google Maps o de Waze.",
       });
     })
     .transform((value) => (value === null ? null : new URL(value).href)),
-  locationWazeUrl: nullableTrimmedText(2048)
-    .superRefine((value, context) => {
-      if (value === null || (isSecureMapUrl(value) && mapProviderOf(value) === "WAZE")) return;
-      context.addIssue({
-        code: "custom",
-        message:
-          mapProviderOf(value) === "GOOGLE_MAPS"
-            ? "Este enlace es de Google Maps: pégalo en el campo de Google Maps."
-            : "Este enlace no es de Waze.",
-      });
-    })
-    .transform((value) => (value === null ? null : new URL(value).href))
-    .optional(),
   locationNotes: nullableTrimmedText(1000),
   locationStatus: z.enum(["PENDING", "CONFIRMED"]),
 };

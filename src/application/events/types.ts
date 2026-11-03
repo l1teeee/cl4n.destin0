@@ -22,13 +22,11 @@ export interface EventLocation {
   name: string | null;
   address: string | null;
   mapsUrl: string | null;
-  wazeUrl?: string | null;
   notes: string | null;
   status: EventLocationStatus;
 }
 
 export interface EventLocationRecord extends EventLocation {
-  wazeUrl: string | null;
   confirmedAt: Date | null;
   latitude: number | null;
   longitude: number | null;

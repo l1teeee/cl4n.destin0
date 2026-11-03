@@ -603,9 +603,9 @@ describe("location recipients", () => {
     ]);
   });
 
-  it("automatically queues both people with their own contacts and includes Waze", async () => {
+  it("automatically queues both people with their own contacts and labels a Waze link", async () => {
     const fixture = await couple({ companionContact: true });
-    await pool.query("UPDATE events SET location_waze_url = 'https://waze.com/ul' WHERE id = $1", [
+    await pool.query("UPDATE events SET location_maps_url = 'https://waze.com/ul' WHERE id = $1", [
       fixture.eventId,
     ]);
     await pool.query("UPDATE reservations SET stage = 'ON_LIST', paid_at = NULL WHERE id = $1", [
@@ -629,13 +629,7 @@ describe("location recipients", () => {
       "SELECT body FROM messages WHERE reservation_id = $1 AND kind = 'LOCATION'",
       [fixture.reservationId],
     );
-    expect(
-      bodies.rows.every((row) =>
-        row.body.includes(
-          "Google Maps: https://maps.google.com/?q=casa\nWaze: https://waze.com/ul",
-        ),
-      ),
-    ).toBe(true);
+    expect(bodies.rows.every((row) => row.body.includes("Waze: https://waze.com/ul"))).toBe(true);
     expect(
       (
         await inEventLock(pool, fixture.eventId, (client) =>
@@ -648,7 +642,7 @@ describe("location recipients", () => {
   it("confirms and updates a Waze-only location and increments its revision", async () => {
     const fixture = await couple();
     await pool.query(
-      "UPDATE events SET location_status = 'PENDING', location_confirmed_at = NULL, location_address = NULL, location_maps_url = NULL, location_waze_url = 'https://waze.com/ul' WHERE id = $1",
+      "UPDATE events SET location_status = 'PENDING', location_confirmed_at = NULL, location_address = NULL, location_maps_url = 'https://waze.com/ul' WHERE id = $1",
       [fixture.eventId],
     );
     const events = new PostgresEventRepository(pool);
@@ -659,7 +653,7 @@ describe("location recipients", () => {
       adminId,
     );
     if (!confirmed.ok) throw new Error(confirmed.error);
-    expect(confirmed.value.location.wazeUrl).toBe("https://waze.com/ul");
+    expect(confirmed.value.location.mapsUrl).toBe("https://waze.com/ul");
     const event = confirmed.value;
     const updated = await events.update(
       {
@@ -671,7 +665,7 @@ describe("location recipients", () => {
         closesAt: event.closesAt,
         maxPartySize: event.maxPartySize,
         autoCloseOnFull: event.autoCloseOnFull,
-        location: { ...event.location, wazeUrl: "https://ul.waze.com/ul" },
+        location: { ...event.location, mapsUrl: "https://ul.waze.com/ul" },
         keepMapsUrl: false,
         coordinates: null,
         expectedLocation: version,
@@ -680,7 +674,7 @@ describe("location recipients", () => {
     );
     expect(updated).toMatchObject({
       ok: true,
-      value: { locationRevision: 1, location: { wazeUrl: "https://ul.waze.com/ul" } },
+      value: { locationRevision: 1, location: { mapsUrl: "https://ul.waze.com/ul" } },
     });
   });
 });

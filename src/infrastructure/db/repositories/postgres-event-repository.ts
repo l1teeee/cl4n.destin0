@@ -53,7 +53,6 @@ interface EventRow extends QueryResultRow {
   location_name: string | null;
   location_address: string | null;
   location_maps_url: string | null;
-  location_waze_url: string | null;
   location_notes: string | null;
   location_status: EventLocationStatus;
   location_confirmed_at: Date | null;
@@ -129,7 +128,6 @@ const eventColumns = `
   location_name,
   location_address,
   location_maps_url,
-  location_waze_url,
   location_notes,
   location_status,
   location_confirmed_at,
@@ -161,7 +159,6 @@ function eventRecord(row: EventRow): EventRecord {
       name: row.location_name,
       address: row.location_address,
       mapsUrl: row.location_maps_url,
-      wazeUrl: row.location_waze_url,
       notes: row.location_notes,
       status: row.location_status,
       confirmedAt: row.location_confirmed_at,
@@ -257,7 +254,6 @@ function comparableEvent(record: EventRecord): Record<string, unknown> {
     locationName: record.location.name,
     locationAddress: record.location.address,
     locationMapsUrl: record.location.mapsUrl,
-    locationWazeUrl: record.location.wazeUrl,
     locationNotes: record.location.notes,
     locationStatus: record.location.status,
     locationConfirmedAt: record.location.confirmedAt?.toISOString() ?? null,
@@ -341,13 +337,12 @@ export class PostgresEventRepository implements EventRepository {
              location_latitude,
              location_longitude,
              payment_instructions,
-             price_cents,
-             location_waze_url
+             price_cents
            )
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                    $15::event_location_status,
                    CASE WHEN $15::event_location_status = 'CONFIRMED' THEN clock_timestamp() ELSE NULL END,
-                   $16, $17, $18, $19, $20)
+                   $16, $17, $18, $19)
            RETURNING ${eventColumns}`,
           [
             command.internalName,
@@ -369,7 +364,6 @@ export class PostgresEventRepository implements EventRepository {
             command.coordinates?.longitude ?? null,
             command.paymentInstructions ?? null,
             command.priceCents ?? null,
-            command.location.wazeUrl ?? null,
           ],
         );
         const created = eventRecord(inserted.rows[0]!);
@@ -418,15 +412,10 @@ export class PostgresEventRepository implements EventRepository {
           { address: command.location.address, mapsUrl: command.location.mapsUrl },
           command.keepMapsUrl,
         );
-        const wazeUrl =
-          command.location.wazeUrl === undefined
-            ? locked.location_waze_url
-            : command.location.wazeUrl;
         if (
           !isEventLocationConfirmationValid({
             address: command.location.address,
             mapsUrl: reconciled.mapsUrl,
-            wazeUrl,
             status: command.location.status,
           })
         ) {
@@ -457,7 +446,6 @@ export class PostgresEventRepository implements EventRepository {
                   location_longitude = $15,
                   payment_instructions = $16,
                   price_cents = COALESCE($17, price_cents),
-                  location_waze_url = $18,
                   location_status = $13::event_location_status,
                   location_confirmed_at = CASE
                     WHEN $13::event_location_status = 'PENDING' THEN NULL
@@ -468,7 +456,6 @@ export class PostgresEventRepository implements EventRepository {
                     location_name IS DISTINCT FROM $9 OR
                     location_address IS DISTINCT FROM $10 OR
                     location_maps_url IS DISTINCT FROM $11 OR
-                    location_waze_url IS DISTINCT FROM $18 OR
                     location_notes IS DISTINCT FROM $12
                   THEN 1 ELSE 0 END,
                   location_released_revision = CASE
@@ -498,7 +485,6 @@ export class PostgresEventRepository implements EventRepository {
               ? locked.payment_instructions
               : command.paymentInstructions,
             command.priceCents ?? null,
-            wazeUrl,
           ],
         );
         const after = eventRecord(updated.rows[0]!);
@@ -533,7 +519,6 @@ export class PostgresEventRepository implements EventRepository {
         !isEventLocationConfirmationValid({
           address: locked.location_address,
           mapsUrl: locked.location_maps_url,
-          wazeUrl: locked.location_waze_url,
           status,
         })
       ) {

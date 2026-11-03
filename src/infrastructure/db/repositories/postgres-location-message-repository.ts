@@ -33,7 +33,6 @@ interface LocationEventRow extends QueryResultRow {
   location_address: string | null;
   location_notes: string | null;
   location_maps_url: string | null;
-  location_waze_url: string | null;
 }
 
 interface PaidGuestRow extends QueryResultRow {
@@ -82,7 +81,7 @@ const transactionSettings = [
 ] as const;
 
 const eventLocationColumns = `status, starts_at, location_status, location_revision, location_name,
-  location_address, location_notes, location_maps_url, location_waze_url`;
+  location_address, location_notes, location_maps_url`;
 
 // The caller of queueLocationMessage already holds the event row lock.
 async function readEventLocation(
@@ -205,7 +204,6 @@ async function buildContext(
       address: event.location_address,
       notes: event.location_notes,
       mapsUrl: event.location_maps_url,
-      wazeUrl: event.location_waze_url,
     }),
     photoUrls: await readPhotoUrls(client, eventId),
   };

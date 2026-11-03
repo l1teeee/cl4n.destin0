@@ -35,39 +35,38 @@ const validCreate = {
 } as const;
 
 describe("admin event contracts", () => {
-  it("accepts Waze links, trims them and reads the field from a form", () => {
-    const form = new FormData();
-    form.set("locationWazeUrl", "https://waze.com/ul");
-    expect(readCreateEventFormData(form).locationWazeUrl).toBe("https://waze.com/ul");
+  it.each(["https://waze.com/ul", "https://maps.app.goo.gl/abc"])(
+    "accepts the Google Maps or Waze link %s and trims it",
+    (url) => {
+      const form = new FormData();
+      form.set("locationMapsUrl", url);
+      expect(readCreateEventFormData(form).locationMapsUrl).toBe(url);
+      expect(
+        createAdminEventSchema.parse({ ...validCreate, locationMapsUrl: `  ${url}  ` })
+          .locationMapsUrl,
+      ).toBe(url);
+    },
+  );
+
+  it("turns a blank link into null", () => {
     expect(
-      createAdminEventSchema.parse({
-        ...validCreate,
-        locationWazeUrl: "  https://waze.com/ul  ",
-      }).locationWazeUrl,
-    ).toBe("https://waze.com/ul");
-    expect(
-      createAdminEventSchema.parse({ ...validCreate, locationWazeUrl: "  " }).locationWazeUrl,
+      createAdminEventSchema.parse({ ...validCreate, locationMapsUrl: "  " }).locationMapsUrl,
     ).toBeNull();
   });
 
-  it.each([
-    [
-      "locationMapsUrl",
-      "https://waze.com/ul",
-      "Este enlace es de Waze: pégalo en el campo de Waze.",
-    ],
-    ["locationMapsUrl", "https://example.com/maps", "Este enlace no es de Google Maps."],
-    [
-      "locationWazeUrl",
-      "https://google.com/maps",
-      "Este enlace es de Google Maps: pégalo en el campo de Google Maps.",
-    ],
-    ["locationWazeUrl", "https://example.com/ul", "Este enlace no es de Waze."],
-  ])("explains a misplaced link in %s", (field, url, message) => {
-    const result = createAdminEventSchema.safeParse({ ...validCreate, [field]: url });
+  it("explains that the link must come from Google Maps or Waze", () => {
+    const result = createAdminEventSchema.safeParse({
+      ...validCreate,
+      locationMapsUrl: "https://example.com/maps",
+    });
     expect(result.success).toBe(false);
     if (result.success) throw new Error("Expected invalid link");
-    expect(result.error.issues).toContainEqual(expect.objectContaining({ path: [field], message }));
+    expect(result.error.issues).toContainEqual(
+      expect.objectContaining({
+        path: ["locationMapsUrl"],
+        message: "Pega un enlace de Google Maps o de Waze.",
+      }),
+    );
   });
 
   it.each([
@@ -76,8 +75,8 @@ describe("admin event contracts", () => {
     "https://waze.com:444/ul",
     "https://waze.com/\\ul",
     `https://waze.com/ul?q=${"a".repeat(2048)}`,
-  ])("rejects unsafe or oversized Waze links: %s", (locationWazeUrl) => {
-    expect(createAdminEventSchema.safeParse({ ...validCreate, locationWazeUrl }).success).toBe(
+  ])("rejects unsafe or oversized links: %s", (locationMapsUrl) => {
+    expect(createAdminEventSchema.safeParse({ ...validCreate, locationMapsUrl }).success).toBe(
       false,
     );
   });

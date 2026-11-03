@@ -31,25 +31,23 @@ describe("composeLocationText", () => {
     expect(composeLocationText({ name: null, address: null, notes: null, mapsUrl: null })).toBe("");
   });
 
-  it("labels both providers and supports a Waze-only location", () => {
+  it("labels the link by its provider", () => {
     expect(
       composeLocationText({
         name: null,
         address: null,
         notes: null,
         mapsUrl: "https://maps.app.goo.gl/place",
-        wazeUrl: "https://waze.com/ul?ll=1,2",
       }),
-    ).toBe("Google Maps: https://maps.app.goo.gl/place\nWaze: https://waze.com/ul?ll=1,2");
+    ).toBe("Google Maps: https://maps.app.goo.gl/place");
     expect(
       composeLocationText({
         name: null,
         address: null,
         notes: null,
-        mapsUrl: null,
-        wazeUrl: "https://waze.com/ul",
+        mapsUrl: "https://waze.com/ul?ll=1,2",
       }),
-    ).toBe("Waze: https://waze.com/ul");
+    ).toBe("Waze: https://waze.com/ul?ll=1,2");
   });
 
   it("keeps the line breaks that the notes already contain", () => {

@@ -292,7 +292,6 @@ export const events = pgTable(
     locationName: text("location_name"),
     locationAddress: text("location_address"),
     locationMapsUrl: text("location_maps_url"),
-    locationWazeUrl: text("location_waze_url"),
     locationNotes: text("location_notes"),
     locationStatus: eventLocationStatus("location_status").notNull().default("PENDING"),
     locationConfirmedAt: timestamp("location_confirmed_at", { withTimezone: true }),
@@ -352,10 +351,6 @@ export const events = pgTable(
       sql`${table.locationMapsUrl} IS NULL OR (char_length(${table.locationMapsUrl}) BETWEEN 1 AND 2048 AND ${table.locationMapsUrl} LIKE 'https://%')`,
     ),
     check(
-      "events_location_waze_url_chk",
-      sql`${table.locationWazeUrl} IS NULL OR (char_length(${table.locationWazeUrl}) BETWEEN 1 AND 2048 AND ${table.locationWazeUrl} LIKE 'https://%')`,
-    ),
-    check(
       "events_location_notes_length_chk",
       sql`${table.locationNotes} IS NULL OR char_length(${table.locationNotes}) BETWEEN 1 AND 1000`,
     ),
@@ -365,7 +360,7 @@ export const events = pgTable(
     ),
     check(
       "events_location_confirmation_complete_chk",
-      sql`${table.locationStatus} <> 'CONFIRMED' OR ${table.locationAddress} IS NOT NULL OR ${table.locationMapsUrl} IS NOT NULL OR ${table.locationWazeUrl} IS NOT NULL`,
+      sql`${table.locationStatus} <> 'CONFIRMED' OR ${table.locationAddress} IS NOT NULL OR ${table.locationMapsUrl} IS NOT NULL`,
     ),
     check("events_location_revision_nonnegative_chk", sql`${table.locationRevision} >= 0`),
     check(

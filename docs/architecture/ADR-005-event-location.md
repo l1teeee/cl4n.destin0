@@ -66,3 +66,7 @@ When an update changes the address (compared trimmed, whitespace-collapsed and c
 If the Maps link is unchanged and no coordinates could be obtained (for example a transient resolver failure), the stored point is kept. A changed or cleared link stores whatever was resolved, or null. The admin map previews the saved point, otherwise the address, otherwise nothing. Emails are unchanged: they keep linking to the saved Maps URL.
 
 Coordinates are derived data for the admin map preview. They are never sent to guests, never used by emails or public pages, and so do not bump `location_revision`; a change to the Maps URL they derive from already does.
+
+## Part 5 amendment: one link field for Google Maps or Waze
+
+The event keeps one location link field (`location_maps_url`). It accepts a Google Maps or a Waze link, detected by host in the domain (`mapProviderOf`); any other host is rejected with "Pega un enlace de Google Maps o de Waze.". The location message labels the link "Google Maps: <url>" or "Waze: <url>" by that detection. Coordinates are read from Google Maps links as described in Part 4 and from Waze links (`ll` parameter, `to=ll.<lat>,<lng>` or a `/ul/h<geohash>` short path); the short-link expansion also accepts the Waze hosts on every hop.

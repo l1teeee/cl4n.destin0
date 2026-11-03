@@ -1,5 +1,6 @@
 import type { MapsLinkResolver } from "@/application/events/maps-link-resolver";
-import { isAllowedGoogleMapsUrl } from "@/contracts/admin-event";
+import { isAllowedMapLinkUrl } from "@/contracts/admin-event";
+import { mapProviderOf } from "@/domain/event/map-links";
 import { log } from "@/infrastructure/observability/logger";
 
 const MAX_REDIRECT_HOPS = 5;
@@ -7,7 +8,8 @@ const EXPANSION_TIMEOUT_MS = 4000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export function isShortMapsLink(value: string): boolean {
-  if (!isAllowedGoogleMapsUrl(value)) return false;
+  if (!isAllowedMapLinkUrl(value)) return false;
+  if (mapProviderOf(value) === "WAZE") return true;
   const url = new URL(value);
   return url.hostname === "maps.app.goo.gl" || url.hostname === "goo.gl";
 }
@@ -35,7 +37,7 @@ export class GoogleMapsLinkResolver implements MapsLinkResolver {
         const location = response.headers.get("location");
         if (location === null) return this.reject(currentUrl, "redirect without location");
         const nextUrl = new URL(location, currentUrl).href;
-        if (!isAllowedGoogleMapsUrl(nextUrl)) return this.reject(nextUrl, "host not allowed");
+        if (!isAllowedMapLinkUrl(nextUrl)) return this.reject(nextUrl, "host not allowed");
         currentUrl = nextUrl;
       }
       return this.reject(currentUrl, "too many redirects");

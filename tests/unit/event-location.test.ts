@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isAllowedGoogleMapsUrl } from "@/contracts/admin-event";
+import { isAllowedMapLinkUrl } from "@/contracts/admin-event";
 import { detectImageContentType } from "@/contracts/image-upload";
 import { isEventLocationConfirmationValid } from "@/domain/event/event-location";
 
@@ -12,8 +12,10 @@ describe("Google Maps URL allowlist", () => {
     "https://goo.gl/maps/abc",
     "https://maps.google.com/?q=x",
     "https://google.com/maps/place/x",
+    "https://waze.com/ul?ll=13.69%2C-89.21",
+    "https://ul.waze.com/ul",
   ])("accepts %s", (url) => {
-    expect(isAllowedGoogleMapsUrl(url)).toBe(true);
+    expect(isAllowedMapLinkUrl(url)).toBe(true);
   });
 
   it.each([
@@ -29,14 +31,16 @@ describe("Google Maps URL allowlist", () => {
     "https://user:pass@maps.app.goo.gl/x",
     "https://maps.app.goo.gl:8443/x",
     "https://www.google.com:8443/maps/place/x",
+    "https://waze.com.evil.com/ul",
+    "http://waze.com/ul",
   ])("rejects %s", (url) => {
-    expect(isAllowedGoogleMapsUrl(url)).toBe(false);
+    expect(isAllowedMapLinkUrl(url)).toBe(false);
   });
 });
 
 describe("Google Maps URL default port", () => {
   it("accepts an explicit :443 because URL parsing drops the default port", () => {
-    expect(isAllowedGoogleMapsUrl("https://maps.app.goo.gl:443/x")).toBe(true);
+    expect(isAllowedMapLinkUrl("https://maps.app.goo.gl:443/x")).toBe(true);
   });
 });
 

@@ -14,6 +14,7 @@ import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { createAdminEventSchema, readCreateEventFormData } from "@/contracts/admin-event";
 import { drinkPriceInputValue } from "@/domain/drink/drink-price";
 import { reconcileMapsLink } from "@/domain/event/event-location";
+import { mapProviderOf } from "@/domain/event/map-links";
 import { Alert } from "@/ui/primitives/alert";
 import { Button } from "@/ui/primitives/button";
 import { DatePicker } from "@/ui/primitives/date-picker";
@@ -380,20 +381,32 @@ function ExperienceFields({
 interface LocationFieldsProps {
   errors: FieldErrors;
   mapsLinkWillBeCleared: boolean;
+  mapsUrl: string;
   mode: "create" | "edit";
   setAddress: (value: string) => void;
   setMapsUrl: (value: string) => void;
   values?: EventFormValues;
 }
 
+function detectedLinkText(value: string): string | null {
+  const link = value.trim();
+  if (link === "") return null;
+  const provider = mapProviderOf(link);
+  if (provider === "GOOGLE_MAPS") return "Enlace de Google Maps detectado.";
+  if (provider === "WAZE") return "Enlace de Waze detectado.";
+  return "Este enlace no es de Google Maps ni de Waze.";
+}
+
 function LocationFields({
   errors,
   mapsLinkWillBeCleared,
+  mapsUrl,
   mode,
   setAddress,
   setMapsUrl,
   values,
 }: LocationFieldsProps) {
+  const detectedLinkMessage = detectedLinkText(mapsUrl);
   return (
     <>
       <SectionHeading title="Ubicación" hint={sectionHints.location} as="h2" separated={false} />
@@ -424,9 +437,9 @@ function LocationFields({
       </div>
       <div className="grid gap-2 md:col-span-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor="locationMapsUrl">Enlace de Google Maps</Label>
+          <Label htmlFor="locationMapsUrl">Enlace de ubicación (Google Maps o Waze)</Label>
           <FieldHint label="Cómo obtener el enlace">
-            En Google Maps abre el lugar, toca Compartir y copia el enlace.
+            Abre el lugar en Google Maps o Waze, toca Compartir y copia el enlace.
           </FieldHint>
         </div>
         <Input
@@ -440,6 +453,7 @@ function LocationFields({
           aria-describedby={errors?.locationMapsUrl ? "locationMapsUrl-error" : undefined}
         />
         <FieldError id="locationMapsUrl-error" message={errors?.locationMapsUrl} />
+        {detectedLinkMessage ? <p className="admin-muted">{detectedLinkMessage}</p> : null}
         {mapsLinkWillBeCleared ? (
           <div className="grid gap-2">
             <p className="admin-muted">
@@ -590,6 +604,7 @@ export function EventForm({
     <LocationFields
       errors={errors}
       mapsLinkWillBeCleared={mapsLinkWillBeCleared}
+      mapsUrl={mapsUrl}
       mode={mode}
       setAddress={setAddress}
       setMapsUrl={setMapsUrl}

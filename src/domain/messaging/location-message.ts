@@ -1,3 +1,5 @@
+import { mapProviderOf } from "@/domain/event/map-links";
+
 import { splitIntoChunks } from "./text-chunks";
 
 // messages.body is capped by the messages_body_length_chk database constraint.
@@ -13,17 +15,16 @@ export interface LocationMessageContent {
   address: string | null;
   notes: string | null;
   mapsUrl: string | null;
-  wazeUrl?: string | null;
+}
+
+function labeledMapsLink(mapsUrl: string | null): string | null {
+  const url = mapsUrl?.trim();
+  if (!url) return null;
+  return mapProviderOf(url) === "WAZE" ? `Waze: ${url}` : `Google Maps: ${url}`;
 }
 
 export function composeLocationText(location: LocationMessageContent): string {
-  return [
-    location.name,
-    location.address,
-    location.notes,
-    location.mapsUrl?.trim() ? `Google Maps: ${location.mapsUrl.trim()}` : null,
-    location.wazeUrl?.trim() ? `Waze: ${location.wazeUrl.trim()}` : null,
-  ]
+  return [location.name, location.address, location.notes, labeledMapsLink(location.mapsUrl)]
     .map((part) => part?.trim() ?? "")
     .filter((part) => part !== "")
     .join("\n");
