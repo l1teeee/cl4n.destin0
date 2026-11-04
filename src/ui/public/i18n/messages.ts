@@ -134,6 +134,11 @@ const es = {
     closedExperience: "Las solicitudes para esta experiencia ya cerraron.",
     noDate: "Todavía no hay fecha. Cuando la haya, lo sabrás.",
   },
+  notFound: {
+    title: "ESTA PUERTA NO EXISTE",
+    copy: "La página que buscas no está aquí o ya no está disponible.",
+    back: "Volver al inicio",
+  },
 };
 
 export type PublicMessages = typeof es;
@@ -265,6 +270,11 @@ const en: PublicMessages = {
     fullClosed: "The seats for this experience are full.",
     closedExperience: "Requests for this experience have closed.",
     noDate: "There is no date yet. When there is, you will know.",
+  },
+  notFound: {
+    title: "THIS DOOR DOES NOT EXIST",
+    copy: "The page you are looking for is not here or is no longer available.",
+    back: "Back to home",
   },
 };
 

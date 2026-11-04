@@ -330,6 +330,25 @@ html[data-lang-switching] .public-page {
   text-wrap: balance;
 }
 
+.public-not-found-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 0.5em;
+  transition: color 300ms ease;
+}
+
+.public-not-found-link:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 4px;
+}
+
 .public-events {
   display: grid;
   gap: 2rem;
@@ -1035,6 +1054,10 @@ textarea.reservation-input {
   .public-cta:hover {
     background: transparent;
     color: var(--clan-background);
+  }
+
+  .public-not-found-link:hover {
+    color: var(--public-line-hover);
   }
 
   .public-step:hover {
