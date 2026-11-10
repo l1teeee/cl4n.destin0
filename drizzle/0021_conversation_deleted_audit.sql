@@ -1,0 +1,1 @@
+ALTER TYPE "public"."audit_action" ADD VALUE 'MESSAGING_CONTACT_DELETED';
