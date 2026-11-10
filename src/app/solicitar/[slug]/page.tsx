@@ -10,6 +10,7 @@ import { buildRequestAccessViewModel } from "@/ui/public/home-view-model";
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import { publicMessages } from "@/ui/public/i18n/messages";
 import { ReservationExperience } from "@/ui/public/reservation-experience";
+import { RefreshAt } from "@/ui/refresh-at";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,16 @@ export default async function RequestAccessPage({ params }: { params: Promise<{ 
     notFound();
   }
   if (viewModel.state === "CLOSED") {
+    if (viewModel.variant.state === "SCHEDULED") {
+      return (
+        <>
+          <ClosedState variant={viewModel.variant} />
+          <RefreshAt
+            delayMs={viewModel.variant.opensAt.getTime() - readModel.databaseTime.getTime()}
+          />
+        </>
+      );
+    }
     return <ClosedState variant={viewModel.variant} />;
   }
 

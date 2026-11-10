@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   availableSeats,
   derivePhase,
+  msUntilNextPhaseChange,
   type EventLifecycleStatus,
   type EventPhaseSnapshot,
 } from "@/domain/event/event-phase";
@@ -82,5 +83,24 @@ describe("derivePhase", () => {
 describe("availableSeats", () => {
   it("subtracts reserved seats from capacity", () => {
     expect(availableSeats(event())).toBe(15);
+  });
+});
+
+describe("msUntilNextPhaseChange", () => {
+  it("returns the time until opening", () => {
+    expect(msUntilNextPhaseChange(event(), new Date(opensAt.getTime() - 5000))).toBe(5000);
+  });
+
+  it("returns the time until closing during the window", () => {
+    expect(msUntilNextPhaseChange(event(), opensAt)).toBe(closesAt.getTime() - opensAt.getTime());
+  });
+
+  it("returns null at and after closing", () => {
+    expect(msUntilNextPhaseChange(event(), closesAt)).toBeNull();
+    expect(msUntilNextPhaseChange(event(), new Date(closesAt.getTime() + 1))).toBeNull();
+  });
+
+  it.each(["DRAFT", "CLOSED"] as const)("returns null for %s", (status) => {
+    expect(msUntilNextPhaseChange(event({ status }), new Date(opensAt.getTime() - 1))).toBeNull();
   });
 });

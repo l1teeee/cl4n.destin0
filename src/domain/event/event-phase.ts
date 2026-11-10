@@ -12,6 +12,17 @@ export interface EventPhaseSnapshot {
   waitlistedCount: number;
 }
 
+// Milliseconds until the scheduled event opens or closes; null when no time-based change is ahead.
+export function msUntilNextPhaseChange(
+  event: Pick<EventPhaseSnapshot, "status" | "opensAt" | "closesAt">,
+  now: Date,
+): number | null {
+  if (event.status !== "SCHEDULED") return null;
+  if (now < event.opensAt) return event.opensAt.getTime() - now.getTime();
+  if (now < event.closesAt) return event.closesAt.getTime() - now.getTime();
+  return null;
+}
+
 export function derivePhase(event: EventPhaseSnapshot, now: Date): EventPhase {
   if (event.status !== "SCHEDULED") {
     return event.status;

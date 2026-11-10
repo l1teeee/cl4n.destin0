@@ -13,6 +13,7 @@ import {
   formatAuditMetadata,
   formatCount,
   formatReservationNumber,
+  invitationNotice,
   lifecycleActions,
   emailErrorLabel,
   emailKindLabel,
@@ -23,7 +24,6 @@ import {
   parseEventSection,
   parseReservationSearchParams,
   publicEventUrl,
-  publicLinkHint,
   reservationStatusLabel,
 } from "@/ui/admin/view-model";
 
@@ -38,18 +38,26 @@ describe("public event link", () => {
       "https://clandestino.example/solicitar/cena%2Funo",
     );
   });
+});
+
+describe("invitation notice", () => {
+  const opensAt = new Date("2026-10-05T18:00:00Z");
+  const closesAt = new Date("2026-10-05T20:00:00Z");
 
   it.each([
-    ["DRAFT", "Borrador: el enlace no funciona hasta que publiques la experiencia."],
-    ["SCHEDULED", "El enlace mostrará el formulario cerrado hasta que abra."],
-    ["OPEN", null],
-    ["WAITLIST", null],
-    ["FULL", "Sin cupos: el enlace mostrará que no hay lugares."],
-    ["CLOSED", "El formulario ya cerró: el enlace mostrará el estado cerrado."],
-    ["COMPLETED", "El formulario ya cerró: el enlace mostrará el estado cerrado."],
-    ["CANCELLED", "El formulario ya cerró: el enlace mostrará el estado cerrado."],
-  ] as const)("returns the %s phase hint", (phase, expected) => {
-    expect(publicLinkHint(phase)).toBe(expected);
+    [
+      "DRAFT",
+      "Borrador: no se ve en el sitio y el link público no funciona hasta que la publiques.",
+    ],
+    ["SCHEDULED", `Las invitaciones abren el ${formatAdminDate(opensAt)}.`],
+    ["OPEN", `Invitaciones abiertas hasta el ${formatAdminDate(closesAt)}.`],
+    ["WAITLIST", `Lugares llenos: solo cola hasta el ${formatAdminDate(closesAt)}.`],
+    ["FULL", "Sin lugares ni cola: el formulario muestra que está lleno."],
+    ["CLOSED", "Invitaciones cerradas."],
+    ["COMPLETED", "La experiencia ya terminó."],
+    ["CANCELLED", "Experiencia cancelada."],
+  ] as const)("returns the %s notice", (phase, expected) => {
+    expect(invitationNotice(phase, opensAt, closesAt)).toBe(expected);
   });
 });
 

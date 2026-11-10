@@ -18,6 +18,7 @@ import type { EventGuestView } from "@/application/guests/guest-views";
 import { loadPaymentSettings } from "@/application/payments/payment-settings";
 import { hasPermission } from "@/domain/admin/admin-access";
 import { areCluesVisible } from "@/domain/event/event-clues";
+import { msUntilNextPhaseChange } from "@/domain/event/event-phase";
 import { mapProviderOf } from "@/domain/event/map-links";
 import { auditPageSizeFor } from "@/ui/admin/view-model";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
@@ -48,21 +49,22 @@ import { EventGuestsSection } from "@/ui/admin/guests/event-guests-section";
 import { parseGuestView } from "@/ui/admin/guests/guest-list-view";
 import { LinkPendingIndicator } from "@/ui/admin/link-pending";
 import { LocationDeliveryPanel } from "@/ui/admin/location-delivery-panel";
+import { CopyTextButton } from "@/ui/admin/messages/manual-send-buttons";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { Pagination } from "@/ui/admin/pagination";
-import { PublicLinkPanel } from "@/ui/admin/public-link-panel";
 import { ReopenEventDialog } from "@/ui/admin/reopen-event-dialog";
 import { StatGrid } from "@/ui/admin/stat-grid";
 import {
   eventPhaseLabel,
   eventSections,
   formatAdminDate,
+  invitationNotice,
   lifecycleActions,
   locationMap,
   parseEventSection,
   publicEventUrl,
-  publicLinkHint,
 } from "@/ui/admin/view-model";
+import { RefreshAt } from "@/ui/refresh-at";
 import { Badge } from "@/ui/primitives/badge";
 import { cn } from "@/ui/cn";
 import { Button } from "@/ui/primitives/button";
@@ -187,9 +189,11 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const controls = lifecycleActions(event, eventResult.databaseTime);
   const map = locationMap(event.location);
   const confirmed = event.location.status === "CONFIRMED";
+  const phaseChangeDelay = msUntilNextPhaseChange(event, eventResult.databaseTime);
 
   return (
     <main className="admin-page admin-event-detail-page space-y-10">
+      {phaseChangeDelay === null ? null : <RefreshAt delayMs={phaseChangeDelay} />}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Button variant="outline" asChild>
@@ -203,13 +207,27 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           <p className="admin-description">
             {formatAdminDate(event.startsAt)} - {eventPhaseLabel(event.phase)}
           </p>
+          <p
+            className={cn(
+              "mt-2 text-sm",
+              event.phase === "OPEN" || event.phase === "WAITLIST" ? "text-success" : "admin-muted",
+            )}
+          >
+            {invitationNotice(event.phase, event.opensAt, event.closesAt)}
+          </p>
         </div>
-        <Button variant="outline" asChild>
-          <Link href={`/admin/events/${id}/edit`}>
-            Editar experiencia
-            <LinkPendingIndicator />
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <CopyTextButton
+            text={publicEventUrl(env.APP_BASE_URL, event.slug)}
+            label="Copiar link público"
+          />
+          <Button variant="outline" asChild>
+            <Link href={`/admin/events/${id}/edit`}>
+              Editar experiencia
+              <LinkPendingIndicator />
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="admin-event-detail-stats">
@@ -273,15 +291,6 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           }}
         />
       ) : null}
-
-      <section className="admin-section admin-tab-section space-y-4" hidden={section !== "gestion"}>
-        <h2 className="admin-section-title">Enlace público</h2>
-        <PublicLinkPanel
-          url={publicEventUrl(env.APP_BASE_URL, event.slug)}
-          hint={publicLinkHint(event.phase)}
-          disabled={event.phase !== "OPEN" && event.phase !== "WAITLIST"}
-        />
-      </section>
 
       <section
         className="admin-section admin-tab-section space-y-5"

@@ -5,6 +5,7 @@ import { HomeExperience } from "@/ui/public/home-experience";
 import { buildHomeViewModel } from "@/ui/public/home-view-model";
 import { getPublicLocale } from "@/ui/public/i18n/locale";
 import { publicMessages } from "@/ui/public/i18n/messages";
+import { RefreshAt } from "@/ui/refresh-at";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,12 @@ export default async function Home() {
   }
 
   if (viewModel.state === "SCHEDULED") {
-    return <ClosedState variant={{ state: "SCHEDULED", opensAt: viewModel.opensAt }} />;
+    return (
+      <>
+        <ClosedState variant={{ state: "SCHEDULED", opensAt: viewModel.opensAt }} />
+        <RefreshAt delayMs={viewModel.opensAt.getTime() - readModel.databaseTime.getTime()} />
+      </>
+    );
   }
 
   return <ClosedState variant={{ state: viewModel.state === "FULL" ? "FULL" : "DEFAULT" }} />;

@@ -201,21 +201,24 @@ export function publicEventUrl(appBaseUrl: string, slug: string): string {
   return `${appBaseUrl.replace(/\/+$/, "")}/solicitar/${encodeURIComponent(slug)}`;
 }
 
-export function publicLinkHint(phase: EventPhase): string | null {
+export function invitationNotice(phase: EventPhase, opensAt: Date, closesAt: Date): string {
   switch (phase) {
     case "DRAFT":
-      return "Borrador: el enlace no funciona hasta que publiques la experiencia.";
+      return "Borrador: no se ve en el sitio y el link público no funciona hasta que la publiques.";
     case "SCHEDULED":
-      return "El enlace mostrará el formulario cerrado hasta que abra.";
+      return `Las invitaciones abren el ${formatAdminDate(opensAt)}.`;
     case "OPEN":
+      return `Invitaciones abiertas hasta el ${formatAdminDate(closesAt)}.`;
     case "WAITLIST":
-      return null;
+      return `Lugares llenos: solo cola hasta el ${formatAdminDate(closesAt)}.`;
     case "FULL":
-      return "Sin cupos: el enlace mostrará que no hay lugares.";
+      return "Sin lugares ni cola: el formulario muestra que está lleno.";
     case "CLOSED":
+      return "Invitaciones cerradas.";
     case "COMPLETED":
+      return "La experiencia ya terminó.";
     case "CANCELLED":
-      return "El formulario ya cerró: el enlace mostrará el estado cerrado.";
+      return "Experiencia cancelada.";
   }
 }
 
