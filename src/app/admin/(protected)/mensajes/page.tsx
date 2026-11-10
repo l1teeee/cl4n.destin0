@@ -109,7 +109,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
           </Button>
         </div>
       </div>
-      <MessagingHealthBanner view={healthView} showUnsentLink className="mx-4 mt-3" />
+      <MessagingHealthBanner view={healthView} showUnsentLink className="mx-4 mt-3 w-auto" />
       {canSend ? (
         <MessageSimulatorPanel
           mode={env.MESSAGING_MODE}
