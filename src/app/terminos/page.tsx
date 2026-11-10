@@ -52,11 +52,12 @@ export default async function TermsPage() {
 
         <h2>How a request works</h2>
         <p>
-          Each request is for one person or a pair (maximum 2) and asks for the name and Instagram
-          handle of each person. Seats are allocated in the order requests arrive; once full, the
-          request automatically joins the waitlist. Submitting a request does not guarantee a seat:
-          the team reviews each request and may accept or reject it. The same Instagram account
-          cannot have more than one request per experience.
+          By default each request is for one person or a pair, and some experiences may allow more
+          people. The request asks for the name and Instagram handle of each person. Seats are
+          allocated in the order requests arrive; once full, the request automatically joins the
+          waitlist. Submitting a request does not guarantee a seat: the team reviews each request and
+          may accept or reject it. The same Instagram account cannot have more than one request per
+          experience.
         </p>
 
         <h2>List, payment, and confirmation</h2>
@@ -144,11 +145,12 @@ export default async function TermsPage() {
 
       <h2>Cómo funciona una solicitud</h2>
       <p>
-        Cada solicitud es para una persona o una pareja (máximo 2) y pide el nombre y el usuario de
-        Instagram de cada persona. Los lugares se asignan en el orden en que llegan las solicitudes;
-        cuando se llenan, la solicitud entra automáticamente a la cola. Enviar una solicitud no
-        garantiza un lugar: el equipo revisa cada solicitud y puede aceptarla o rechazarla. Una
-        misma cuenta de Instagram no puede tener más de una solicitud por experiencia.
+        Por defecto cada solicitud es para una persona o una pareja, y algunas experiencias pueden
+        admitir más personas. La solicitud pide el nombre y el usuario de Instagram de cada persona.
+        Los lugares se asignan en el orden en que llegan las solicitudes; cuando se llenan, la
+        solicitud entra automáticamente a la cola. Enviar una solicitud no garantiza un lugar: el
+        equipo revisa cada solicitud y puede aceptarla o rechazarla. Una misma cuenta de Instagram no
+        puede tener más de una solicitud por experiencia.
       </p>
 
       <h2>Lista, pago y confirmación</h2>
