@@ -10,6 +10,7 @@ import {
   type InstagramMessenger,
 } from "@/application/messaging/instagram-messenger";
 import {
+  deleteConversation,
   discardMessage,
   linkContact,
   linkContactByCode,
@@ -1515,6 +1516,267 @@ describe("PostgreSQL message delivery", () => {
     );
     await run(irrelevant.rows[0]!.id, fakeMessenger());
     expect(await repository.getStatus(irrelevant.rows[0]!.id)).toBe("DISCARDED");
+  });
+});
+
+describe("delete conversation", () => {
+  let adminId: string;
+
+  beforeAll(async () => {
+    const admin = await pool.query<{ id: string }>(
+      `INSERT INTO admin_users (email, email_normalized, password_hash, display_name)
+       VALUES ($1, $1, 'hash', 'Deletion Admin') RETURNING id`,
+      [`${randomUUID()}@example.com`],
+    );
+    adminId = admin.rows[0]!.id;
+  });
+
+  it("deletes an unlinked contact, its messages and attachments with a count-only audit", async () => {
+    const sender = `9100${Date.now()}`;
+    const username = "off.topic.guest";
+    const result = await ingest(
+      [
+        inbound(`delete-text-${randomUUID()}`, sender, "off topic"),
+        inbound(`delete-image-${randomUUID()}`, sender, null, {
+          attachmentUrls: ["https://example.com/delete-image.png"],
+          imageAttachmentUrls: ["https://example.com/delete-image.png"],
+        }),
+      ],
+      fakeMessenger(),
+      { [sender]: username },
+    );
+    await result.after();
+    const contact = await pool.query<{ id: string; username: string }>(
+      "SELECT id, username FROM messaging_contacts WHERE instagram_scoped_id = $1",
+      [sender],
+    );
+    const contactId = contact.rows[0]!.id;
+    expect(contact.rows[0]!.username).toBe(username);
+    const outbound = await createOutbound(contactId, { status: "WAITING_WINDOW" });
+    const messages = await pool.query<{ id: string }>(
+      "SELECT id FROM messages WHERE contact_id = $1",
+      [contactId],
+    );
+    expect(messages.rowCount).toBe(3);
+    expect(messages.rows.map((row) => row.id)).toContain(outbound);
+    const messageIds = messages.rows.map((row) => row.id);
+    const attachments = await pool.query<{ id: string }>(
+      "SELECT id FROM message_attachments WHERE message_id = ANY($1::uuid[])",
+      [messageIds],
+    );
+    expect(attachments.rowCount).toBe(1);
+
+    await expect(deleteConversation(repository, contactId, adminId)).resolves.toBe("DELETED");
+
+    expect(
+      await pool.query("SELECT 1 FROM messaging_contacts WHERE id = $1", [contactId]),
+    ).toHaveProperty("rowCount", 0);
+    expect(
+      await pool.query("SELECT 1 FROM messages WHERE id = ANY($1::uuid[])", [messageIds]),
+    ).toHaveProperty("rowCount", 0);
+    expect(
+      await pool.query(
+        "SELECT 1 FROM message_attachments WHERE id = $1 OR message_id = ANY($2::uuid[])",
+        [attachments.rows[0]!.id, messageIds],
+      ),
+    ).toHaveProperty("rowCount", 0);
+    const audit = await pool.query<{
+      actor_type: string;
+      actor_admin_id: string;
+      entity_type: string;
+      metadata: Record<string, unknown>;
+    }>(
+      `SELECT actor_type, actor_admin_id, entity_type, metadata FROM audit_logs
+        WHERE action = 'MESSAGING_CONTACT_DELETED' AND entity_id = $1`,
+      [contactId],
+    );
+    expect(audit.rows).toEqual([
+      {
+        actor_type: "ADMIN",
+        actor_admin_id: adminId,
+        entity_type: "MESSAGING_CONTACT",
+        metadata: { messageCount: 3 },
+      },
+    ]);
+    expect(JSON.stringify(audit.rows[0]!.metadata)).not.toContain(username);
+  });
+
+  it.each(["reservation", "companion", "waitlist"])(
+    "preserves a contact linked as %s, its messages and the request",
+    async (link) => {
+      const contactId = await createContact(`9101${Date.now()}`);
+      const messageId = await createOutbound(contactId, { status: "WAITING_WINDOW" });
+      const eventId = await createEvent({ deleted: true });
+      const table = link === "waitlist" ? "waitlist_entries" : "reservations";
+      let requestId: string;
+      if (link === "waitlist") {
+        const waitlist = await pool.query<{ id: string }>(
+          `INSERT INTO waitlist_entries (
+             event_id, waitlist_number, status, full_name, instagram_handle, party_size,
+             terms_accepted_at, idempotency_key, submitted_at, contact_id, contact_linked_by,
+             cancelled_at
+           ) VALUES ($1, 1, 'CANCELLED', 'Delete Guest', 'delete.waitlist', 1,
+                     clock_timestamp(), $2, clock_timestamp(), $3, 'MANUAL', clock_timestamp())
+           RETURNING id`,
+          [eventId, randomUUID(), contactId],
+        );
+        requestId = waitlist.rows[0]!.id;
+      } else {
+        requestId = await createReservation(eventId, {
+          handle: "delete.reservation",
+          contactId: link === "reservation" ? contactId : undefined,
+        });
+        if (link === "companion") {
+          await pool.query(
+            `UPDATE reservations
+                SET party_size = 2, guest2_full_name = 'Companion',
+                    guest2_instagram_handle = 'delete.companion', guest2_contact_id = $2
+              WHERE id = $1`,
+            [requestId, contactId],
+          );
+        }
+        await pool.query(
+          "UPDATE reservations SET status = 'CANCELLED', cancelled_at = now() WHERE id = $1",
+          [requestId],
+        );
+      }
+      const contact = await pool.query("SELECT * FROM messaging_contacts WHERE id = $1", [
+        contactId,
+      ]);
+      const message = await pool.query("SELECT * FROM messages WHERE id = $1", [messageId]);
+      const request = await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [requestId]);
+
+      await expect(deleteConversation(repository, contactId, adminId)).resolves.toBe("LINKED");
+
+      expect(
+        (await pool.query("SELECT * FROM messaging_contacts WHERE id = $1", [contactId])).rows,
+      ).toEqual(contact.rows);
+      expect((await pool.query("SELECT * FROM messages WHERE id = $1", [messageId])).rows).toEqual(
+        message.rows,
+      );
+      expect((await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [requestId])).rows).toEqual(
+        request.rows,
+      );
+    },
+  );
+
+  it("preserves an unlinked contact with request message history", async () => {
+    const contactId = await createContact(`9102${Date.now()}`);
+    const reservationId = await createReservation(await createEvent(), {
+      handle: "delete.history",
+    });
+    const messageId = await createOutbound(contactId, { reservationId, status: "SENT" });
+    const contact = await pool.query("SELECT * FROM messaging_contacts WHERE id = $1", [contactId]);
+    const messages = await pool.query("SELECT * FROM messages WHERE contact_id = $1", [contactId]);
+    expect(messages.rows[0]!.id).toBe(messageId);
+
+    await expect(deleteConversation(repository, contactId, adminId)).resolves.toBe(
+      "HAS_REQUEST_MESSAGES",
+    );
+
+    expect(
+      (await pool.query("SELECT * FROM messaging_contacts WHERE id = $1", [contactId])).rows,
+    ).toEqual(contact.rows);
+    expect(
+      (await pool.query("SELECT * FROM messages WHERE contact_id = $1", [contactId])).rows,
+    ).toEqual(messages.rows);
+  });
+
+  it("preserves an unlinked contact while a queued message has a live lease", async () => {
+    const contactId = await createContact(`9103${Date.now()}`);
+    const messageId = await createOutbound(contactId);
+    await pool.query(
+      "UPDATE messages SET locked_until = clock_timestamp() + interval '5 minutes' WHERE id = $1",
+      [messageId],
+    );
+    const contact = await pool.query("SELECT * FROM messaging_contacts WHERE id = $1", [contactId]);
+    const messages = await pool.query("SELECT * FROM messages WHERE contact_id = $1", [contactId]);
+
+    await expect(deleteConversation(repository, contactId, adminId)).resolves.toBe("LIVE_LEASE");
+
+    expect(
+      (await pool.query("SELECT * FROM messaging_contacts WHERE id = $1", [contactId])).rows,
+    ).toEqual(contact.rows);
+    expect(
+      (await pool.query("SELECT * FROM messages WHERE contact_id = $1", [contactId])).rows,
+    ).toEqual(messages.rows);
+  });
+
+  it("returns NOT_FOUND for an unknown contact", async () => {
+    await expect(deleteConversation(repository, randomUUID(), adminId)).resolves.toBe("NOT_FOUND");
+  });
+
+  it("keeps deletion and code linking consistent across 20 concurrent races", async () => {
+    for (let round = 0; round < 20; round += 1) {
+      const contactId = await createContact(`9104${Date.now()}${round}`);
+      const code = `ZZZ2${"ABCDEFGHJKLMNPQRSTUVWX"[round]}2`;
+      const reservationId = await createReservation(await createEvent(), {
+        handle: "delete.race",
+        linkCode: code,
+      });
+      const [deleted, linked] = await Promise.all([
+        deleteConversation(repository, contactId, adminId),
+        linkContactByCode(repository, contactId, code, adminId).then(
+          (count) => ({ rejected: false, count }),
+          () => ({ rejected: true, count: null }),
+        ),
+      ]);
+      const contact = await pool.query("SELECT 1 FROM messaging_contacts WHERE id = $1", [
+        contactId,
+      ]);
+      const reservation = await pool.query<{ contact_id: string | null }>(
+        "SELECT contact_id FROM reservations WHERE id = $1",
+        [reservationId],
+      );
+      if (deleted === "LINKED") {
+        expect(contact.rowCount).toBe(1);
+        expect(reservation.rows[0]!.contact_id).toBe(contactId);
+        expect(linked).toEqual({ rejected: false, count: 1 });
+      } else {
+        expect(deleted).toBe("DELETED");
+        expect(contact.rowCount).toBe(0);
+        expect(linked.rejected || linked.count === 0).toBe(true);
+        expect(reservation.rows[0]!.contact_id).toBeNull();
+      }
+      const dangling = await pool.query(
+        `SELECT 1 FROM reservations r
+           LEFT JOIN messaging_contacts c ON c.id = r.contact_id
+          WHERE r.id = $1 AND r.contact_id IS NOT NULL AND c.id IS NULL`,
+        [reservationId],
+      );
+      expect(dangling.rowCount).toBe(0);
+    }
+  });
+
+  it("creates a fresh conversation when the same Instagram account writes after deletion", async () => {
+    const sender = `9105${Date.now()}`;
+    const oldMid = `delete-old-${randomUUID()}`;
+    await ingest([inbound(oldMid, sender, "old conversation")]);
+    const original = await pool.query<{ id: string }>(
+      "SELECT id FROM messaging_contacts WHERE instagram_scoped_id = $1",
+      [sender],
+    );
+    const oldContactId = original.rows[0]!.id;
+    await expect(deleteConversation(repository, oldContactId, adminId)).resolves.toBe("DELETED");
+
+    const newMid = `delete-new-${randomUUID()}`;
+    await ingest([inbound(newMid, sender, "new conversation")]);
+
+    const contacts = await pool.query<{ id: string }>(
+      "SELECT id FROM messaging_contacts WHERE instagram_scoped_id = $1",
+      [sender],
+    );
+    expect(contacts.rowCount).toBe(1);
+    const newContactId = contacts.rows[0]!.id;
+    expect(newContactId).not.toBe(oldContactId);
+    const messages = await pool.query<{ external_message_id: string; body: string }>(
+      "SELECT external_message_id, body FROM messages WHERE contact_id = $1",
+      [newContactId],
+    );
+    expect(messages.rows).toEqual([{ external_message_id: newMid, body: "new conversation" }]);
+    expect(
+      await pool.query("SELECT 1 FROM messages WHERE external_message_id = $1", [oldMid]),
+    ).toHaveProperty("rowCount", 0);
   });
 });
 

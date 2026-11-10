@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   markSentManually: vi.fn(),
   discardMessage: vi.fn(),
   unlinkContact: vi.fn(),
+  deleteConversation: vi.fn(),
+  redirect: vi.fn(() => {
+    throw new Error("NEXT_REDIRECT");
+  }),
   markConversationRead: vi.fn(),
   drainMessagesNow: vi.fn(),
   ingestConfiguredInstagramEvents: vi.fn(),
@@ -20,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("@/application/messaging/admin-message-use-cases", async (importOriginal) => {
   const actual =
@@ -33,6 +38,7 @@ vi.mock("@/application/messaging/admin-message-use-cases", async (importOriginal
     markSentManually: mocks.markSentManually,
     discardMessage: mocks.discardMessage,
     unlinkContact: mocks.unlinkContact,
+    deleteConversation: mocks.deleteConversation,
     markConversationRead: mocks.markConversationRead,
   };
 });
@@ -80,6 +86,7 @@ const {
   markSentManuallyAction,
   discardMessageAction,
   unlinkContactAction,
+  deleteConversationAction,
   markConversationReadAction,
   simulateInboundMessageAction,
 } = await import("@/app/admin/(protected)/mensajes/actions");
@@ -95,6 +102,8 @@ beforeEach(() => {
   mocks.markSentManually.mockReset();
   mocks.discardMessage.mockReset();
   mocks.unlinkContact.mockReset();
+  mocks.deleteConversation.mockReset();
+  mocks.redirect.mockClear();
   mocks.markConversationRead.mockReset();
   mocks.drainMessagesNow.mockReset();
   mocks.ingestConfiguredInstagramEvents.mockReset();
@@ -122,6 +131,7 @@ describe("message mutation authorization", () => {
     linkContactAction,
     linkContactByCodeAction,
     unlinkContactAction,
+    deleteConversationAction,
   ];
 
   function expectNoMutation() {
@@ -133,6 +143,8 @@ describe("message mutation authorization", () => {
       mocks.linkContact,
       mocks.linkContactByCode,
       mocks.unlinkContact,
+      mocks.deleteConversation,
+      mocks.redirect,
       mocks.ingestConfiguredInstagramEvents,
       mocks.updateTemplate,
       mocks.drainMessagesNow,
@@ -183,6 +195,81 @@ describe("message mutation authorization", () => {
     });
     expect(mocks.markConversationRead).toHaveBeenCalledOnce();
     expect(mocks.requirePermission).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteConversationAction", () => {
+  const state = { ok: false, message: "" };
+
+  it("rejects an invalid contact id before rate limiting or deleting", async () => {
+    await expect(deleteConversationAction("invalid", state, new FormData())).resolves.toEqual({
+      ok: false,
+      message: "La conversación no es válida.",
+    });
+    expect(mocks.consume).not.toHaveBeenCalled();
+    expect(mocks.deleteConversation).not.toHaveBeenCalled();
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("limits deletions per admin", async () => {
+    mocks.consume.mockResolvedValue({ allowed: false });
+    await expect(deleteConversationAction(contactId, state, new FormData())).resolves.toEqual({
+      ok: false,
+      message: "Alcanzaste el límite de eliminaciones. Intenta más tarde.",
+    });
+    expect(mocks.consume).toHaveBeenCalledWith({
+      scope: "admin-message:delete",
+      subject: "00000000-0000-4000-8000-000000000099",
+      limit: 30,
+      windowSeconds: 600,
+    });
+    expect(mocks.deleteConversation).not.toHaveBeenCalled();
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["NOT_FOUND", "No se encontró la conversación."],
+    [
+      "LINKED",
+      "Esta conversación está vinculada a una solicitud. Desvincúlala antes de eliminarla.",
+    ],
+    [
+      "HAS_REQUEST_MESSAGES",
+      "Esta conversación tiene mensajes de una solicitud y no se puede eliminar.",
+    ],
+    [
+      "LIVE_LEASE",
+      "Un mensaje se está enviando en este momento. Intenta de nuevo en unos segundos.",
+    ],
+  ])("explains %s without refreshing or redirecting", async (result, message) => {
+    mocks.deleteConversation.mockResolvedValue(result);
+    await expect(deleteConversationAction(contactId, state, new FormData())).resolves.toEqual({
+      ok: false,
+      message,
+    });
+    expect(mocks.deleteConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ isBlockedByWaitingWindow: mocks.isBlockedByWaitingWindow }),
+      contactId,
+      "00000000-0000-4000-8000-000000000099",
+    );
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("refreshes messages and redirects to the list after deletion", async () => {
+    mocks.deleteConversation.mockResolvedValue("DELETED");
+    await expect(deleteConversationAction(contactId, state, new FormData())).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
+    expect(mocks.revalidatePath.mock.calls).toEqual([
+      ["/admin/mensajes"],
+      ["/admin/mensajes/sin-enviar"],
+      ["/admin"],
+    ]);
+    expect(mocks.redirect).toHaveBeenCalledExactlyOnceWith("/admin/mensajes");
+    expect(mocks.revalidatePath.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mocks.redirect.mock.invocationCallOrder[0]!,
+    );
   });
 });
 

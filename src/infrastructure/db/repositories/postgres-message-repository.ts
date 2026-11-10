@@ -11,6 +11,7 @@ import type {
 import type {
   AdminMessageMutationResult,
   AdminMessageRepository,
+  DeleteConversationResult,
   MessageSubject,
 } from "@/application/messaging/admin-message-repository";
 import type {
@@ -1476,6 +1477,51 @@ export class PostgresMessageRepository
         [adminId, entityType, id, JSON.stringify({ contactId })],
       );
       return "UPDATED";
+    });
+  }
+
+  async deleteConversation(contactId: string, adminId: string): Promise<DeleteConversationResult> {
+    return this.withTransaction(async (client) => {
+      const contact = await client.query(
+        "SELECT id FROM messaging_contacts WHERE id = $1 FOR UPDATE",
+        [contactId],
+      );
+      if (contact.rowCount === 0) return "NOT_FOUND";
+
+      const linked = await client.query(
+        `SELECT 1 FROM reservations WHERE contact_id = $1 OR guest2_contact_id = $1
+         UNION ALL
+         SELECT 1 FROM waitlist_entries WHERE contact_id = $1
+         LIMIT 1`,
+        [contactId],
+      );
+      if (linked.rowCount !== 0) return "LINKED";
+
+      const requestMessages = await client.query(
+        `SELECT 1 FROM messages
+          WHERE contact_id = $1
+            AND (reservation_id IS NOT NULL OR waitlist_entry_id IS NOT NULL OR event_id IS NOT NULL)
+          LIMIT 1`,
+        [contactId],
+      );
+      if (requestMessages.rowCount !== 0) return "HAS_REQUEST_MESSAGES";
+
+      const messages = await client.query<{ live_lease: boolean | null }>(
+        `SELECT status = 'QUEUED' AND locked_until > clock_timestamp() AS live_lease
+           FROM messages WHERE contact_id = $1 FOR UPDATE`,
+        [contactId],
+      );
+      if (messages.rows.some((row) => row.live_lease)) return "LIVE_LEASE";
+      const messageCount = messages.rowCount;
+
+      await client.query("DELETE FROM messaging_contacts WHERE id = $1", [contactId]);
+      await client.query(
+        `INSERT INTO audit_logs (
+           actor_type, actor_admin_id, action, entity_type, entity_id, metadata
+         ) VALUES ('ADMIN', $1, 'MESSAGING_CONTACT_DELETED', 'MESSAGING_CONTACT', $2, $3::jsonb)`,
+        [adminId, contactId, JSON.stringify({ messageCount })],
+      );
+      return "DELETED";
     });
   }
 

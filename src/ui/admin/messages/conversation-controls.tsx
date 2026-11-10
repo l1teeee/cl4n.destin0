@@ -12,12 +12,25 @@ export function ConversationControls({
   contactId,
   linkedRequests,
   unlinkAction,
+  deleteAction,
 }: {
   contactId: string;
   linkedRequests: readonly LinkedRequestSummary[];
   unlinkAction: ContactAction;
+  deleteAction: ContactAction;
 }) {
-  if (linkedRequests.length === 0) return null;
+  if (linkedRequests.length === 0) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <MutationForm
+          action={deleteAction.bind(null, contactId)}
+          label="Eliminar conversación"
+          confirmation="Se borrarán para siempre esta conversación y sus mensajes en Clandestino. En Instagram no se borra nada. Si la persona vuelve a escribir, aparecerá como una conversación nueva."
+          danger
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap gap-2">

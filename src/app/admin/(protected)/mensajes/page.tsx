@@ -43,6 +43,8 @@ import {
 } from "@/ui/admin/messages/message-view-model";
 import { Button } from "@/ui/primitives/button";
 
+import { deleteConversationAction } from "./actions";
+
 const PAGE_SIZE = 30;
 
 interface MessagesPageProps {
@@ -169,6 +171,7 @@ export default async function MessagesPage({ searchParams }: MessagesPageProps) 
         contactId={selectedConversation.contact.id}
         linkedRequests={selectedConversation.linkedRequests}
         unlinkAction={unlinkContactAction}
+        deleteAction={deleteConversationAction}
       />
     ) : undefined;
     conversation = (
