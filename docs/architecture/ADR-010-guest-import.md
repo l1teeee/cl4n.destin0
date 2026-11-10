@@ -12,8 +12,10 @@ import those responses without bypassing capacity, duplicate detection or the wa
 
 Admins import CSV, XLSX or JSON responses using a preview followed by a run. The server parses
 and validates the file again on every run; client preview rows are never trusted. Files are
-limited to 1 MB, 200 non-empty response rows and 40 columns. XLSX parsing uses
-`read-excel-file` pinned to version 9.3.12.
+limited to 1 MB, 200 non-empty response rows and 40 columns. XLSX is read by an in-house reader
+on node:zlib (inflateRaw with maxOutputLength 16 MiB per entry, 32 MiB total, no ZIP64, no
+encryption, first sheet only) because Snyk reported a high issue without fix in fflate (via
+read-excel-file) and in SheetJS; exceljs carried four medium issues.
 
 Valid responses run sequentially in timestamp order, with file order breaking ties. Each row
 is one allocation transaction through the shared public allocation engine: seats first

@@ -1,7 +1,7 @@
-import { readSheet } from "read-excel-file/node";
-
 import { parseCsv } from "@/domain/guest-import/csv";
 import { ImportTableError } from "@/domain/guest-import/import-rows";
+
+import { readXlsxFirstSheet } from "./xlsx-reader";
 
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -30,7 +30,7 @@ export async function readImportFile(
       };
     }
     const table = name.toLowerCase().endsWith(".xlsx")
-      ? (await readSheet(Buffer.from(bytes))).map((row) => row.map(cellText))
+      ? readXlsxFirstSheet(bytes)
       : parseCsv(new TextDecoder("utf-8").decode(bytes));
     return { headers: table[0] ?? [], rows: table.slice(1) };
   } catch (error) {

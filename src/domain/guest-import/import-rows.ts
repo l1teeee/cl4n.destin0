@@ -10,6 +10,13 @@ import { normalizeInstagram } from "@/domain/reservation/contact-normalization";
 export class ImportTableError extends Error {}
 
 function parseTimestamp(value: string): string | null {
+  if (/^\d{1,7}(\.\d+)?$/.test(value)) {
+    const serial = Number(value);
+    if (serial < 1 || serial > 2958465) return null;
+    const seconds = Math.round(serial * 24 * 60 * 60);
+    const epoch = Date.UTC(1899, 11, 30);
+    return new Date(epoch + seconds * 1000 + 6 * 60 * 60 * 1000).toISOString();
+  }
   const dayFirst = /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(value);
   if (dayFirst) {
     const [, day, month, year, hour, minute, second = "0"] = dayFirst;

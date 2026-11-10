@@ -161,6 +161,52 @@ describe("buildImportRows", () => {
     ).toBe("2026-11-10T14:00:00.000Z");
   });
 
+  it("parses Google Sheets serial timestamps as El Salvador wall time rounded to a second", () => {
+    const result = rows([["Ana", "ana", "", "", "", "", "46336.66844"]], {
+      ...mapping,
+      timestamp: 6,
+    });
+    expect(result[0]).toMatchObject({
+      timestamp: "2026-11-10T22:02:33.000Z",
+      order: 1,
+      error: null,
+    });
+    expect(
+      rows([["Ana", "ana", "", "", "", "", "1.000006"]], { ...mapping, timestamp: 6 })[0]!
+        .timestamp,
+    ).toBe("1899-12-31T06:00:01.000Z");
+    expect(
+      rows([["Ana", "ana", "", "", "", "", "2958465"]], { ...mapping, timestamp: 6 })[0]!.timestamp,
+    ).toBe("9999-12-31T06:00:00.000Z");
+  });
+
+  it("orders serial timestamps alongside day-first and ISO timestamps", () => {
+    const result = rows(
+      [
+        ["Ana", "ana", "", "", "", "", "46336.66844"],
+        ["Luis", "luis", "", "", "", "", "46335.75"],
+        ["Eva", "eva", "", "", "", "", "10/11/2026 16:02:33"],
+        ["Leo", "leo", "", "", "", "", "2026-11-10T22:02:32Z"],
+      ],
+      { ...mapping, timestamp: 6 },
+    );
+    expect(result.map((row) => row.order)).toEqual([3, 1, 4, 2]);
+    expect(rows([["Ana", "ana", "", "", "", "", "invalid serial"]])[0]!.error).toBeNull();
+  });
+
+  it.each(["0", "0.999", "2958465.1", "2958466", "12345678", "-1", "1e3"])(
+    "rejects invalid serial timestamp %s",
+    (timestamp) => {
+      expect(
+        rows([["Ana", "ana", "", "", "", "", timestamp]], { ...mapping, timestamp: 6 })[0],
+      ).toMatchObject({
+        timestamp: null,
+        order: null,
+        error: "No se pudo leer la marca temporal.",
+      });
+    },
+  );
+
   it("requires name and Instagram mapping even when other fields are valid", () => {
     expect(rows([["Ana", "ana"]], {})[0]!.error).toBe("Elige las columnas de nombre e Instagram.");
   });
