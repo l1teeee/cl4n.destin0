@@ -1,3 +1,4 @@
+import { Navigation } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -63,6 +64,7 @@ import {
   publicLinkHint,
 } from "@/ui/admin/view-model";
 import { Badge } from "@/ui/primitives/badge";
+import { cn } from "@/ui/cn";
 import { Button } from "@/ui/primitives/button";
 import { Input } from "@/ui/primitives/input";
 import { Label } from "@/ui/primitives/label";
@@ -184,6 +186,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
   const loadedLocation = { revision: event.locationRevision, status: event.location.status };
   const controls = lifecycleActions(event, eventResult.databaseTime);
   const map = locationMap(event.location);
+  const confirmed = event.location.status === "CONFIRMED";
 
   return (
     <main className="admin-page admin-event-detail-page space-y-10">
@@ -293,26 +296,52 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             </Link>
           </Button>
         </div>
-        <Badge variant={event.location.status === "CONFIRMED" ? "confirmed" : "draft"}>
-          {event.location.status === "CONFIRMED" ? "Confirmada" : "Por confirmar"}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Badge variant={confirmed ? "confirmed" : "draft"}>
+            {confirmed ? "Confirmada" : "Por confirmar"}
+          </Badge>
+          {confirmed && event.location.confirmedAt ? (
+            <p className="admin-muted text-sm">
+              Desde el {formatAdminDate(event.location.confirmedAt)}
+            </p>
+          ) : null}
+          {confirmed ? (
+            <MutationForm
+              action={setEventLocationStatusAction.bind(null, id, "PENDING", loadedLocation)}
+              label="Marcar por confirmar"
+            />
+          ) : event.location.address || event.location.mapsUrl ? (
+            <MutationForm
+              action={setEventLocationStatusAction.bind(null, id, "CONFIRMED", loadedLocation)}
+              label="Confirmar ubicación"
+            />
+          ) : null}
+        </div>
         {event.location.name ||
         event.location.address ||
         event.location.mapsUrl ||
         event.location.notes ? (
-          <div className="space-y-3">
+          <div
+            className={cn(
+              "space-y-3 border-l-2 pl-4",
+              confirmed ? "border-success" : "border-border",
+            )}
+          >
             {event.location.name ? (
               <p className="text-lg font-semibold">{event.location.name}</p>
             ) : null}
-            {event.location.address ? (
+            {event.location.address &&
+            event.location.address.trim().toLowerCase() !==
+              (event.location.name ?? "").trim().toLowerCase() ? (
               <p className="whitespace-pre-line">{event.location.address}</p>
             ) : null}
             {event.location.notes ? (
               <p className="admin-muted whitespace-pre-line">{event.location.notes}</p>
             ) : null}
             {event.location.mapsUrl ? (
-              <Button variant="link" asChild>
+              <Button variant="outline" size="sm" asChild>
                 <a href={event.location.mapsUrl} target="_blank" rel="noopener noreferrer">
+                  <Navigation aria-hidden="true" />
                   {mapProviderOf(event.location.mapsUrl) === "WAZE"
                     ? "Abrir en Waze"
                     : "Abrir en Google Maps"}
@@ -357,20 +386,6 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
               );
             })}
           </div>
-        ) : null}
-        {event.location.confirmedAt ? (
-          <p className="admin-muted">Confirmada el {formatAdminDate(event.location.confirmedAt)}</p>
-        ) : null}
-        {event.location.status === "CONFIRMED" ? (
-          <MutationForm
-            action={setEventLocationStatusAction.bind(null, id, "PENDING", loadedLocation)}
-            label="Marcar por confirmar"
-          />
-        ) : event.location.address || event.location.mapsUrl ? (
-          <MutationForm
-            action={setEventLocationStatusAction.bind(null, id, "CONFIRMED", loadedLocation)}
-            label="Confirmar ubicación"
-          />
         ) : null}
         <LocationDeliveryPanel
           summary={locationDelivery}
