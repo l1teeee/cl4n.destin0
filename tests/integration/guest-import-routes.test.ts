@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 
 import * as Sentry from "@sentry/nextjs";
@@ -10,6 +9,8 @@ import {
   type ImportPreviewResponse,
   type ImportRunResponse,
 } from "@/contracts/guest-import";
+import { scheduleMessageDelivery } from "@/infrastructure/messaging/schedule-message-delivery";
+import { consume } from "@/infrastructure/rate-limit/postgres-rate-limiter";
 
 import { insertTestEvent } from "../helpers/reservation-test-data";
 import { resetTestDatabase } from "../helpers/test-db";
@@ -26,14 +27,18 @@ vi.mock("@/infrastructure/auth/require-admin", () => ({
 vi.mock("@/infrastructure/http/same-origin-request", () => ({
   isSameOriginRequest: vi.fn(() => state.sameOrigin),
 }));
+vi.mock("@/infrastructure/rate-limit/postgres-rate-limiter", () => ({
+  consume: vi.fn(),
+}));
+vi.mock("@/infrastructure/messaging/schedule-message-delivery", () => ({
+  scheduleMessageDelivery: vi.fn(),
+}));
 
 let pool: Pool;
 let preview: typeof import("@/app/admin/(protected)/events/[id]/importar/preview/route").POST;
 let run: typeof import("@/app/admin/(protected)/events/[id]/importar/run/route").POST;
 
 beforeAll(async () => {
-  Object.assign(globalThis, { AsyncLocalStorage });
-  process.env.RATE_LIMIT_MODE = "enforce";
   await resetTestDatabase();
   pool = (await import("@/infrastructure/db/client")).pool;
   preview = (await import("@/app/admin/(protected)/events/[id]/importar/preview/route")).POST;
@@ -44,11 +49,16 @@ beforeAll(async () => {
   state.adminId = admin.rows[0]!.id;
 });
 
-beforeEach(async () => {
+beforeEach(() => {
   state.authorized = true;
   state.sameOrigin = true;
   vi.mocked(Sentry.captureException).mockClear();
-  await pool.query("DELETE FROM rate_limit_counters");
+  vi.mocked(consume).mockReset().mockResolvedValue({
+    allowed: true,
+    remaining: 60,
+    retryAfterSeconds: 0,
+  });
+  vi.mocked(scheduleMessageDelivery).mockClear();
 });
 
 afterAll(async () => {
@@ -73,58 +83,6 @@ function request(
 
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
 const mapping = JSON.stringify({ guest1Name: 0, guest1Instagram: 1 });
-
-async function runInRequestScope(req: Request, id: string): Promise<Response> {
-  const { NextRequest } = await import("next/server");
-  const { createWorkStore } = await import("next/dist/server/async-storage/work-store");
-  const { createRequestStoreForAPI } = await import("next/dist/server/async-storage/request-store");
-  const { workAsyncStorage } =
-    await import("next/dist/server/app-render/work-async-storage.external");
-  const { workUnitAsyncStorage } =
-    await import("next/dist/server/app-render/work-unit-async-storage.external");
-  const pending: Promise<unknown>[] = [];
-  const close: (() => void)[] = [];
-  const workStore = createWorkStore({
-    page: "/admin/events/[id]/importar/run/route",
-    buildId: "test",
-    deploymentId: "test",
-    previouslyRevalidatedTags: [],
-    renderOpts: {
-      cacheLifeProfiles: { default: { stale: 300, revalidate: 900, expire: 3600 } },
-      staticPageGenerationTimeout: 60,
-      cacheComponents: false,
-      validationLevel: "warning",
-      supportsDynamicResponse: true,
-      assetPrefix: "",
-      experimental: { isRoutePPREnabled: false, authInterrupts: false, useCacheTimeout: 60 },
-      waitUntil: (promise) => {
-        pending.push(promise);
-      },
-      onClose: (callback) => {
-        close.push(callback);
-      },
-      onAfterTaskError: (error) => {
-        throw error;
-      },
-    },
-  });
-  const requestStore = createRequestStoreForAPI(
-    new NextRequest(req.clone()),
-    new URL(req.url),
-    { tags: [], expirationsByCacheKind: new Map() },
-    undefined,
-    undefined,
-    undefined,
-  );
-  return workAsyncStorage.run(workStore, () =>
-    workUnitAsyncStorage.run(requestStore, async () => {
-      const response = await run(req, context(id));
-      for (const callback of close) callback();
-      await Promise.all(pending);
-      return response;
-    }),
-  );
-}
 
 describe("admin guest import routes with PostgreSQL", () => {
   it.each(["preview", "run"])("protects %s with admin auth and origin checks", async (mode) => {
@@ -326,9 +284,9 @@ describe("admin guest import routes with PostgreSQL", () => {
     ).toBe(400);
     const importId = randomUUID();
     const text = "Nombre,Instagram\nAna,ana\nLuis,luis\nEva,eva\nNoSeat,noseat\n,bad";
-    const first = await runInRequestScope(
+    const first = await run(
       request(text, "responses.CSV", { mapping, importId, rows: "untrusted client data" }),
-      event.id,
+      context(event.id),
     );
     expect(first.status).toBe(200);
     const body = (await first.json()) as ImportRunResponse;
@@ -340,9 +298,10 @@ describe("admin guest import routes with PostgreSQL", () => {
       "EVENT_FULL",
       "INVALID",
     ]);
-    const second = await runInRequestScope(
+    expect(scheduleMessageDelivery).toHaveBeenCalledOnce();
+    const second = await run(
       request(text, "responses.csv", { mapping, importId }),
-      event.id,
+      context(event.id),
     );
     expect(second.status).toBe(200);
     expect(await second.json()).toEqual(body);
@@ -355,13 +314,19 @@ describe("admin guest import routes with PostgreSQL", () => {
     ["preview", 60],
     ["run", 20],
   ] as const)("rate limits %s by admin", async (mode, limit) => {
-    const { keyedHash } = await import("@/infrastructure/crypto/keyed-hash");
-    await pool.query(
-      "INSERT INTO rate_limit_counters (bucket_key, window_start, hits) VALUES ($1, date_bin(INTERVAL '600 seconds', now(), TIMESTAMPTZ '1970-01-01 00:00:00+00'), $2)",
-      [`admin-import:${mode}:${keyedHash(state.adminId)}`, limit],
-    );
+    vi.mocked(consume).mockResolvedValueOnce({
+      allowed: false,
+      remaining: 0,
+      retryAfterSeconds: 600,
+    });
     expect(
       (await (mode === "preview" ? preview : run)(request(), context(randomUUID()))).status,
     ).toBe(429);
+    expect(consume).toHaveBeenCalledExactlyOnceWith({
+      scope: `admin-import:${mode}`,
+      subject: state.adminId,
+      limit,
+      windowSeconds: 600,
+    });
   });
 });
