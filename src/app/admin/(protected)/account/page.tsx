@@ -72,7 +72,7 @@ export default async function AccountPage({
   if (hasPermission(admin.role, "payments.manage")) {
     const paymentSettings = await loadPaymentSettings(postgresPaymentSettingsRepository);
     paymentSection = (
-      <section className="admin-section space-y-4">
+      <section id="datos-de-pago" className="admin-section space-y-4 scroll-mt-20">
         <h2 className="admin-section-title">Datos de pago</h2>
         {paymentSettings === null ? (
           <p className="admin-muted">Completa los datos de pago para poder aceptar invitados.</p>

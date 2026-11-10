@@ -44,7 +44,9 @@ type EventAction = (state: AdminActionState, formData: FormData) => Promise<Admi
 function renderCreate(action?: EventAction, values: EventFormValues | undefined = validValues) {
   const eventAction =
     action ?? vi.fn(async (): Promise<AdminActionState> => ({ ok: true, message: "" }));
-  return render(<EventForm action={eventAction} mode="create" values={values} />);
+  return render(
+    <EventForm paymentSettings={null} action={eventAction} mode="create" values={values} />,
+  );
 }
 
 describe("create event form steps", () => {
@@ -60,6 +62,7 @@ describe("create event form steps", () => {
   it("stays on step one, shows errors, and focuses the first invalid field", async () => {
     render(
       <EventForm
+        paymentSettings={null}
         action={vi.fn(async (): Promise<AdminActionState> => ({ ok: true, message: "" }))}
         mode="create"
       />,
@@ -156,6 +159,7 @@ describe("edit event form", () => {
   it("renders all fields without wizard controls", () => {
     render(
       <EventForm
+        paymentSettings={null}
         action={vi.fn(async () => ({ ok: true, message: "" }))}
         mode="edit"
         values={{ ...validValues, locationRevision: 0 }}
@@ -204,7 +208,6 @@ describe("event form section hints", () => {
     "Cuándo se abre y se cierra el formulario público para pedir lugar.",
     "Desde esta hora la gente puede enviar solicitudes.",
     "Después de esta hora ya no se aceptan solicitudes. Debe ser antes de la cena.",
-    "Precio por persona. Los datos bancarios se configuran una vez en Mi cuenta > Datos de pago.",
     "Se envía por Instagram solo a las personas confirmadas.",
   ];
 
@@ -217,11 +220,16 @@ describe("event form section hints", () => {
     ]) {
       expect(screen.getByText(hint)).toBeDefined();
     }
+    expect(screen.getByText(/Precio por persona\./)).toBeDefined();
+    const paymentLink = screen.getByRole("link", { name: /Mi cuenta > Datos de pago/ });
+    expect(paymentLink.getAttribute("href")).toBe("/admin/account#datos-de-pago");
+    expect(paymentLink.getAttribute("target")).toBe("_blank");
   });
 
   it("explains every section when editing", () => {
     render(
       <EventForm
+        paymentSettings={null}
         action={vi.fn(async () => ({ ok: true, message: "" }))}
         mode="edit"
         values={{ ...validValues, locationRevision: 0 }}
@@ -231,6 +239,10 @@ describe("event form section hints", () => {
     for (const hint of hints) {
       expect(screen.getByText(hint)).toBeDefined();
     }
+    expect(screen.getByText(/Precio por persona\./)).toBeDefined();
+    const paymentLink = screen.getByRole("link", { name: /Mi cuenta > Datos de pago/ });
+    expect(paymentLink.getAttribute("href")).toBe("/admin/account#datos-de-pago");
+    expect(paymentLink.getAttribute("target")).toBe("_blank");
   });
 });
 
@@ -238,6 +250,7 @@ describe("opening now", () => {
   it("prefills the opening with the suggested time when creating", () => {
     const { container } = render(
       <EventForm
+        paymentSettings={null}
         action={vi.fn(async () => ({ ok: true, message: "" }))}
         mode="create"
         suggestedOpensAt="2026-11-01T15:43"

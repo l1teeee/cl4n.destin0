@@ -247,7 +247,11 @@ describe("admin form-compatible controls", () => {
 
   it("keeps the EventForm server field contract", () => {
     const { container } = render(
-      <EventForm action={vi.fn(async () => ({ ok: true, message: "" }))} mode="create" />,
+      <EventForm
+        paymentSettings={null}
+        action={vi.fn(async () => ({ ok: true, message: "" }))}
+        mode="create"
+      />,
     );
 
     for (const name of [
@@ -272,7 +276,9 @@ describe("admin form-compatible controls", () => {
       void formData;
       return { ok: false, message: "No se pudo guardar." };
     });
-    const { container } = render(<EventForm action={action} mode={mode} values={values} />);
+    const { container } = render(
+      <EventForm paymentSettings={null} action={action} mode={mode} values={values} />,
+    );
     const name = screen.getByLabelText("Nombre interno") as HTMLInputElement;
     const slug = container.querySelector<HTMLInputElement>('[name="slug"]')!;
     const numberField = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(
@@ -308,7 +314,9 @@ describe("admin form-compatible controls", () => {
         opensAt: "La fecha de apertura es obligatoria.",
       },
     }));
-    const { container } = render(<EventForm action={action} mode="create" values={createValues} />);
+    const { container } = render(
+      <EventForm paymentSettings={null} action={action} mode="create" values={createValues} />,
+    );
     const slug = container.querySelector<HTMLInputElement>('[name="slug"]')!;
 
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));

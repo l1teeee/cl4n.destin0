@@ -46,13 +46,17 @@ function changeField(container: HTMLElement, name: string, value: string) {
 
 describe("maps link warning in the event form", () => {
   it("is hidden until the address changes", () => {
-    const { container } = render(<EventForm action={action} mode="edit" values={values} />);
+    const { container } = render(
+      <EventForm paymentSettings={null} action={action} mode="edit" values={values} />,
+    );
     expect(screen.queryByText(warning)).toBeNull();
     expect(container.querySelector('[name="keepMapsUrl"]')).toBeNull();
   });
 
   it("shows the warning and the keep checkbox after an address change", () => {
-    const { container } = render(<EventForm action={action} mode="edit" values={values} />);
+    const { container } = render(
+      <EventForm paymentSettings={null} action={action} mode="edit" values={values} />,
+    );
     changeField(container, "locationAddress", "Calle 2");
     expect(screen.getByText(warning)).toBeDefined();
     expect(screen.getByLabelText("Mantener el enlace de Google Maps actual")).toBeDefined();
@@ -60,7 +64,9 @@ describe("maps link warning in the event form", () => {
   });
 
   it("hides them again when the Maps link is replaced", () => {
-    const { container } = render(<EventForm action={action} mode="edit" values={values} />);
+    const { container } = render(
+      <EventForm paymentSettings={null} action={action} mode="edit" values={values} />,
+    );
     changeField(container, "locationAddress", "Calle 2");
     changeField(
       container,
@@ -71,7 +77,9 @@ describe("maps link warning in the event form", () => {
   });
 
   it("never shows in create mode", () => {
-    const { container } = render(<EventForm action={action} mode="create" />);
+    const { container } = render(
+      <EventForm paymentSettings={null} action={action} mode="create" />,
+    );
     changeField(container, "locationAddress", "Calle 2");
     expect(screen.queryByText(warning)).toBeNull();
   });

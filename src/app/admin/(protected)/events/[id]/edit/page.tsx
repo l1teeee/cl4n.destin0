@@ -3,9 +3,11 @@ import { notFound } from "next/navigation";
 
 import { updateEventAction } from "@/app/admin/(protected)/events/actions";
 import { getAdminEventDetail } from "@/application/events/event-use-cases";
+import { loadPaymentSettings } from "@/application/payments/payment-settings";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventImageRepository } from "@/infrastructure/db/repositories/postgres-event-image-repository";
+import { postgresPaymentSettingsRepository } from "@/infrastructure/db/repositories/postgres-payment-settings-repository";
 import { formatUtcForElSalvador } from "@/infrastructure/time/el-salvador-time";
 import { EventForm } from "@/ui/admin/event-form";
 import { EventImagesManager } from "@/ui/admin/event-images-manager";
@@ -20,6 +22,7 @@ interface EditEventPageProps {
 
 export default async function EditEventPage({ params, searchParams }: EditEventPageProps) {
   await requireAdmin("page");
+  const paymentSettings = await loadPaymentSettings(postgresPaymentSettingsRepository);
   const { id } = await params;
   const [result, images] = await Promise.all([
     getAdminEventDetail(postgresEventRepository, id),
@@ -48,6 +51,7 @@ export default async function EditEventPage({ params, searchParams }: EditEventP
       <EventForm
         action={updateEventAction.bind(null, id)}
         mode="edit"
+        paymentSettings={paymentSettings}
         slugEditable={event.status === "DRAFT"}
         values={{
           internalName: event.internalName,

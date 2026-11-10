@@ -9,12 +9,14 @@ import {
   type ReactNode,
 } from "react";
 import { Check, Loader2 } from "lucide-react";
+import Link from "next/link";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import { createAdminEventSchema, readCreateEventFormData } from "@/contracts/admin-event";
-import { drinkPriceInputValue } from "@/domain/drink/drink-price";
+import { drinkPriceInputValue, parseDrinkPriceCents } from "@/domain/drink/drink-price";
 import { reconcileMapsLink } from "@/domain/event/event-location";
 import { mapProviderOf } from "@/domain/event/map-links";
+import type { PaymentSettings } from "@/domain/payment/payment-settings";
 import { Alert } from "@/ui/primitives/alert";
 import { Button } from "@/ui/primitives/button";
 import { DatePicker } from "@/ui/primitives/date-picker";
@@ -36,6 +38,7 @@ import { Textarea } from "@/ui/primitives/textarea";
 import { TimePicker } from "@/ui/primitives/time-picker";
 
 import { ElSalvadorClock } from "./el-salvador-clock";
+import { PaymentPreview } from "./payment-preview";
 import { useFocusFirstInvalid } from "./use-focus-first-invalid";
 
 const initialState: AdminActionState = { ok: false, message: "" };
@@ -60,10 +63,22 @@ const sectionHints = {
   seats:
     "Capacidad: lugares totales. Personas por solicitud: 1 solo individuales, 2 también parejas. Cola: cuántas personas pueden esperar si se llena.",
   reservations: "Cuándo se abre y se cierra el formulario público para pedir lugar.",
-  payment:
-    "Precio por persona. Los datos bancarios se configuran una vez en Mi cuenta > Datos de pago.",
   location: "Se envía por Instagram solo a las personas confirmadas.",
 };
+const paymentHint = (
+  <>
+    Precio por persona. Los datos bancarios se configuran una vez en{" "}
+    <Link
+      href="/admin/account#datos-de-pago"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="underline underline-offset-4 transition-opacity duration-200 [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-60"
+    >
+      Mi cuenta &gt; Datos de pago<span className="sr-only"> (se abre en una pestaña nueva)</span>
+    </Link>
+    .
+  </>
+);
 const opensAtHint = "Desde esta hora la gente puede enviar solicitudes.";
 const closesAtHint =
   "Después de esta hora ya no se aceptan solicitudes. Debe ser antes de la cena.";
@@ -97,6 +112,7 @@ export interface EventFormValues {
 
 interface EventFormProps {
   action: (state: AdminActionState, formData: FormData) => Promise<AdminActionState>;
+  paymentSettings: PaymentSettings | null;
   values?: EventFormValues;
   mode: "create" | "edit";
   slugEditable?: boolean;
@@ -106,6 +122,7 @@ interface EventFormProps {
 
 interface ExperienceFieldsProps {
   errors: FieldErrors;
+  paymentSettings: PaymentSettings | null;
   mode: "create" | "edit";
   slugEditable: boolean;
   suggestedOpensAt?: string;
@@ -117,7 +134,7 @@ const separatedSectionClass = "grid gap-2 border-t border-border pt-5 md:col-spa
 
 interface SectionHeadingProps {
   title: string;
-  hint: string;
+  hint: ReactNode;
   as?: "h2" | "h3";
   separated?: boolean;
   aside?: ReactNode;
@@ -143,12 +160,17 @@ function SectionHeading({
 
 function ExperienceFields({
   errors,
+  paymentSettings,
   mode,
   slugEditable,
   suggestedOpensAt,
   values,
 }: ExperienceFieldsProps) {
   const [openNow, setOpenNow] = useState(false);
+  const [priceText, setPriceText] = useState(
+    values?.priceCents == null ? "" : drinkPriceInputValue(values.priceCents),
+  );
+  const [paymentNote, setPaymentNote] = useState(values?.paymentInstructions ?? "");
 
   return (
     <>
@@ -337,7 +359,7 @@ function ExperienceFields({
         />
         <Label htmlFor="autoCloseOnFull">Cerrar automáticamente al alcanzar la capacidad</Label>
       </div>
-      <SectionHeading title="Pago" hint={sectionHints.payment} />
+      <SectionHeading title="Pago" hint={paymentHint} />
       <Label className="grid gap-2">
         <span>Precio por persona (USD)</span>
         <span className="relative block">
@@ -353,6 +375,7 @@ function ExperienceFields({
             defaultValue={
               values?.priceCents == null ? undefined : drinkPriceInputValue(values.priceCents)
             }
+            onChange={(event) => setPriceText(event.target.value)}
             required={mode === "create" || values?.priceCents != null}
             aria-invalid={Boolean(errors?.price)}
             aria-describedby={errors?.price ? "price-error" : undefined}
@@ -366,6 +389,7 @@ function ExperienceFields({
           id="paymentInstructions"
           name="paymentInstructions"
           defaultValue={values?.paymentInstructions ?? ""}
+          onChange={(event) => setPaymentNote(event.target.value)}
           maxLength={600}
           rows={2}
           placeholder="Paga antes del jueves"
@@ -373,6 +397,11 @@ function ExperienceFields({
           aria-describedby={errors?.paymentInstructions ? "paymentInstructions-error" : undefined}
         />
         <FieldError id="paymentInstructions-error" message={errors?.paymentInstructions} />
+        <PaymentPreview
+          settings={paymentSettings}
+          priceCents={parseDrinkPriceCents(priceText)}
+          note={paymentNote}
+        />
       </div>
     </>
   );
@@ -497,7 +526,7 @@ function LocationFields({
         </SegmentedControl>
         <p className="admin-muted">
           Márcala como confirmada cuando el lugar sea definitivo. Mientras esté confirmada, cada
-          nueva reservación confirmada la recibe por correo. Puedes cambiarla después.
+          nueva reservación confirmada la recibe por DM de Instagram. Puedes cambiarla después.
         </p>
         {mode === "create" ? (
           <p className="admin-muted">
@@ -522,6 +551,7 @@ function scrollToFormTop(form: HTMLFormElement | null) {
 
 export function EventForm({
   action,
+  paymentSettings,
   values,
   mode,
   slugEditable = true,
@@ -670,6 +700,7 @@ export function EventForm({
             </h2>
             <ExperienceFields
               errors={errors}
+              paymentSettings={paymentSettings}
               mode="create"
               slugEditable={slugEditable}
               suggestedOpensAt={suggestedOpensAt}
@@ -714,6 +745,7 @@ export function EventForm({
         <>
           <ExperienceFields
             errors={errors}
+            paymentSettings={paymentSettings}
             mode="edit"
             slugEditable={slugEditable}
             values={values}

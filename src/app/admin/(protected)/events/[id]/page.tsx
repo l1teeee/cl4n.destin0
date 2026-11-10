@@ -452,7 +452,8 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
               </Label>
             </MutationForm>
             <p className="admin-muted">
-              Si amplías los cupos, las personas en la cola entran en orden y reciben su correo.
+              Si amplías los cupos, las personas en la cola entran en orden y reciben su mensaje por
+              DM de Instagram.
             </p>
             <MutationForm
               action={changeWaitlistCapacityAction.bind(null, id)}
