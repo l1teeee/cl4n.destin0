@@ -30,13 +30,19 @@ export async function generateMetadata({
     return {};
   }
 
-  const title = "El clan está abierto · Clandestino";
+  const title = "El clan está abierto · Clandestino Supper Clan";
   const description = `${formatPublicEventDate(event.startsAt, "es")}. Solicita tu lugar.`;
 
   return {
-    title,
+    title: { absolute: title },
     description,
-    openGraph: { title, description, type: "website", siteName: "Clandestino", locale: "es_SV" },
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      siteName: "Clandestino Supper Clan",
+      locale: "es_SV",
+    },
     twitter: { card: "summary_large_image", title, description },
   };
 }

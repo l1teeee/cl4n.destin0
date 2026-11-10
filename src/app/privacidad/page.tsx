@@ -37,7 +37,10 @@ export default async function PrivacyPage() {
 
         <h2>What data we store</h2>
         <ul>
-          <li>The name and Instagram handle of each person in the request (maximum 2).</li>
+          <li>
+            The name and Instagram handle of each person in the request. By default a request is for
+            one person or a pair; some experiences may allow more people.
+          </li>
           <li>Whether you have allergies and which ones.</li>
           <li>Any notes you write, if you provide any.</li>
           <li>
@@ -168,7 +171,10 @@ export default async function PrivacyPage() {
 
       <h2>Qué datos guardamos</h2>
       <ul>
-        <li>El nombre y el usuario de Instagram de cada persona de la solicitud (máximo 2).</li>
+        <li>
+          El nombre y el usuario de Instagram de cada persona de la solicitud. Por defecto cada
+          solicitud es individual o en pareja; algunas experiencias pueden admitir más personas.
+        </li>
         <li>Si tienes alergias y cuáles.</li>
         <li>Las observaciones que escribas, si las escribes.</li>
         <li>

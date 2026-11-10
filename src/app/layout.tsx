@@ -7,10 +7,16 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(env.APP_BASE_URL),
-  title: "Clandestino",
-  description: "Experiencias privadas Clandestino",
-  icons: { icon: "/clandestino-logo.jpg", apple: "/clandestino-logo.jpg" },
-  openGraph: { siteName: "Clandestino", type: "website", locale: "es_SV" },
+  title: { default: "Clandestino Supper Clan", template: "%s | Clandestino Supper Clan" },
+  description: "Experiencias privadas de Clandestino Supper Clan",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: "/apple-icon.png",
+  },
+  openGraph: { siteName: "Clandestino Supper Clan", type: "website", locale: "es_SV" },
   twitter: { card: "summary_large_image" },
 };
 

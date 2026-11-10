@@ -6,7 +6,7 @@ import { buildRequestAccessViewModel } from "@/ui/public/home-view-model";
 import { OgCard } from "@/ui/public/og/og-card";
 import { getOgFonts } from "@/ui/public/og/og-fonts";
 
-export const alt = "El clan está abierto · Clandestino";
+export const alt = "El clan está abierto · Clandestino Supper Clan";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
