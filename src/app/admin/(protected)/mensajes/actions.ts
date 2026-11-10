@@ -3,11 +3,13 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { z } from "zod";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import {
+  deleteConversation as deleteConversationUseCase,
   discardMessage as discardMessageUseCase,
   linkContact as linkContactUseCase,
   linkContactByCode as linkContactByCodeUseCase,
@@ -324,6 +326,48 @@ export async function linkContactByCodeAction(
   scheduleMessageDelivery();
   refreshMessages();
   return { ok: true, message: "Conversación vinculada." };
+}
+
+export async function deleteConversationAction(
+  id: string,
+  _previousState: AdminActionState,
+  _formData: FormData,
+): Promise<AdminActionState> {
+  const authorization = await requirePermission("messages.send", "action");
+  void _previousState;
+  void _formData;
+  if (!authorization.authorized) return unauthorized(authorization.error);
+  const contactId = idSchema.safeParse(id);
+  if (!contactId.success) return { ok: false, message: "La conversación no es válida." };
+  const rateLimit = await consume({
+    scope: "admin-message:delete",
+    subject: authorization.session.admin.id,
+    limit: 30,
+    windowSeconds: 600,
+  });
+  if (!rateLimit.allowed) {
+    return {
+      ok: false,
+      message: "Alcanzaste el límite de eliminaciones. Intenta más tarde.",
+    };
+  }
+  const result = await deleteConversationUseCase(
+    postgresMessageRepository,
+    contactId.data,
+    authorization.session.admin.id,
+  );
+  if (result !== "DELETED") {
+    const messages = {
+      NOT_FOUND: "No se encontró la conversación.",
+      LINKED: "Esta conversación está vinculada a una solicitud. Desvincúlala antes de eliminarla.",
+      HAS_REQUEST_MESSAGES:
+        "Esta conversación tiene mensajes de una solicitud y no se puede eliminar.",
+      LIVE_LEASE: "Un mensaje se está enviando en este momento. Intenta de nuevo en unos segundos.",
+    };
+    return { ok: false, message: messages[result] };
+  }
+  refreshMessages();
+  redirect("/admin/mensajes");
 }
 
 export async function unlinkContactAction(

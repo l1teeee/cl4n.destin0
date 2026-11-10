@@ -1,6 +1,7 @@
 import type {
   AdminMessageMutationResult,
   AdminMessageRepository,
+  DeleteConversationResult,
   MessageSubject,
 } from "./admin-message-repository";
 import type { MessageDeliverySummary } from "./deliver-messages";
@@ -111,6 +112,14 @@ export function unlinkContact(
   adminId: string,
 ): Promise<AdminMessageMutationResult> {
   return repository.unlinkContact(contactId, subject, adminId);
+}
+
+export function deleteConversation(
+  repository: AdminMessageRepository,
+  contactId: string,
+  adminId: string,
+): Promise<DeleteConversationResult> {
+  return repository.deleteConversation(contactId, adminId);
 }
 
 export function linkContactByCode(

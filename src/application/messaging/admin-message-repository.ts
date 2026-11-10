@@ -2,6 +2,8 @@ import type { MessageStatus } from "@/domain/messaging/message-types";
 
 export type MessageSubject = { reservationId: string } | { waitlistEntryId: string };
 export type AdminMessageMutationResult = "UPDATED" | "LIVE_LEASE" | "NOT_UPDATED";
+export type DeleteConversationResult =
+  "DELETED" | "NOT_FOUND" | "LINKED" | "HAS_REQUEST_MESSAGES" | "LIVE_LEASE";
 
 export interface AdminMessageRepository {
   createFreeText(contactId: string, text: string, adminId: string): Promise<string | null>;
@@ -16,6 +18,7 @@ export interface AdminMessageRepository {
     subject: MessageSubject,
     adminId: string,
   ): Promise<AdminMessageMutationResult>;
+  deleteConversation(contactId: string, adminId: string): Promise<DeleteConversationResult>;
   isBlockedByWaitingWindow(id: string): Promise<boolean>;
   markConversationRead(contactId: string): Promise<boolean>;
   getStatus(id: string): Promise<MessageStatus | null>;

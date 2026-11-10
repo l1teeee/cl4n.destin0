@@ -83,16 +83,18 @@ describe("LinkByCodeForm", () => {
 });
 
 describe("ConversationControls", () => {
-  it("renders nothing without linked requests", () => {
-    const { container } = render(
+  it("offers to delete a conversation without linked requests", () => {
+    render(
       <ConversationControls
         contactId="contact-1"
         linkedRequests={[]}
         unlinkAction={createAction({ ok: true, message: "" })}
+        deleteAction={createAction({ ok: true, message: "" })}
       />,
     );
 
-    expect(container.firstChild).toBeNull();
+    expect(screen.getByRole("button", { name: "Eliminar conversación" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Desvincular" })).toBeNull();
   });
 
   it("offers to unlink each linked request", () => {
@@ -114,9 +116,11 @@ describe("ConversationControls", () => {
           },
         ]}
         unlinkAction={createAction({ ok: true, message: "" })}
+        deleteAction={createAction({ ok: true, message: "" })}
       />,
     );
 
     expect(screen.getByRole("button", { name: "Desvincular" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Eliminar conversación" })).toBeNull();
   });
 });

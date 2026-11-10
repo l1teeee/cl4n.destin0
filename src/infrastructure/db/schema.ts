@@ -91,6 +91,7 @@ export const auditAction = pgEnum("audit_action", [
   "GUEST_TAB_SETTLED",
   "GUEST_TAB_REOPENED",
   "PAYMENT_SETTINGS_UPDATED",
+  "MESSAGING_CONTACT_DELETED",
 ]);
 
 export const actorType = pgEnum("actor_type", ["ADMIN", "PUBLIC", "SYSTEM"]);

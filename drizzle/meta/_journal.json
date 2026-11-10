@@ -148,6 +148,13 @@
       "when": 1794009600000,
       "tag": "0020_companion_messaging",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794347700929,
+      "tag": "0021_conversation_deleted_audit",
+      "breakpoints": true
     }
   ]
 }
