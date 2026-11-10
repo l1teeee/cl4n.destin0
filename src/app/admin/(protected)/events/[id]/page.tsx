@@ -222,6 +222,12 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             label="Copiar link público"
           />
           <Button variant="outline" asChild>
+            <Link href={`/admin/events/${id}/importar`}>
+              Importar solicitudes
+              <LinkPendingIndicator />
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href={`/admin/events/${id}/edit`}>
               Editar experiencia
               <LinkPendingIndicator />

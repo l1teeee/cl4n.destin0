@@ -54,6 +54,13 @@ export interface CompletedIdempotencyRecord {
   response: ReservationResponse;
 }
 
+export interface ImportAllocationCommand extends Omit<AllocationCommand, "eventSlug"> {
+  eventId: string;
+  adminId: string;
+  importId: string;
+  rowNumber: number;
+}
+
 export interface AllocationResult extends ReservationResponse {
   replayed: boolean;
   outcome?: AllocationOutcome;
@@ -76,6 +83,7 @@ export interface CancelWaitlistEntryCommand {
 export interface ReservationAllocationRepository {
   findCompletedIdempotencyRecord(key: string): Promise<CompletedIdempotencyRecord | null>;
   allocate(command: AllocationCommand): Promise<AllocationResult>;
+  allocateImported(command: ImportAllocationCommand): Promise<AllocationResult>;
   cancelReservation(command: CancelReservationCommand): Promise<CancelReservationOutcome>;
   cancelWaitlistEntry(command: CancelWaitlistEntryCommand): Promise<CancelWaitlistEntryOutcome>;
 }

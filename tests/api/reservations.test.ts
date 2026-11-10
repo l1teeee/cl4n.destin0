@@ -522,6 +522,9 @@ describe("POST /api/reservations", () => {
     async (failureSource) => {
       const poolTimeout = new Error("timeout exceeded when trying to connect");
       const failingRepository: ReservationAllocationRepository = {
+        async allocateImported() {
+          throw new Error("import allocation should not run");
+        },
         async findCompletedIdempotencyRecord() {
           if (failureSource === "replay lookup") throw poolTimeout;
           return null;
@@ -567,6 +570,9 @@ describe("POST /api/reservations", () => {
     const event = await insertTestEvent(pool);
     const internalMessage = "relation secrets does not exist at SQL line 42";
     const failingRepository: ReservationAllocationRepository = {
+      async allocateImported() {
+        throw new Error("import allocation should not run");
+      },
       async findCompletedIdempotencyRecord() {
         return null;
       },

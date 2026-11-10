@@ -9,11 +9,15 @@ import type {
   CancelWaitlistEntryCommand,
   CancelWaitlistEntryOutcome,
   CompletedIdempotencyRecord,
+  ImportAllocationCommand,
   ReservationAllocationRepository,
   ReservationResponse,
 } from "@/application/ports/reservation-allocation-repository";
 import { renderMessageTemplate } from "@/domain/messaging/message-template";
-import { classifyAllocationFailure } from "@/domain/reservation/allocation-failure";
+import {
+  classifyAllocationFailure,
+  classifyImportAllocationFailure,
+} from "@/domain/reservation/allocation-failure";
 import { firstName, guestFirstNames } from "@/domain/reservation/guest-names";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
@@ -43,6 +47,30 @@ interface EventRow {
   capacity: number;
   reserved_seats: number;
   max_party_size: number;
+  database_now?: Date;
+}
+
+type SharedAllocationCommand = Omit<AllocationCommand, "eventSlug">;
+
+interface AllocationPolicy {
+  eventColumn: "slug" | "id";
+  eventSelector: string;
+  imported?: { adminId: string; importId: string; rowNumber: number };
+}
+
+function allocationWindow(policy: AllocationPolicy): string {
+  return policy.imported
+    ? "status IN ('SCHEDULED', 'CLOSED') AND starts_at > clock_timestamp()"
+    : "status = 'SCHEDULED' AND opens_at <= clock_timestamp() AND closes_at > clock_timestamp()";
+}
+
+function importAuditMetadata(policy: AllocationPolicy): Record<string, unknown> {
+  if (!policy.imported) return {};
+  return {
+    source: "IMPORT",
+    importId: policy.imported.importId,
+    rowNumber: policy.imported.rowNumber,
+  };
 }
 
 interface CompletedRecordRow {
@@ -86,7 +114,7 @@ interface PublicMessageTemplates {
 async function hasActiveInstagramRequest(
   client: PoolClient,
   eventId: string,
-  command: AllocationCommand,
+  command: SharedAllocationCommand,
 ): Promise<boolean> {
   const result = await client.query(
     `SELECT 1
@@ -120,7 +148,7 @@ async function loadPublicMessageTemplates(client: PoolClient): Promise<PublicMes
 }
 
 function publicMessageValues(
-  command: AllocationCommand,
+  command: SharedAllocationCommand,
   eventStartsAt: Date,
 ): Record<string, string> {
   return {
@@ -156,7 +184,7 @@ async function completeIdempotencyRecord(
 
 async function commitResult(
   client: PoolClient,
-  command: AllocationCommand,
+  command: SharedAllocationCommand,
   outcome: AllocationOutcome,
   subject: IdempotencySubject = {},
 ): Promise<AllocationResult> {
@@ -166,15 +194,23 @@ async function commitResult(
   return { ...response, replayed: false, outcome };
 }
 
-async function insertEventClosedAudit(client: PoolClient, eventId: string): Promise<void> {
+async function insertEventClosedAudit(
+  client: PoolClient,
+  eventId: string,
+  policy: AllocationPolicy,
+): Promise<void> {
   await client.query(
     `INSERT INTO audit_logs (
-       actor_type, action, entity_type, entity_id, metadata
+       actor_type, action, entity_type, entity_id, metadata${policy.imported ? ", actor_admin_id" : ""}
      )
      VALUES (
-       'SYSTEM', 'EVENT_CLOSED', 'EVENT', $1, $2::jsonb
+       '${policy.imported ? "ADMIN" : "SYSTEM"}', 'EVENT_CLOSED', 'EVENT', $1, $2::jsonb${policy.imported ? ", $3" : ""}
      )`,
-    [eventId, JSON.stringify({ reason: "CAPACITY_REACHED" })],
+    [
+      eventId,
+      JSON.stringify({ reason: "CAPACITY_REACHED", ...importAuditMetadata(policy) }),
+      ...(policy.imported ? [policy.imported.adminId] : []),
+    ],
   );
 }
 
@@ -182,6 +218,7 @@ async function claimWaitlistPlace(
   client: PoolClient,
   eventId: string,
   partySize: number,
+  policy: AllocationPolicy,
 ): Promise<WaitlistPlacement | null> {
   const result = await client.query<{
     last_waitlist_number: number;
@@ -201,9 +238,7 @@ async function claimWaitlistPlace(
             updated_at = clock_timestamp()
       WHERE id = $1
         AND deleted_at IS NULL
-        AND status = 'SCHEDULED'
-        AND opens_at <= clock_timestamp()
-        AND closes_at > clock_timestamp()
+        AND ${allocationWindow(policy)}
         AND $2 <= max_party_size
         AND reserved_seats + $2 > capacity
         AND waitlisted_count < waitlist_capacity
@@ -227,20 +262,21 @@ async function insertWaitlistEntry(
   client: PoolClient,
   eventId: string,
   waitlistNumber: number,
-  command: AllocationCommand,
+  command: SharedAllocationCommand,
+  policy: AllocationPolicy,
 ): Promise<string> {
   const result = await client.query<{ id: string }>(
     `INSERT INTO waitlist_entries (
        event_id, waitlist_number, status, full_name, instagram_handle,
        guest2_full_name, guest2_instagram_handle,
        phone_e164, email, email_normalized, party_size, notes, allergies,
-       terms_accepted_at, link_code, source, idempotency_key, submitted_at
+       terms_accepted_at, link_code, source, idempotency_key, submitted_at${policy.imported ? ", created_by" : ""}
      )
      SELECT
        $1, $2, 'WAITING', $3, $4,
        $5, $6,
        NULL, NULL, NULL, $7, $8, $9,
-       transaction_timestamp(), $10, 'PUBLIC', $11, transaction_timestamp()
+       ${policy.imported ? "NULL" : "transaction_timestamp()"}, $10, '${policy.imported ? "ADMIN" : "PUBLIC"}', $11, transaction_timestamp()${policy.imported ? ", $12" : ""}
      WHERE NOT EXISTS (SELECT 1 FROM reservations WHERE link_code = $10)
      RETURNING id`,
     [
@@ -255,6 +291,7 @@ async function insertWaitlistEntry(
       command.allergies,
       command.linkCode,
       command.idempotencyKey,
+      ...(policy.imported ? [policy.imported.adminId] : []),
     ],
   );
   const entry = result.rows[0];
@@ -273,15 +310,25 @@ async function recordWaitlisting(
   placement: WaitlistPlacement,
   partySize: number,
   messageBody: string,
+  policy: AllocationPolicy,
 ): Promise<void> {
   await client.query(
     `INSERT INTO audit_logs (
-       actor_type, action, entity_type, entity_id, metadata
+       actor_type, action, entity_type, entity_id, metadata${policy.imported ? ", actor_admin_id" : ""}
      )
      VALUES (
-       'PUBLIC', 'RESERVATION_WAITLISTED', 'WAITLIST_ENTRY', $1, $2::jsonb
+       '${policy.imported ? "ADMIN" : "PUBLIC"}', 'RESERVATION_WAITLISTED', 'WAITLIST_ENTRY', $1, $2::jsonb${policy.imported ? ", $3" : ""}
      )`,
-    [entryId, JSON.stringify({ eventId, waitlistNumber: placement.waitlistNumber, partySize })],
+    [
+      entryId,
+      JSON.stringify({
+        eventId,
+        waitlistNumber: placement.waitlistNumber,
+        partySize,
+        ...importAuditMetadata(policy),
+      }),
+      ...(policy.imported ? [policy.imported.adminId] : []),
+    ],
   );
   await enqueueGuestMessage(client, {
     kind: "WAITLISTED",
@@ -291,7 +338,7 @@ async function recordWaitlisting(
     source: "SYSTEM",
   });
   if (placement.eventClosed) {
-    await insertEventClosedAudit(client, eventId);
+    await insertEventClosedAudit(client, eventId, policy);
   }
 }
 
@@ -328,7 +375,29 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
     return readCompletedRecord(this.pool, key);
   }
 
-  async allocate(command: AllocationCommand): Promise<AllocationResult> {
+  allocate(command: AllocationCommand): Promise<AllocationResult> {
+    return this.allocateWithPolicy(command, {
+      eventColumn: "slug",
+      eventSelector: command.eventSlug,
+    });
+  }
+
+  allocateImported(command: ImportAllocationCommand): Promise<AllocationResult> {
+    return this.allocateWithPolicy(command, {
+      eventColumn: "id",
+      eventSelector: command.eventId,
+      imported: {
+        adminId: command.adminId,
+        importId: command.importId,
+        rowNumber: command.rowNumber,
+      },
+    });
+  }
+
+  private async allocateWithPolicy(
+    command: SharedAllocationCommand,
+    policy: AllocationPolicy,
+  ): Promise<AllocationResult> {
     let client: PoolClient | undefined;
     let releaseError: Error | boolean | undefined;
 
@@ -341,7 +410,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
 
       const claim = await client.query<{ key: string }>(
         `INSERT INTO idempotency_records (key, scope, request_fingerprint)
-         VALUES ($1, 'reservation_submit', $2)
+         VALUES ($1, '${policy.imported ? "reservation_import" : "reservation_submit"}', $2)
          ON CONFLICT (key) DO NOTHING
          RETURNING key`,
         [command.idempotencyKey, command.fingerprint],
@@ -366,16 +435,24 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
 
       const eventResult = await client.query<EventRow>(
         `SELECT id, status, starts_at, opens_at, closes_at,
-                capacity, reserved_seats, max_party_size
+                capacity, reserved_seats, max_party_size${policy.imported ? ", clock_timestamp() AS database_now" : ""}
            FROM events
-          WHERE slug = $1
+          WHERE ${policy.eventColumn} = $1
             AND deleted_at IS NULL`,
-        [command.eventSlug],
+        [policy.eventSelector],
       );
       const event = eventResult.rows[0];
 
-      if (!event || event.status === "DRAFT") {
+      if (!event || (!policy.imported && event.status === "DRAFT")) {
         return await commitResult(client, command, { code: "EVENT_NOT_FOUND" });
+      }
+
+      if (
+        policy.imported &&
+        ((event.status !== "SCHEDULED" && event.status !== "CLOSED") ||
+          event.starts_at <= event.database_now!)
+      ) {
+        return await commitResult(client, command, { code: "EVENT_NOT_OPEN" });
       }
 
       if (await hasActiveInstagramRequest(client, event.id, command)) {
@@ -403,9 +480,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
                 updated_at = clock_timestamp()
           WHERE id = $1
             AND deleted_at IS NULL
-            AND status = 'SCHEDULED'
-            AND opens_at <= clock_timestamp()
-            AND closes_at > clock_timestamp()
+            AND ${allocationWindow(policy)}
             AND $2 <= max_party_size
             AND reserved_seats + $2 <= capacity
           RETURNING last_reservation_number, status,
@@ -428,9 +503,13 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           throw new Error("Event disappeared during reservation allocation");
         }
 
-        const failure = classifyAllocationFailure(
+        const classifyFailure = policy.imported
+          ? classifyImportAllocationFailure
+          : classifyAllocationFailure;
+        const failure = classifyFailure(
           {
             status: failedEvent.status,
+            startsAt: failedEvent.starts_at,
             opensAt: failedEvent.opens_at,
             closesAt: failedEvent.closes_at,
             capacity: failedEvent.capacity,
@@ -453,7 +532,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           return await commitResult(client, command, { code: failure });
         }
 
-        const placement = await claimWaitlistPlace(client, event.id, command.partySize);
+        const placement = await claimWaitlistPlace(client, event.id, command.partySize, policy);
 
         if (placement) {
           if (await hasActiveInstagramRequest(client, event.id, command)) {
@@ -465,6 +544,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             event.id,
             placement.waitlistNumber,
             command,
+            policy,
           );
           const waitlistedBody = renderMessageTemplate(messageTemplates.WAITLISTED, {
             ...messageValues,
@@ -477,6 +557,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             placement,
             command.partySize,
             waitlistedBody,
+            policy,
           );
 
           return await commitResult(
@@ -498,12 +579,12 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
              event_id, status, full_name, instagram_handle,
              guest2_full_name, guest2_instagram_handle,
              phone_e164, email, email_normalized, party_size, notes, allergies,
-             terms_accepted_at, source, idempotency_key, submitted_at
+             terms_accepted_at, source, idempotency_key, submitted_at${policy.imported ? ", created_by" : ""}
            )
            VALUES (
              $1, 'FULL_REJECTED', $2, $3, $4,
              $5, NULL, NULL, NULL, $6, $7, $8,
-             transaction_timestamp(), 'PUBLIC', $9, transaction_timestamp()
+             ${policy.imported ? "NULL" : "transaction_timestamp()"}, '${policy.imported ? "ADMIN" : "PUBLIC"}', $9, transaction_timestamp()${policy.imported ? ", $10" : ""}
            )
            RETURNING id`,
           [
@@ -517,6 +598,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             // Rejected guests get no seat, so their health data is not kept.
             null,
             command.idempotencyKey,
+            ...(policy.imported ? [policy.imported.adminId] : []),
           ],
         );
 
@@ -537,13 +619,13 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
            event_id, reservation_number, status, full_name, instagram_handle,
            guest2_full_name, guest2_instagram_handle,
            phone_e164, email, email_normalized, party_size, notes, allergies,
-           terms_accepted_at, link_code, source, idempotency_key, submitted_at, accepted_at
+           terms_accepted_at, link_code, source, idempotency_key, submitted_at, accepted_at${policy.imported ? ", created_by" : ""}
          )
          SELECT
            $1, $2, 'CONFIRMED', $3, $4,
            $5, $6,
            NULL, NULL, NULL, $7, $8, $9,
-           transaction_timestamp(), $10, 'PUBLIC', $11, transaction_timestamp(), $12
+           ${policy.imported ? "NULL" : "transaction_timestamp()"}, $10, '${policy.imported ? "ADMIN" : "PUBLIC"}', $11, transaction_timestamp(), $12${policy.imported ? ", $13" : ""}
          WHERE NOT EXISTS (SELECT 1 FROM waitlist_entries WHERE link_code = $10)
          RETURNING id`,
         [
@@ -559,6 +641,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
           command.linkCode,
           command.idempotencyKey,
           allocation.accepted_at,
+          ...(policy.imported ? [policy.imported.adminId] : []),
         ],
       );
       const insertedReservation = reservation.rows[0];
@@ -571,10 +654,10 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
 
       await client.query(
         `INSERT INTO audit_logs (
-           actor_type, action, entity_type, entity_id, metadata
+           actor_type, action, entity_type, entity_id, metadata${policy.imported ? ", actor_admin_id" : ""}
          )
          VALUES (
-           'PUBLIC', 'RESERVATION_CREATED', 'RESERVATION', $1, $2::jsonb
+           '${policy.imported ? "ADMIN" : "PUBLIC"}', 'RESERVATION_CREATED', 'RESERVATION', $1, $2::jsonb${policy.imported ? ", $3" : ""}
          )`,
         [
           reservationId,
@@ -582,7 +665,9 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
             eventId: event.id,
             reservationNumber: allocation.last_reservation_number,
             partySize: command.partySize,
+            ...importAuditMetadata(policy),
           }),
+          ...(policy.imported ? [policy.imported.adminId] : []),
         ],
       );
 
@@ -595,7 +680,7 @@ export class PostgresReservationAllocationRepository implements ReservationAlloc
       });
 
       if (allocation.status === "CLOSED") {
-        await insertEventClosedAudit(client, event.id);
+        await insertEventClosedAudit(client, event.id, policy);
       }
 
       return await commitResult(

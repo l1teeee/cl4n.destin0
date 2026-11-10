@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyAllocationFailure,
+  classifyImportAllocationFailure,
   type AllocationFailureSnapshot,
 } from "@/domain/reservation/allocation-failure";
 
@@ -59,4 +60,28 @@ describe("classifyAllocationFailure", () => {
       "EVENT_NOT_OPEN",
     );
   });
+});
+
+describe("classifyImportAllocationFailure", () => {
+  const startsAt = new Date("2026-10-05T19:00:00Z");
+
+  it.each(["SCHEDULED", "CLOSED"] as const)("ignores the public window for %s", (status) => {
+    const event = { ...snapshot({ status }), startsAt };
+    expect(classifyImportAllocationFailure(event, 1, new Date(opensAt.getTime() - 1))).toBe(
+      "TRY_AGAIN",
+    );
+    expect(classifyImportAllocationFailure(event, 1, closesAt)).toBe("TRY_AGAIN");
+    expect(classifyImportAllocationFailure(event, 1, startsAt)).toBe("EVENT_NOT_OPEN");
+    expect(classifyImportAllocationFailure(event, 2, now)).toBe("EVENT_FULL");
+    expect(classifyImportAllocationFailure(event, 3, now)).toBe("PARTY_SIZE_NOT_ALLOWED");
+  });
+
+  it.each(["DRAFT", "COMPLETED", "CANCELLED"] as const)(
+    "rejects %s before considering other failures",
+    (status) => {
+      expect(classifyImportAllocationFailure({ ...snapshot({ status }), startsAt }, 3, now)).toBe(
+        "EVENT_NOT_OPEN",
+      );
+    },
+  );
 });

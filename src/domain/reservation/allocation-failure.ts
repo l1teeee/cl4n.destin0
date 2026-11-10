@@ -12,6 +12,22 @@ export interface AllocationFailureSnapshot {
   maxPartySize: number;
 }
 
+export function classifyImportAllocationFailure(
+  snapshot: AllocationFailureSnapshot & { startsAt: Date },
+  partySize: number,
+  now: Date,
+): AllocationFailure {
+  if (
+    (snapshot.status !== "SCHEDULED" && snapshot.status !== "CLOSED") ||
+    now >= snapshot.startsAt
+  ) {
+    return "EVENT_NOT_OPEN";
+  }
+  if (partySize > snapshot.maxPartySize) return "PARTY_SIZE_NOT_ALLOWED";
+  if (snapshot.reservedSeats + partySize > snapshot.capacity) return "EVENT_FULL";
+  return "TRY_AGAIN";
+}
+
 export function classifyAllocationFailure(
   snapshot: AllocationFailureSnapshot,
   partySize: number,
