@@ -1,7 +1,7 @@
 import type { PublicLocale } from "./messages";
 
 const conceptEs = {
-  metaTitle: "Concepto · Clandestino",
+  metaTitle: "Concepto",
   eyebrow: "CLANDESTINO SUPPER CLAN",
   title: "¿Qué es Clandestino?",
   logoAlt: "Logotipo de Clandestino",
@@ -14,7 +14,7 @@ const conceptEs = {
 export type ConceptMessages = typeof conceptEs;
 
 const conceptEn: ConceptMessages = {
-  metaTitle: "Concept · Clandestino",
+  metaTitle: "Concept",
   eyebrow: "CLANDESTINO SUPPER CLAN",
   title: "What is Clandestino?",
   logoAlt: "Clandestino logo",
@@ -30,7 +30,7 @@ export const conceptMessages: Record<PublicLocale, ConceptMessages> = {
 };
 
 const drinksEs = {
-  metaTitle: "Bebidas · Clandestino",
+  metaTitle: "Bebidas",
   eyebrow: "CLANDESTINO SUPPER CLAN",
   title: "Bebidas",
   empty: "El menú de bebidas estará disponible pronto.",
@@ -40,7 +40,7 @@ const drinksEs = {
 export type DrinksMessages = typeof drinksEs;
 
 const drinksEn: DrinksMessages = {
-  metaTitle: "Drinks · Clandestino",
+  metaTitle: "Drinks",
   eyebrow: "CLANDESTINO SUPPER CLAN",
   title: "Drinks",
   empty: "The drinks menu will be available soon.",
@@ -55,10 +55,10 @@ export const drinksMessages: Record<PublicLocale, DrinksMessages> = {
 const legalEs = {
   lastUpdated: "Última actualización",
   termsTitle: "Términos",
-  termsMetaTitle: "Términos | Clandestino",
+  termsMetaTitle: "Términos",
   termsUpdatedAt: "1 de noviembre de 2026",
   privacyTitle: "Política de privacidad",
-  privacyMetaTitle: "Política de privacidad | Clandestino",
+  privacyMetaTitle: "Política de privacidad",
   privacyUpdatedAt: "1 de noviembre de 2026",
   prevalenceNotice:
     "This English version is provided for convenience. The Spanish version prevails.",
@@ -69,10 +69,10 @@ export type LegalMessages = typeof legalEs;
 const legalEn: LegalMessages = {
   lastUpdated: "Last updated",
   termsTitle: "Terms",
-  termsMetaTitle: "Terms | Clandestino",
+  termsMetaTitle: "Terms",
   termsUpdatedAt: "November 1, 2026",
   privacyTitle: "Privacy Policy",
-  privacyMetaTitle: "Privacy Policy | Clandestino",
+  privacyMetaTitle: "Privacy Policy",
   privacyUpdatedAt: "November 1, 2026",
   prevalenceNotice:
     "This English version is provided for convenience. The Spanish version prevails.",
