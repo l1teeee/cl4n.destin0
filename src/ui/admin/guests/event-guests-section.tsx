@@ -12,6 +12,7 @@ import { Button } from "@/ui/primitives/button";
 import { AddGuestSheet } from "./add-guest-sheet";
 import type { GuestActionHandlers } from "./guest-action-handlers";
 import { guestSummaryItems, guestViewTabs } from "./guest-list-view";
+import { GuestMaxPartySizeProvider } from "./guest-request-form";
 import { GuestRowActions } from "./guest-row-actions";
 import { GuestRowDetail } from "./guest-row-detail";
 import { guestRowData } from "./guest-row-view";
@@ -48,7 +49,13 @@ export function EventGuestsSection({
     return {
       ...data,
       detail: (
-        <GuestRowDetail guest={guest} data={data} allowCouple={allowCouple} handlers={handlers} />
+        <GuestRowDetail
+          guest={guest}
+          data={data}
+          allowCouple={allowCouple}
+          maxPartySize={maxPartySize}
+          handlers={handlers}
+        />
       ),
       actions: (
         <GuestRowActions
@@ -75,14 +82,16 @@ export function EventGuestsSection({
           Faltan datos de pago o precio. Complétalos en Mi cuenta y en la experiencia.
         </p>
       ) : null}
-      <ActionFeedbackProvider>
-        <GuestSummaryBar items={guestSummaryItems(counts)} />
-        <GuestViewTabs views={guestViewTabs(eventId, counts)} activeId={view} />
-        <div>
-          <AddGuestSheet action={handlers.add.bind(null, eventId)} allowCouple={allowCouple} />
-        </div>
-        <GuestTable rows={rows} emptyText="No hay personas en esta vista." />
-      </ActionFeedbackProvider>
+      <GuestMaxPartySizeProvider value={maxPartySize}>
+        <ActionFeedbackProvider>
+          <GuestSummaryBar items={guestSummaryItems(counts)} />
+          <GuestViewTabs views={guestViewTabs(eventId, counts)} activeId={view} />
+          <div>
+            <AddGuestSheet action={handlers.add.bind(null, eventId)} allowCouple={allowCouple} />
+          </div>
+          <GuestTable rows={rows} emptyText="No hay personas en esta vista." />
+        </ActionFeedbackProvider>
+      </GuestMaxPartySizeProvider>
     </section>
   );
 }

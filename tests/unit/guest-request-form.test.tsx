@@ -425,3 +425,105 @@ describe("GuestRequestForm feedback", () => {
     await waitFor(() => expect(document.activeElement).toBe(field(container, "allergies")));
   });
 });
+
+describe("GuestRequestForm groups (max >= 3)", () => {
+  it("keeps the segmented 1/2 control unchanged when maxPartySize is 2", () => {
+    renderForm(savingAction(), { maxPartySize: 2 });
+
+    expect(isChecked("Solo")).toBe(true);
+    expect(screen.getByRole("radio", { name: "En pareja" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Más personas" })).toBeNull();
+  });
+
+  it("shows the Personas stepper, adds up to 4 blocks, and posts 4 guestName values in order", async () => {
+    const action = savingAction();
+    const { container, form } = renderForm(action, { maxPartySize: 4 });
+
+    const minus = screen.getByRole("button", { name: "Menos personas" }) as HTMLButtonElement;
+    const plus = screen.getByRole("button", { name: "Más personas" }) as HTMLButtonElement;
+    expect(minus.disabled).toBe(true);
+    expect(plus.disabled).toBe(false);
+    expect(screen.getByText("Persona 1 · Titular")).toBeDefined();
+    expect(screen.queryByText("Persona 2")).toBeNull();
+
+    fireEvent.click(plus);
+    fireEvent.click(plus);
+    fireEvent.click(plus);
+    expect(plus.disabled).toBe(true);
+    expect(screen.getByText("Persona 2")).toBeDefined();
+    expect(screen.getByText("Persona 3")).toBeDefined();
+    expect(screen.getByText("Persona 4")).toBeDefined();
+
+    for (const [slot, name, instagram] of [
+      [1, "Ana", "ana.ig"],
+      [2, "Luis", "luis.ig"],
+      [3, "Marta", "marta.ig"],
+      [4, "Pedro", "pedro.ig"],
+    ] as const) {
+      typeInto(container, `guest${slot}Name`, name);
+      typeInto(container, `guest${slot}Instagram`, instagram);
+    }
+    choose("No");
+    fireEvent.submit(form);
+
+    expect(await postedFields(action)).toEqual({
+      partySize: "4",
+      guestName: ["Ana", "Luis", "Marta", "Pedro"],
+      guestInstagram: ["ana.ig", "luis.ig", "marta.ig", "pedro.ig"],
+      hasAllergies: "false",
+      notes: "",
+    });
+  });
+
+  it("maps guests.{i}.* errors to the matching block", async () => {
+    const action = vi.fn<Action>(async () => ({
+      ok: false,
+      message: "Revisa los campos marcados.",
+      fieldErrors: {
+        "guests.2.name": "El nombre de la persona 3 es obligatorio.",
+        "guests.3.instagram": "El Instagram de la persona 4 es obligatorio.",
+      },
+    }));
+    const { container, form } = renderForm(action, {
+      maxPartySize: 4,
+      defaultValues: { partySize: 4 },
+    });
+
+    fireEvent.submit(form);
+
+    const nameError = await screen.findByText("El nombre de la persona 3 es obligatorio.");
+    const igError = await screen.findByText("El Instagram de la persona 4 es obligatorio.");
+    const guest3Name = field(container, "guest3Name")!;
+    const guest4Ig = field(container, "guest4Instagram")!;
+
+    expect(guest3Name.getAttribute("aria-invalid")).toBe("true");
+    expect(guest3Name.getAttribute("aria-describedby")).toBe(nameError.id);
+    expect(guest4Ig.getAttribute("aria-invalid")).toBe("true");
+    expect(guest4Ig.getAttribute("aria-describedby")).toBe(igError.id);
+    expect(field(container, "guest1Name")!.getAttribute("aria-invalid")).toBe("false");
+  });
+
+  it("pre-fills edit mode from guests[]", () => {
+    const { container } = renderForm(savingAction(), {
+      maxPartySize: 4,
+      defaultValues: {
+        partySize: 3,
+        guests: [
+          { name: "Ana", instagram: "ana.ig" },
+          { name: "Luis", instagram: "luis.ig" },
+          { name: "Marta", instagram: "marta.ig" },
+        ],
+        hasAllergies: true,
+        allergies: "Marta: gluten",
+        notes: "Cumpleaños",
+      },
+    });
+
+    expect(field(container, "guest1Name")!.value).toBe("Ana");
+    expect(field(container, "guest2Name")!.value).toBe("Luis");
+    expect(field(container, "guest3Name")!.value).toBe("Marta");
+    expect(field(container, "guest3Instagram")!.value).toBe("marta.ig");
+    expect(field(container, " guest4Name")).toBeNull();
+    expect(screen.getByRole("group", { name: "¿Alguno tiene alergias?" })).toBeDefined();
+  });
+});

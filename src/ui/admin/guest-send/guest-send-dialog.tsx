@@ -20,6 +20,7 @@ import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmente
 import {
   groupAccentClass,
   isSendable,
+  roleLabel,
   sendableKeys,
   statusLabel,
   type GuestSendGroup,
@@ -190,7 +191,7 @@ export function GuestSendDialog({
                 </label>
               ) : null}
               {groups.map((group, index) => {
-                const together = group.people.length === 2;
+                const together = group.people.length > 1;
                 const groupSendable = isSendable(group.people[0]);
                 return (
                   <div
@@ -214,7 +215,7 @@ export function GuestSendDialog({
                       ) : null}
                     </div>
                     <ul className="mt-2 grid gap-1">
-                      {group.people.map((person) => (
+                      {group.people.map((person, personIndex) => (
                         <li
                           key={person.key}
                           className="flex flex-wrap items-center gap-x-2 gap-y-1"
@@ -234,7 +235,10 @@ export function GuestSendDialog({
                           ) : null}
                           {together ? (
                             <span className="text-xs text-muted-foreground">
-                              {person.role === "TITULAR" ? "Titular" : "Acompañante"}
+                              {roleLabel(
+                                person.slot ?? (person.role === "TITULAR" ? 1 : personIndex + 1),
+                                group.people.length,
+                              )}
                             </span>
                           ) : null}
                           {person.detail ? <span className="text-sm">{person.detail}</span> : null}

@@ -41,7 +41,8 @@ export function canEditGuest(row: Pick<EventGuestRow, "kind" | "status">): boole
 
 export function guestFormDefaults(row: EventGuestRow): GuestRequestFormValues {
   return {
-    partySize: row.partySize > 1 ? 2 : 1,
+    partySize: row.partySize,
+    guests: row.guests.map((guest) => ({ name: guest.name, instagram: guest.instagram })),
     guest1Name: row.guests[0]!.name,
     guest1Instagram: row.guests[0]!.instagram,
     guest2Name: row.guests[1]?.name ?? "",

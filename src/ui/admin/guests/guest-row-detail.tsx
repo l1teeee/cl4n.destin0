@@ -19,13 +19,15 @@ interface GuestRowDetailProps {
   guest: GuestRequestDetail;
   data: GuestRowData;
   allowCouple: boolean;
+  maxPartySize?: number;
   handlers: GuestActionHandlers;
 }
 
 type EditGuestDataProps = Omit<GuestRowDetailProps, "data">;
 
-function EditGuestData({ guest, allowCouple, handlers }: EditGuestDataProps) {
+function EditGuestData({ guest, allowCouple, maxPartySize, handlers }: EditGuestDataProps) {
   const update = guest.kind === "RESERVATION" ? handlers.updateRequest : handlers.updateEntry;
+  const effectiveMax = Math.max(maxPartySize ?? (allowCouple ? 2 : 1), guest.partySize);
 
   return (
     <details className="group">
@@ -41,14 +43,21 @@ function EditGuestData({ guest, allowCouple, handlers }: EditGuestDataProps) {
           action={update.bind(null, guest.id)}
           submitLabel="Guardar cambios"
           defaultValues={guestFormDefaults(guest)}
-          allowCouple={allowCouple || guest.partySize === 2}
+          allowCouple={allowCouple || guest.partySize >= 2}
+          maxPartySize={effectiveMax}
         />
       </div>
     </details>
   );
 }
 
-export function GuestRowDetail({ guest, data, allowCouple, handlers }: GuestRowDetailProps) {
+export function GuestRowDetail({
+  guest,
+  data,
+  allowCouple,
+  maxPartySize,
+  handlers,
+}: GuestRowDetailProps) {
   return (
     <GuestDetailSheet
       triggerLabel="Ver ficha"
@@ -62,7 +71,7 @@ export function GuestRowDetail({ guest, data, allowCouple, handlers }: GuestRowD
       messages={
         <MessageThread
           messages={threadMessageViews(guest.messages)}
-          username={guest.contactUsername ?? guest.guest1Instagram}
+          username={guest.contactUsername ?? guest.guests[0]?.instagram ?? guest.guest1Instagram}
           canAct={true}
           retryAction={handlers.retryMessage}
           markSentAction={handlers.markMessageSent}
@@ -72,7 +81,12 @@ export function GuestRowDetail({ guest, data, allowCouple, handlers }: GuestRowD
       }
       actions={
         canEditGuest(guest) ? (
-          <EditGuestData guest={guest} allowCouple={allowCouple} handlers={handlers} />
+          <EditGuestData
+            guest={guest}
+            allowCouple={allowCouple}
+            maxPartySize={maxPartySize}
+            handlers={handlers}
+          />
         ) : null
       }
     />

@@ -43,11 +43,14 @@ function isCouple(guests: readonly string[]): boolean {
 }
 
 export function guestsLabel(names: readonly string[]): string {
-  return names.join(" y ");
+  if (names.length <= 2) return names.join(" y ");
+  return `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
 }
 
 export function partySizeLabel(count: number): string {
-  return count === 1 ? "1 persona" : `${count} personas`;
+  if (count === 1) return "Individual";
+  if (count === 2) return "Pareja";
+  return `Grupo de ${count}`;
 }
 
 function seatsOpenSentence(seats: number): string {
@@ -72,7 +75,8 @@ function nextInQueueSentence(
 
   const [first] = replacements;
   if (first !== undefined && replacements.length === 1) {
-    if (isCouple(first)) return `La siguiente en la cola es la pareja ${guestsLabel(first)}.`;
+    if (first.length === 2) return `La siguiente en la cola es la pareja ${guestsLabel(first)}.`;
+    if (first.length >= 3) return `El siguiente en la cola es el grupo de ${guestsLabel(first)}.`;
     return `La siguiente persona en la cola es ${guestsLabel(first)}.`;
   }
 
