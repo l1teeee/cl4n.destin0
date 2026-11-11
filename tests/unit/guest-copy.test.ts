@@ -22,6 +22,7 @@ import {
 
 const solo = ["Ana López"];
 const couple = ["Ana López", "Luis Pérez"];
+const groupOfFour = ["Ana", "Luis", "Marta", "Pedro"];
 
 describe("guestsLabel", () => {
   it("returns the single name", () => {
@@ -31,15 +32,25 @@ describe("guestsLabel", () => {
   it("joins a couple with y", () => {
     expect(guestsLabel(couple)).toBe("Ana López y Luis Pérez");
   });
+
+  it("joins larger groups with commas and y before the last name", () => {
+    expect(guestsLabel(["Ana", "Luis", "Marta"])).toBe("Ana, Luis y Marta");
+    expect(guestsLabel(groupOfFour)).toBe("Ana, Luis, Marta y Pedro");
+  });
 });
 
 describe("partySizeLabel", () => {
-  it("uses the singular for one person", () => {
-    expect(partySizeLabel(1)).toBe("1 persona");
+  it("uses Individual for one person", () => {
+    expect(partySizeLabel(1)).toBe("Individual");
   });
 
-  it("uses the plural for two people", () => {
-    expect(partySizeLabel(2)).toBe("2 personas");
+  it("uses Pareja for two people", () => {
+    expect(partySizeLabel(2)).toBe("Pareja");
+  });
+
+  it("uses Grupo de N for three or more people", () => {
+    expect(partySizeLabel(3)).toBe("Grupo de 3");
+    expect(partySizeLabel(4)).toBe("Grupo de 4");
   });
 });
 
@@ -74,6 +85,14 @@ describe("rejectConfirmation", () => {
       replacements: [pareja],
       waitingCount: 1,
       expected: `Se rechaza la solicitud de Ana López y Luis Pérez. ${twoSeats} La siguiente en la cola es la pareja Carla y Mario.`,
+    },
+    {
+      case: "four seats and one group entry next",
+      guests: groupOfFour,
+      replacements: [["Carla", "Mario", "Sofía"]],
+      waitingCount: 1,
+      expected:
+        "Se rechaza la solicitud de Ana, Luis, Marta y Pedro. Va a dejar 4 cupos abiertos. El siguiente en la cola es el grupo de Carla, Mario y Sofía.",
     },
     {
       case: "two seats and two entries next",

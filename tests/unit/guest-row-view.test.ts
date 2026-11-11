@@ -120,11 +120,25 @@ describe("guestRowData guests", () => {
         }),
       ),
     ).toEqual(["Ana López", "Luis Pérez"]);
+    expect(
+      guestNames(
+        guestRow({
+          partySize: 4,
+          guests: [
+            { slot: 1, name: "Ana", instagram: "ana" },
+            { slot: 2, name: "Luis", instagram: "luis" },
+            { slot: 3, name: "Marta", instagram: "marta" },
+            { slot: 4, name: "Pedro", instagram: "pedro" },
+          ],
+        }),
+      ),
+    ).toEqual(["Ana", "Luis", "Marta", "Pedro"]);
   });
 
   it("labels the party size in Spanish", () => {
-    expect(guestRowData(guestRow({ partySize: 1 })).partyLabel).toBe("1 persona");
-    expect(guestRowData(guestRow({ partySize: 2 })).partyLabel).toBe("2 personas");
+    expect(guestRowData(guestRow({ partySize: 1 })).partyLabel).toBe("Individual");
+    expect(guestRowData(guestRow({ partySize: 2 })).partyLabel).toBe("Pareja");
+    expect(guestRowData(guestRow({ partySize: 4 })).partyLabel).toBe("Grupo de 4");
   });
 
   it("passes the allergies and the notes through", () => {

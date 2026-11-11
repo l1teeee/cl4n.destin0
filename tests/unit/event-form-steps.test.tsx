@@ -175,10 +175,20 @@ describe("edit event form", () => {
 });
 
 describe("event form guest flow fields", () => {
-  it("offers the party size select, the price, the payment note and the queue label", () => {
+  it("offers the party size number input, the price, the payment note and the queue label", () => {
     renderCreate();
 
-    expect(screen.getByText("Personas por solicitud")).toBeDefined();
+    const maxPartySize = screen.getByLabelText("Personas por solicitud") as HTMLInputElement;
+    expect(maxPartySize.type).toBe("number");
+    expect(maxPartySize.inputMode).toBe("numeric");
+    expect(maxPartySize.min).toBe("1");
+    expect(maxPartySize.max).toBe("20");
+    expect(maxPartySize.value).toBe("2");
+    expect(
+      screen.getByText(
+        "1: solo individuales. 2: individuales o parejas. 3 o más: grupos de hasta ese número de personas.",
+      ),
+    ).toBeDefined();
     expect(screen.getByText("Lugares en la cola")).toBeDefined();
     const price = document.querySelector<HTMLInputElement>('[name="price"]');
     expect(price?.required).toBe(true);
@@ -188,6 +198,20 @@ describe("event form guest flow fields", () => {
     expect(note).not.toBeNull();
     expect(note?.required).toBe(false);
     expect(screen.getByLabelText("Nota de pago (opcional)")).toBe(note);
+  });
+
+  it("posts any maxPartySize up to capacity", async () => {
+    const action = vi.fn<EventAction>(async () => ({ ok: true, message: "" }));
+    renderCreate(action);
+
+    fireEvent.change(screen.getByLabelText("Personas por solicitud"), {
+      target: { value: "6" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Crear experiencia" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledOnce());
+    expect(action.mock.calls[0]![1].get("maxPartySize")).toBe("6");
   });
 
   it("requires the price before leaving step one", () => {
@@ -204,7 +228,7 @@ describe("event form section hints", () => {
   const hints = [
     "Nombre y enlace público de la experiencia.",
     "Día y hora de la cena, en hora de El Salvador.",
-    "Capacidad: lugares totales. Personas por solicitud: 1 solo individuales, 2 también parejas. Cola: cuántas personas pueden esperar si se llena.",
+    "Capacidad: lugares totales. Personas por solicitud: 1 solo individuales, 2 parejas, 3 o más grupos. Cola: cuántas personas pueden esperar si se llena.",
     "Cuándo se abre y se cierra el formulario público para pedir lugar.",
     "Desde esta hora la gente puede enviar solicitudes.",
     "Después de esta hora ya no se aceptan solicitudes. Debe ser antes de la cena.",

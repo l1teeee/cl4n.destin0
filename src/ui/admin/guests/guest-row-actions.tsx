@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import type {
   EventGuestRow,
   PromotionPreview,
+  PromotionPreviewEntry,
 } from "@/infrastructure/db/repositories/event-guest-queries";
 import { MutationForm } from "@/ui/admin/mutation-form";
 import { Button } from "@/ui/primitives/button";
@@ -32,6 +33,7 @@ interface GuestRowActionsProps {
 interface ReleaseActionProps {
   row: EventGuestRow;
   preview: PromotionPreview;
+  freeSeats: number;
   handlers: GuestActionHandlers;
 }
 
@@ -49,13 +51,28 @@ interface MoveButtonProps {
   handlers: GuestActionHandlers;
 }
 
-// Freeing a couple's two seats can let in more queue entries than freeing one seat does.
-function replacementsIfReleased(row: EventGuestRow, preview: PromotionPreview) {
-  return row.partySize === 2 ? preview.twoSeats : preview.oneSeat;
+// Freeing a group's seats can let in more queue entries than freeing one or two seats does.
+function replacementsIfReleased(
+  row: EventGuestRow,
+  preview: PromotionPreview,
+  freeSeats: number,
+): readonly PromotionPreviewEntry[] {
+  if (row.partySize === 1) return preview.oneSeat;
+  if (row.partySize === 2) return preview.twoSeats;
+
+  let remainingSeats = Math.max(0, freeSeats) + row.partySize;
+  const taken: PromotionPreviewEntry[] = [];
+  for (const entry of preview.waiting) {
+    if (entry.partySize > remainingSeats) break;
+    taken.push({ id: entry.id, guests: entry.guests });
+    remainingSeats -= entry.partySize;
+    if (remainingSeats === 0) break;
+  }
+  return taken;
 }
 
-function ReviewActions({ row, preview, handlers }: ReleaseActionProps) {
-  const replacements = replacementsIfReleased(row, preview);
+function ReviewActions({ row, preview, freeSeats, handlers }: ReleaseActionProps) {
+  const replacements = replacementsIfReleased(row, preview, freeSeats);
 
   return (
     <>
@@ -80,7 +97,7 @@ function ReviewActions({ row, preview, handlers }: ReleaseActionProps) {
   );
 }
 
-function VerifyPaymentAction({ row, handlers }: Omit<ReleaseActionProps, "preview">) {
+function VerifyPaymentAction({ row, handlers }: Omit<ReleaseActionProps, "preview" | "freeSeats">) {
   return (
     <MutationForm
       action={handlers.verifyPayment.bind(null, row.id)}
@@ -102,6 +119,7 @@ function CancelFromListAction({
   row,
   stage,
   preview,
+  freeSeats,
   handlers,
 }: ReleaseActionProps & { stage: "ON_LIST" | "PAID" }) {
   return (
@@ -111,7 +129,7 @@ function CancelFromListAction({
       kind={stage === "PAID" ? "CANCEL_PAID" : "CANCEL_UNPAID"}
       guests={guestNames(row)}
       waitingCount={preview.waitingCount}
-      autoEntries={replacementsIfReleased(row, preview)}
+      autoEntries={replacementsIfReleased(row, preview, freeSeats)}
       waiting={preview.waiting}
     >
       <input type="hidden" name="expectedStage" value={stage} />
@@ -173,7 +191,7 @@ function QueueActions({ row, freeSeats, queueSize, handlers }: QueueActionsProps
   );
 }
 
-function RefundAction({ row, handlers }: Omit<ReleaseActionProps, "preview">) {
+function RefundAction({ row, handlers }: Omit<ReleaseActionProps, "preview" | "freeSeats">) {
   return (
     <MutationForm
       action={handlers.markRefunded.bind(null, row.id)}
@@ -206,18 +224,32 @@ export function GuestRowActions({
 
   if (row.status !== "CONFIRMED") return null;
   if (row.stage === "IN_REVIEW") {
-    return <ReviewActions row={row} preview={preview} handlers={handlers} />;
+    return <ReviewActions row={row} preview={preview} freeSeats={freeSeats} handlers={handlers} />;
   }
   if (row.stage === "ON_LIST") {
     return (
       <>
         <VerifyPaymentAction row={row} handlers={handlers} />
-        <CancelFromListAction row={row} stage="ON_LIST" preview={preview} handlers={handlers} />
+        <CancelFromListAction
+          row={row}
+          stage="ON_LIST"
+          preview={preview}
+          freeSeats={freeSeats}
+          handlers={handlers}
+        />
       </>
     );
   }
   if (row.stage === "PAID") {
-    return <CancelFromListAction row={row} stage="PAID" preview={preview} handlers={handlers} />;
+    return (
+      <CancelFromListAction
+        row={row}
+        stage="PAID"
+        preview={preview}
+        freeSeats={freeSeats}
+        handlers={handlers}
+      />
+    );
   }
   return null;
 }

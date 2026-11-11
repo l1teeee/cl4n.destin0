@@ -3,6 +3,7 @@ export type GuestRole = "TITULAR" | "ACOMPANANTE";
 
 export interface GuestSendPerson {
   key: string;
+  slot?: number;
   name: string;
   instagram: string | null;
   role: GuestRole;
@@ -42,6 +43,12 @@ export function sendableKeys(groups: readonly GuestSendGroup[], target: GuestSen
     return groups.filter((group) => isSendable(group.people[0])).map((group) => group.key);
   }
   return groups.flatMap((group) => group.people.filter(isSendable).map((person) => person.key));
+}
+
+export function roleLabel(slot: number, groupSize: number): string {
+  if (slot === 1) return "Titular";
+  if (groupSize <= 2) return "Acompañante";
+  return `Acompañante ${slot - 1}`;
 }
 
 export function statusLabel(status: GuestSendStatus): string {

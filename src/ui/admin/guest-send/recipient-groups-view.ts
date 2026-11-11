@@ -14,6 +14,7 @@ function toGuestSendPerson(
   const waitingForGuest = !person.linked && (status === "NOT_SENT" || status === "PENDING");
   return {
     key: `${reservationId}:${person.slot}`,
+    slot: person.slot,
     name: person.name,
     instagram: person.instagram,
     role: person.slot === 1 ? "TITULAR" : "ACOMPANANTE",

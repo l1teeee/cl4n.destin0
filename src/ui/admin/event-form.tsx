@@ -61,10 +61,12 @@ const sectionHints = {
   data: "Nombre y enlace público de la experiencia.",
   date: "Día y hora de la cena, en hora de El Salvador.",
   seats:
-    "Capacidad: lugares totales. Personas por solicitud: 1 solo individuales, 2 también parejas. Cola: cuántas personas pueden esperar si se llena.",
+    "Capacidad: lugares totales. Personas por solicitud: 1 solo individuales, 2 parejas, 3 o más grupos. Cola: cuántas personas pueden esperar si se llena.",
   reservations: "Cuándo se abre y se cierra el formulario público para pedir lugar.",
   location: "Se envía por Instagram solo a las personas confirmadas.",
 };
+const maxPartySizeHint =
+  "1: solo individuales. 2: individuales o parejas. 3 o más: grupos de hasta ese número de personas.";
 const paymentHint = (
   <>
     Precio por persona. Los datos bancarios se configuran una vez en{" "}
@@ -167,6 +169,7 @@ function ExperienceFields({
   values,
 }: ExperienceFieldsProps) {
   const [openNow, setOpenNow] = useState(false);
+  const [capacity, setCapacity] = useState<number | undefined>(values?.capacity);
   const [priceText, setPriceText] = useState(
     values?.priceCents == null ? "" : drinkPriceInputValue(values.priceCents),
   );
@@ -241,6 +244,10 @@ function ExperienceFields({
             type="number"
             min={1}
             defaultValue={values?.capacity}
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              setCapacity(Number.isInteger(next) && next >= 1 ? next : undefined);
+            }}
             required
             aria-invalid={Boolean(errors?.capacity)}
             aria-describedby={errors?.capacity ? "capacity-error" : undefined}
@@ -250,21 +257,22 @@ function ExperienceFields({
       ) : null}
       <div className="grid gap-2">
         <Label htmlFor="maxPartySize">Personas por solicitud</Label>
-        {/* Events saved before couples existed can hold a larger group; the select shows couples. */}
-        <Select name="maxPartySize" defaultValue={values?.maxPartySize === 1 ? "1" : "2"}>
-          <SelectTrigger
-            id="maxPartySize"
-            aria-invalid={Boolean(errors?.maxPartySize)}
-            aria-describedby={errors?.maxPartySize ? "maxPartySize-error" : undefined}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="1">Solo personas individuales</SelectItem>
-            <SelectItem value="2">Individuales y parejas</SelectItem>
-          </SelectContent>
-        </Select>
+        <Input
+          id="maxPartySize"
+          name="maxPartySize"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={capacity ? Math.min(capacity, 100) : 100}
+          defaultValue={values?.maxPartySize ?? 2}
+          required
+          aria-invalid={Boolean(errors?.maxPartySize)}
+          aria-describedby={errors?.maxPartySize ? "maxPartySize-error" : undefined}
+        />
         <FieldError id="maxPartySize-error" message={errors?.maxPartySize} />
+        <p id="maxPartySize-hint" className="admin-muted">
+          {maxPartySizeHint}
+        </p>
       </div>
       {mode === "create" ? (
         <Label className="grid gap-2">

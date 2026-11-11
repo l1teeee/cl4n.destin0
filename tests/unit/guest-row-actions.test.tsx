@@ -402,8 +402,30 @@ describe("GuestRowActions releasing a request", () => {
     expect(
       within(couple).getByRole("button", { name: "Agregar a la lista" }).hasAttribute("disabled"),
     ).toBe(false);
-    expect(within(couple).getByText("2 personas")).toBeDefined();
+    expect(within(couple).getByText("Pareja")).toBeDefined();
     expect(within(couple).getByText("#3")).toBeDefined();
+  });
+
+  it("includes every fitting queue entry when releasing a group of 4", async () => {
+    renderActions(
+      guestRow({
+        partySize: 4,
+        guests: [
+          { slot: 1, name: "Ana", instagram: "ana" },
+          { slot: 2, name: "Luis", instagram: "luis" },
+          { slot: 3, name: "Marta", instagram: "marta" },
+          { slot: 4, name: "Pedro", instagram: "pedro" },
+        ],
+      }),
+    );
+
+    await openDialog("Rechazar");
+
+    expect(screen.getByText(/Se rechaza la solicitud de Ana, Luis, Marta y Pedro\./)).toBeDefined();
+    expect(screen.getByText(/Va a dejar 4 cupos abiertos\./)).toBeDefined();
+    expect(
+      screen.getByText(/Las siguientes en la cola son Luis y Marta y Rosa y Iván\./),
+    ).toBeDefined();
   });
 
   it("goes back to the summary with Volver", async () => {

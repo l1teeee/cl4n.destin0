@@ -162,6 +162,7 @@ describe("guestFormDefaults", () => {
   it("fills the form for one person without allergies", () => {
     expect(guestFormDefaults(guestRow())).toEqual({
       partySize: 1,
+      guests: [{ name: "Ana López", instagram: "ana.lopez" }],
       guest1Name: "Ana López",
       guest1Instagram: "ana.lopez",
       guest2Name: "",
@@ -187,6 +188,10 @@ describe("guestFormDefaults", () => {
       ),
     ).toEqual({
       partySize: 2,
+      guests: [
+        { name: "Ana López", instagram: "ana.lopez" },
+        { name: "Luis Pérez", instagram: "luis_perez" },
+      ],
       guest1Name: "Ana López",
       guest1Instagram: "ana.lopez",
       guest2Name: "Luis Pérez",
@@ -194,6 +199,28 @@ describe("guestFormDefaults", () => {
       hasAllergies: true,
       allergies: "Ana: maní",
       notes: "Mesa tranquila",
+    });
+  });
+
+  it("fills all guests of a group", () => {
+    expect(
+      guestFormDefaults(
+        guestRow({
+          partySize: 3,
+          guests: [
+            { slot: 1, name: "Ana", instagram: "ana" },
+            { slot: 2, name: "Luis", instagram: "luis" },
+            { slot: 3, name: "Marta", instagram: "marta" },
+          ],
+        }),
+      ),
+    ).toMatchObject({
+      partySize: 3,
+      guests: [
+        { name: "Ana", instagram: "ana" },
+        { name: "Luis", instagram: "luis" },
+        { name: "Marta", instagram: "marta" },
+      ],
     });
   });
 });

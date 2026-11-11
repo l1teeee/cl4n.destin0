@@ -106,6 +106,43 @@ describe("LocationDeliveryPanel send dialog", () => {
     expect(dialog.textContent).toContain("Se enviará a 1 personas que aún no lo tienen.");
   });
 
+  it("shows Titular and Acompañante for 2 people, and Acompañante 1 / 2 for a group of 3", async () => {
+    render(
+      panel(
+        {},
+        {
+          recipients: [
+            {
+              reservationId: "22222222-2222-4222-8222-222222222222",
+              reservationNumber: 2,
+              people: [
+                { slot: 1, name: "Ana", instagram: "ana", linked: true, statusByItem: {} },
+                { slot: 2, name: "Luis", instagram: "luis", linked: true, statusByItem: {} },
+              ],
+            },
+            {
+              reservationId: "33333333-3333-4333-8333-333333333333",
+              reservationNumber: 3,
+              people: [
+                { slot: 1, name: "Marta", instagram: "marta", linked: true, statusByItem: {} },
+                { slot: 2, name: "Pedro", instagram: "pedro", linked: true, statusByItem: {} },
+                { slot: 3, name: "Sofía", instagram: "sofia", linked: true, statusByItem: {} },
+              ],
+            },
+          ],
+        },
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Enviar ubicación" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getAllByText("Titular")).toHaveLength(2);
+    expect(within(dialog).getByText("Acompañante")).toBeDefined();
+    expect(within(dialog).getByText("Acompañante 1")).toBeDefined();
+    expect(within(dialog).getByText("Acompañante 2")).toBeDefined();
+  });
+
   it("runs the send-all action from the dialog", async () => {
     const sendAction = vi.fn(async () => ({
       ok: true,

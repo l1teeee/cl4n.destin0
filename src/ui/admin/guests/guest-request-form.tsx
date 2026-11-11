@@ -1,6 +1,15 @@
 "use client";
 
-import { startTransition, useActionState, useId, useRef, useState, type FormEvent } from "react";
+import {
+  createContext,
+  startTransition,
+  useActionState,
+  useContext,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { Loader2 } from "lucide-react";
 
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
@@ -13,17 +22,20 @@ import { Label } from "@/ui/primitives/label";
 import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmented-control";
 import { Textarea } from "@/ui/primitives/textarea";
 
+import { GuestGroupFields, type GuestSlotValues } from "./guest-group-fields";
+
 type GuestRequestAction = (
   state: AdminActionState,
   formData: FormData,
 ) => Promise<AdminActionState>;
 
 export interface GuestRequestFormValues {
-  partySize: 1 | 2;
-  guest1Name: string;
-  guest1Instagram: string;
-  guest2Name: string;
-  guest2Instagram: string;
+  partySize: number;
+  guests?: readonly GuestSlotValues[];
+  guest1Name?: string;
+  guest1Instagram?: string;
+  guest2Name?: string;
+  guest2Instagram?: string;
   hasAllergies: boolean;
   allergies: string;
   notes: string;
@@ -34,7 +46,12 @@ interface GuestRequestFormProps {
   submitLabel: string;
   defaultValues?: Partial<GuestRequestFormValues>;
   allowCouple?: boolean;
+  maxPartySize?: number;
 }
+
+const GuestMaxPartySizeContext = createContext<number | null>(null);
+
+export const GuestMaxPartySizeProvider = GuestMaxPartySizeContext.Provider;
 
 interface FieldProps {
   id: string;
@@ -98,24 +115,58 @@ function TextAreaField({
   );
 }
 
+function resolveDefaultGuests(
+  defaultValues: Partial<GuestRequestFormValues> | undefined,
+): readonly GuestSlotValues[] {
+  if (defaultValues?.guests && defaultValues.guests.length > 0) {
+    return defaultValues.guests;
+  }
+  const list: GuestSlotValues[] = [];
+  if (defaultValues?.guest1Name !== undefined || defaultValues?.guest1Instagram !== undefined) {
+    list.push({
+      name: defaultValues.guest1Name ?? "",
+      instagram: defaultValues.guest1Instagram ?? "",
+    });
+  }
+  if (defaultValues?.guest2Name !== undefined || defaultValues?.guest2Instagram !== undefined) {
+    if (list.length === 0) {
+      list.push({ name: "", instagram: "" });
+    }
+    list.push({
+      name: defaultValues.guest2Name ?? "",
+      instagram: defaultValues.guest2Instagram ?? "",
+    });
+  }
+  return list;
+}
+
 // Guest fields are posted in slot order; party size only controls the visible fields.
 export function GuestRequestForm({
   action,
   submitLabel,
   defaultValues,
   allowCouple = true,
+  maxPartySize,
 }: GuestRequestFormProps) {
   const idPrefix = useId();
   const formRef = useRef<HTMLFormElement>(null);
+  const contextMaxPartySize = useContext(GuestMaxPartySizeContext);
+  const effectiveMaxPartySize =
+    maxPartySize ??
+    (contextMaxPartySize !== null && allowCouple ? contextMaxPartySize : allowCouple ? 2 : 1);
+  const defaultGuests = resolveDefaultGuests(defaultValues);
   const [state, formAction, pending] = useActionState(action, initialState);
-  const [partySize, setPartySize] = useState<1 | 2>(
-    allowCouple ? (defaultValues?.partySize ?? 1) : 1,
-  );
+  const [partySize, setPartySize] = useState<number>(() => {
+    const initial = defaultValues?.partySize ?? (defaultGuests.length || 1);
+    return Math.min(Math.max(1, initial), effectiveMaxPartySize);
+  });
   const [hasAllergies, setHasAllergies] = useState<boolean | null>(
     defaultValues?.hasAllergies ?? null,
   );
   const errors = state.fieldErrors;
   const couple = partySize === 2;
+  const multiPerson = partySize > 1;
+  const isGroupMode = effectiveMaxPartySize >= 3;
   const idFor = (field: string) => `${idPrefix}-${field}`;
 
   useFocusFirstInvalid(formRef, state);
@@ -134,61 +185,78 @@ export function GuestRequestForm({
       noValidate
       className="grid max-w-3xl gap-5 md:grid-cols-2"
     >
-      {allowCouple ? (
-        <div className="grid gap-2 md:col-span-2">
-          <SegmentedControl
-            name="partySize"
-            value={String(partySize)}
-            onValueChange={(value) => setPartySize(value === "2" ? 2 : 1)}
-            aria-label="Cantidad de personas"
-            aria-invalid={Boolean(errors?.partySize)}
-            aria-describedby={errors?.partySize ? idFor("partySize-error") : undefined}
-          >
-            <SegmentedControlItem value="1">Solo</SegmentedControlItem>
-            <SegmentedControlItem value="2">En pareja</SegmentedControlItem>
-          </SegmentedControl>
-          <FieldError id={idFor("partySize-error")} message={errors?.partySize} />
-        </div>
+      {isGroupMode ? (
+        <GuestGroupFields
+          idFor={idFor}
+          partySize={partySize}
+          maxPartySize={effectiveMaxPartySize}
+          onPartySizeChange={setPartySize}
+          defaultGuests={defaultGuests}
+          errors={errors}
+        />
       ) : (
-        <input type="hidden" name="partySize" value="1" />
-      )}
-      <TextField
-        id={idFor("guest1Name")}
-        name="guestName"
-        label={couple ? "Persona 1: nombre completo" : "Nombre completo"}
-        defaultValue={defaultValues?.guest1Name}
-        error={errors?.["guests.0.name"]}
-        maxLength={120}
-      />
-      <TextField
-        id={idFor("guest1Instagram")}
-        name="guestInstagram"
-        label={couple ? "Persona 1: usuario de Instagram" : "Usuario de Instagram"}
-        defaultValue={defaultValues?.guest1Instagram}
-        error={errors?.["guests.0.instagram"]}
-      />
-      {couple ? (
         <>
+          {effectiveMaxPartySize === 2 ? (
+            <div className="grid gap-2 md:col-span-2">
+              <SegmentedControl
+                name="partySize"
+                value={String(partySize)}
+                onValueChange={(value) => setPartySize(value === "2" ? 2 : 1)}
+                aria-label="Cantidad de personas"
+                aria-invalid={Boolean(errors?.partySize)}
+                aria-describedby={errors?.partySize ? idFor("partySize-error") : undefined}
+              >
+                <SegmentedControlItem value="1">Solo</SegmentedControlItem>
+                <SegmentedControlItem value="2">En pareja</SegmentedControlItem>
+              </SegmentedControl>
+              <FieldError id={idFor("partySize-error")} message={errors?.partySize} />
+            </div>
+          ) : (
+            <input type="hidden" name="partySize" value="1" />
+          )}
           <TextField
-            id={idFor("guest2Name")}
+            id={idFor("guest1Name")}
             name="guestName"
-            label="Persona 2: nombre completo"
-            defaultValue={defaultValues?.guest2Name}
-            error={errors?.["guests.1.name"]}
+            label={couple ? "Persona 1: nombre completo" : "Nombre completo"}
+            defaultValue={defaultGuests[0]?.name ?? defaultValues?.guest1Name}
+            error={errors?.["guests.0.name"]}
             maxLength={120}
           />
           <TextField
-            id={idFor("guest2Instagram")}
+            id={idFor("guest1Instagram")}
             name="guestInstagram"
-            label="Persona 2: usuario de Instagram"
-            defaultValue={defaultValues?.guest2Instagram}
-            error={errors?.["guests.1.instagram"]}
+            label={couple ? "Persona 1: usuario de Instagram" : "Usuario de Instagram"}
+            defaultValue={defaultGuests[0]?.instagram ?? defaultValues?.guest1Instagram}
+            error={errors?.["guests.0.instagram"]}
           />
+          {couple ? (
+            <>
+              <TextField
+                id={idFor("guest2Name")}
+                name="guestName"
+                label="Persona 2: nombre completo"
+                defaultValue={defaultGuests[1]?.name ?? defaultValues?.guest2Name}
+                error={errors?.["guests.1.name"]}
+                maxLength={120}
+              />
+              <TextField
+                id={idFor("guest2Instagram")}
+                name="guestInstagram"
+                label="Persona 2: usuario de Instagram"
+                defaultValue={defaultGuests[1]?.instagram ?? defaultValues?.guest2Instagram}
+                error={errors?.["guests.1.instagram"]}
+              />
+            </>
+          ) : null}
         </>
-      ) : null}
+      )}
       <fieldset className="min-w-0 md:col-span-2">
         <legend id={idFor("hasAllergies-legend")} className={legendClassName}>
-          {couple ? "¿Alguno de los dos tiene alergias?" : "¿Tiene alergias?"}
+          {partySize === 1
+            ? "¿Tiene alergias?"
+            : partySize === 2
+              ? "¿Alguno de los dos tiene alergias?"
+              : "¿Alguno tiene alergias?"}
         </legend>
         <div className="grid gap-2">
           <SegmentedControl
@@ -210,7 +278,7 @@ export function GuestRequestForm({
         <TextAreaField
           id={idFor("allergies")}
           name="allergies"
-          label={couple ? "¿Quién y a qué?" : "¿A qué?"}
+          label={multiPerson ? "¿Quién y a qué?" : "¿A qué?"}
           defaultValue={defaultValues?.allergies}
           error={errors?.allergies}
           maxLength={300}
