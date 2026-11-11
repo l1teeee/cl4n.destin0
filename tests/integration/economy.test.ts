@@ -59,10 +59,26 @@ async function insertExtra(name: string, priceCents: number): Promise<string> {
   return extra.id;
 }
 
+async function insertGroupReservation(eventId: string, names: readonly string[]): Promise<string> {
+  const reservationId = await insertGuestReservation(pool, eventId, { guest2FullName: names[1] });
+  await pool.query("UPDATE reservations SET party_size = $2 WHERE id = $1", [
+    reservationId,
+    names.length,
+  ]);
+  for (let index = 2; index < names.length; index += 1) {
+    await pool.query(
+      `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
+       VALUES ($1, $2, $3, $4)`,
+      [reservationId, index + 1, names[index], `grupo.${randomUUID().slice(0, 8)}`],
+    );
+  }
+  return reservationId;
+}
+
 function addCustom(
   eventId: string,
   reservationId: string,
-  slot: 1 | 2,
+  slot: number,
   customName: string,
   customPriceCents: number,
   quantity = 1,
@@ -82,7 +98,7 @@ function addCustom(
 function addCatalog(
   eventId: string,
   reservationId: string,
-  slot: 1 | 2,
+  slot: number,
   source: "DRINK" | "EXTRA",
   itemId: string,
   quantity = 1,
@@ -341,6 +357,45 @@ describe("event economy", () => {
     const [guest] = (await loadEventEconomy(economy, eventId)).guests;
     expect(guest!.totalCents).toBe(0);
     expect(await auditActions(lineId)).toEqual(["CONSUMPTION_ADDED", "CONSUMPTION_VOIDED"]);
+  });
+
+  it("gives every person of a group of 4 a tab with the right name and sums the bill", async () => {
+    const eventId = await newEvent();
+    const group = await insertGroupReservation(eventId, ["Ana", "Beto", "Carla", "Diego"]);
+
+    expect((await addCustom(eventId, group, 4, "Agua", 100, 3)).ok).toBe(true);
+    expect((await addCustom(eventId, group, 3, "Cafe", 250, 2)).ok).toBe(true);
+    expect(await addCustom(eventId, group, 5, "Agua", 100)).toEqual({
+      ok: false,
+      code: "GUEST_NOT_FOUND",
+    });
+
+    const snapshot = await loadEventEconomy(economy, eventId);
+    expect(snapshot.guests.map((guest) => [guest.slot, guest.fullName])).toEqual([
+      [1, "Ana López"],
+      [2, "Beto"],
+      [3, "Carla"],
+      [4, "Diego"],
+    ]);
+    expect(snapshot.guests.map((guest) => guest.totalCents)).toEqual([0, 0, 500, 300]);
+    expect(snapshot.eventTotalCents).toBe(800);
+  });
+
+  it("settles and reopens slot 3 of a group and rejects slot 5 on a party of 4", async () => {
+    const eventId = await newEvent();
+    const group = await insertGroupReservation(eventId, ["Ana", "Beto", "Carla", "Diego"]);
+    const tab = { eventId, reservationId: group, slot: 3, adminId };
+    const isSettled = async () =>
+      (await loadEventEconomy(economy, eventId)).guests.find((guest) => guest.slot === 3)!.settled;
+
+    expect(await settleTab(economy, tab)).toEqual({ ok: true, changed: true });
+    expect(await isSettled()).toBe(true);
+    expect(await reopenTab(economy, tab)).toEqual({ ok: true, changed: true });
+    expect(await isSettled()).toBe(false);
+    expect(await settleTab(economy, { ...tab, slot: 5 })).toEqual({
+      ok: false,
+      code: "GUEST_NOT_FOUND",
+    });
   });
 
   it("settles and reopens a tab idempotently", async () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { MAX_QUANTITY, MIN_QUANTITY } from "@/domain/economy/consumption";
+import { MAX_PARTY_SIZE } from "@/domain/reservation/request-guests";
 
 import { itemNameSchema, priceInputSchema } from "./admin-extra";
 
@@ -10,9 +11,11 @@ export const economyEventIdSchema = idSchema("No se encontró la experiencia.");
 export const economyReservationIdSchema = idSchema("No se encontró la reservación.");
 export const economyConsumptionIdSchema = idSchema("No se encontró el consumo.");
 
-export const guestSlotSchema = z.union([z.literal(1), z.literal(2)], {
-  error: "El invitado no es válido.",
-});
+export const guestSlotSchema = z
+  .number({ error: "El invitado no es válido." })
+  .int("El invitado no es válido.")
+  .min(1, "El invitado no es válido.")
+  .max(MAX_PARTY_SIZE, "El invitado no es válido.");
 
 const quantitySchema = z
   .string({ error: "Indica la cantidad." })

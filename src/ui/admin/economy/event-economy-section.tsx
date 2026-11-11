@@ -19,6 +19,7 @@ import {
   filterGuests,
   guestHeading,
   guestKey,
+  guestRoleLabel,
   stageLabel,
   tabFilters,
   type TabFilter,
@@ -151,8 +152,10 @@ export function EventEconomySection({
                     <span className="grid min-w-0 gap-1.5">
                       <span className="font-medium break-words">
                         {guestHeading(guest)}
-                        {reservationSizes.get(guest.reservationId) === 2 ? (
-                          <span className="admin-muted ml-2 text-xs font-normal">Juntos</span>
+                        {(reservationSizes.get(guest.reservationId) ?? 1) > 1 ? (
+                          <span className="admin-muted ml-2 text-xs font-normal">
+                            {guestRoleLabel(guest.slot)}
+                          </span>
                         ) : null}
                       </span>
                       <span className="flex flex-wrap items-center gap-2">

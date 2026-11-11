@@ -3,10 +3,9 @@ export const MAX_UNIT_PRICE_CENTS = 10_000_000;
 export const MIN_QUANTITY = 1;
 export const MAX_QUANTITY = 99;
 
-export const GUEST_SLOTS = [1, 2] as const;
 export const CONSUMPTION_SOURCES = ["DRINK", "EXTRA", "CUSTOM"] as const;
 
-export type GuestSlot = (typeof GUEST_SLOTS)[number];
+export type GuestSlot = number;
 export type ConsumptionSource = (typeof CONSUMPTION_SOURCES)[number];
 
 export function lineTotalCents(unitPriceCents: number, quantity: number): number {

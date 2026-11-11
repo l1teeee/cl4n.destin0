@@ -841,10 +841,7 @@ export const requestGuests = pgTable(
       sql`num_nonnulls(${table.reservationId}, ${table.waitlistEntryId}) = 1`,
     ),
     check("request_guests_slot_chk", sql`${table.slot} >= 2`),
-    check(
-      "request_guests_full_name_chk",
-      sql`char_length(${table.fullName}) BETWEEN 1 AND 120`,
-    ),
+    check("request_guests_full_name_chk", sql`char_length(${table.fullName}) BETWEEN 1 AND 120`),
     check("request_guests_instagram_chk", sql`${table.instagramHandle} ~ '^[a-z0-9._]{1,30}$'`),
     unique("request_guests_reservation_slot_uq").on(table.reservationId, table.slot),
     unique("request_guests_waitlist_entry_slot_uq").on(table.waitlistEntryId, table.slot),
