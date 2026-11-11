@@ -65,6 +65,7 @@ function importRows(mixed: boolean) {
       ]),
     },
     { guest1Name: 0, guest1Instagram: 1, companions: [{ name: 2, instagram: 3 }] },
+    100,
   );
 }
 

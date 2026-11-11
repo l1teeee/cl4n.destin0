@@ -52,6 +52,7 @@ function rows(): ImportPreviewRow[] {
       ],
     },
     { guest1Name: 0, guest1Instagram: 1 },
+    100,
   );
 }
 

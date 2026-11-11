@@ -1,6 +1,5 @@
 import {
   MAX_IMPORT_COLUMNS,
-  MAX_IMPORT_COMPANIONS,
   MAX_IMPORT_ROWS,
   type ColumnMapping,
   type ImportField,
@@ -90,7 +89,7 @@ function validateRow(
 export function buildImportRows(
   table: { headers: string[]; rows: string[][] },
   mapping: ColumnMapping,
-  maxPartySize = MAX_IMPORT_COMPANIONS + 1,
+  maxPartySize: number,
 ): ImportPreviewRow[] {
   if (!table.headers.length) throw new ImportTableError("El archivo no tiene encabezados.");
   if (

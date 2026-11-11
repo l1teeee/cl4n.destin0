@@ -72,10 +72,14 @@ describe("consumption form contract", () => {
     ).toBe(false);
   });
 
-  it("allows only guest slots 1 and 2", () => {
+  it("allows guest slots 1 to MAX_PARTY_SIZE", () => {
     expect(guestSlotSchema.safeParse(1).success).toBe(true);
     expect(guestSlotSchema.safeParse(2).success).toBe(true);
-    expect(guestSlotSchema.safeParse(3).success).toBe(false);
+    expect(guestSlotSchema.safeParse(3).success).toBe(true);
+    expect(guestSlotSchema.safeParse(100).success).toBe(true);
+    expect(guestSlotSchema.safeParse(0).success).toBe(false);
+    expect(guestSlotSchema.safeParse(101).success).toBe(false);
+    expect(guestSlotSchema.safeParse(1.5).success).toBe(false);
   });
 });
 
