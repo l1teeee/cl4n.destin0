@@ -879,8 +879,18 @@ export async function cancelEventAction(
     authorization.session.admin.id,
   );
   if (!result.ok) return operationError(result.error);
+  if (result.value.messageIds.length > 0) scheduleMessageDelivery();
   revalidateEventPaths(result.value.id, result.value.slug);
-  return { ok: true, message: "Experiencia cancelada." };
+  const requests = result.value.cancelledReservations + result.value.cancelledEntries;
+  const refunds = result.value.refundsPending;
+  const requestSummary =
+    requests === 1 ? "1 solicitud cancelada" : `${requests} solicitudes canceladas`;
+  const refundSummary =
+    refunds === 1 ? "1 devolución pendiente" : `${refunds} devoluciones pendientes`;
+  return {
+    ok: true,
+    message: `Experiencia cancelada. ${requestSummary}, ${refundSummary}. Se avisó por Instagram a cada persona.`,
+  };
 }
 
 export async function deleteEventAction(

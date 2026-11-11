@@ -61,6 +61,13 @@ export interface EventRecord {
   locationReleasedRevision: number | null;
 }
 
+export interface CancelledEventRecord extends EventRecord {
+  cancelledReservations: number;
+  refundsPending: number;
+  cancelledEntries: number;
+  messageIds: string[];
+}
+
 export interface CreateEventCommand {
   internalName: string;
   slug: string;
