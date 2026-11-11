@@ -46,27 +46,26 @@ function validateRow(row: ImportPreviewRow): string | null {
   const control = /[\u0000-\u001f\u007f]/;
   const noteControl = /[\u0000-\u0008\u000b-\u001f\u007f]/;
   if (
-    [row.guest1Name, row.guest1Instagram, row.guest2Name, row.guest2Instagram].some(
-      (value) => value !== null && control.test(value),
-    ) ||
+    row.guests.some((guest) => control.test(guest.name) || control.test(guest.instagram)) ||
     [row.allergies, row.notes].some((value) => value !== null && noteControl.test(value))
   ) {
     return "No se permiten caracteres de control.";
   }
-  if (!row.guest1Name) return "El nombre completo es obligatorio.";
-  if (row.guest1Name.length > 120 || (row.guest2Name?.length ?? 0) > 120) {
+  if (!row.guests[0]!.name) return "El nombre completo es obligatorio.";
+  if (row.guests.some((guest) => guest.name.length > 120)) {
     return "El nombre completo no puede superar 120 caracteres.";
   }
-  if (!row.guest1Instagram) return "El usuario de Instagram es obligatorio.";
-  const guest1 = normalizeInstagram(row.guest1Instagram);
-  const guest2 = row.guest2Instagram ? normalizeInstagram(row.guest2Instagram) : null;
+  if (!row.guests[0]!.instagram) return "El usuario de Instagram es obligatorio.";
+  const guest1 = normalizeInstagram(row.guests[0]!.instagram);
+  const companion = row.guests[1];
+  const guest2 = companion?.instagram ? normalizeInstagram(companion.instagram) : null;
   if (!guest1.ok || (guest2 && !guest2.ok)) return "Ingresa un usuario de Instagram válido.";
-  row.guest1Instagram = guest1.value;
-  row.guest2Instagram = guest2?.value ?? null;
-  if (row.partySize === 2) {
-    if (!row.guest2Name) return "El nombre del invitado 2 es obligatorio.";
-    if (!row.guest2Instagram) return "El usuario de Instagram del invitado 2 es obligatorio.";
-    if (row.guest1Instagram === row.guest2Instagram) {
+  row.guests[0]!.instagram = guest1.value;
+  if (companion) {
+    companion.instagram = guest2?.value ?? "";
+    if (!companion.name) return "El nombre del invitado 2 es obligatorio.";
+    if (!companion.instagram) return "El usuario de Instagram del invitado 2 es obligatorio.";
+    if (guest1.value === companion.instagram) {
       return "Cada invitado necesita su propio usuario de Instagram.";
     }
   }
@@ -102,15 +101,16 @@ export function buildImportRows(
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "");
+    const guests = [{ name: cell("guest1Name"), instagram: cell("guest1Instagram") }];
+    if (cell("guest2Name") || cell("guest2Instagram")) {
+      guests.push({ name: cell("guest2Name"), instagram: cell("guest2Instagram") });
+    }
     const row: ImportPreviewRow = {
       rowNumber,
       order: null,
       timestamp: mapping.timestamp === undefined ? null : parseTimestamp(cell("timestamp")),
-      guest1Name: cell("guest1Name"),
-      guest1Instagram: cell("guest1Instagram"),
-      guest2Name: cell("guest2Name") || null,
-      guest2Instagram: cell("guest2Instagram") || null,
-      partySize: cell("guest2Name") || cell("guest2Instagram") ? 2 : 1,
+      guests,
+      partySize: guests.length,
       allergies: ["", "no", "ninguna", "ninguno", "n/a", "na", "-"].includes(normalizedAllergies)
         ? null
         : allergies,
@@ -125,9 +125,7 @@ export function buildImportRows(
         row.error = "No se pudo leer la marca temporal.";
       }
       if (!row.error) {
-        const handles = [row.guest1Instagram, row.guest2Instagram].filter(
-          (handle) => handle !== null,
-        );
+        const handles = row.guests.map((guest) => guest.instagram);
         const duplicate = handles
           .map((handle) => seen.get(handle))
           .find((number) => number !== undefined);

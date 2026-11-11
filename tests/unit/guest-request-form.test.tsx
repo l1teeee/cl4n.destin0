@@ -35,7 +35,7 @@ function renderForm(
 
 function field(container: HTMLElement, name: string) {
   return container.querySelector<HTMLInputElement | HTMLTextAreaElement>(
-    `input[name="${name}"]:not([aria-hidden]), textarea[name="${name}"]`,
+    `input[id$="-${name}"]:not([aria-hidden]), textarea[name="${name}"]`,
   );
 }
 
@@ -51,9 +51,16 @@ function isChecked(name: string) {
   return screen.getByRole("radio", { name }).getAttribute("aria-checked") === "true";
 }
 
-async function postedFields(action: ReturnType<typeof savingAction>) {
+async function postedFields(
+  action: ReturnType<typeof savingAction>,
+): Promise<Record<string, unknown>> {
   await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
-  return Object.fromEntries(action.mock.calls[0]![1].entries());
+  const data = action.mock.calls[0]![1];
+  return {
+    ...Object.fromEntries(data.entries()),
+    guestName: data.getAll("guestName"),
+    guestInstagram: data.getAll("guestInstagram"),
+  };
 }
 
 describe("GuestRequestForm party size", () => {
@@ -224,10 +231,8 @@ describe("GuestRequestForm submission", () => {
 
     expect(await postedFields(action)).toEqual({
       partySize: "2",
-      guest1Name: "Ana López",
-      guest1Instagram: "ana.lopez",
-      guest2Name: "Luis Pérez",
-      guest2Instagram: "luis.perez",
+      guestName: ["Ana López", "Luis Pérez"],
+      guestInstagram: ["ana.lopez", "luis.perez"],
       hasAllergies: "true",
       allergies: "Ana: maní",
       notes: "Mesa tranquila",
@@ -248,8 +253,8 @@ describe("GuestRequestForm submission", () => {
 
     expect(await postedFields(action)).toEqual({
       partySize: "1",
-      guest1Name: "Ana López",
-      guest1Instagram: "ana.lopez",
+      guestName: ["Ana López"],
+      guestInstagram: ["ana.lopez"],
       hasAllergies: "false",
       notes: "",
     });
@@ -332,8 +337,8 @@ describe("GuestRequestForm feedback", () => {
       ok: false,
       message: "Revisa los campos marcados.",
       fieldErrors: {
-        guest1Name: "El nombre completo es obligatorio.",
-        guest1Instagram: "El usuario de Instagram es obligatorio.",
+        "guests.0.name": "El nombre completo es obligatorio.",
+        "guests.0.instagram": "El usuario de Instagram es obligatorio.",
         notes: "Las observaciones no pueden superar 500 caracteres.",
       },
     }));
@@ -359,7 +364,7 @@ describe("GuestRequestForm feedback", () => {
     const action = vi.fn<Action>(async () => ({
       ok: false,
       message: "Revisa los campos marcados.",
-      fieldErrors: { guest1Instagram: "El usuario de Instagram es obligatorio." },
+      fieldErrors: { "guests.0.instagram": "El usuario de Instagram es obligatorio." },
     }));
     const { container, form } = renderForm(action);
 
@@ -375,7 +380,7 @@ describe("GuestRequestForm feedback", () => {
     const action = vi.fn<Action>(async () => ({
       ok: false,
       message: "Revisa los campos marcados.",
-      fieldErrors: { guest2Name: "El nombre completo de la segunda persona es obligatorio." },
+      fieldErrors: { "guests.1.name": "El nombre completo de la segunda persona es obligatorio." },
     }));
     const { container, form } = renderForm(action);
     choose("En pareja");

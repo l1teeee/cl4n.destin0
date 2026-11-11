@@ -1,5 +1,6 @@
 import type { EventLifecycleStatus, EventPhase } from "@/domain/event/event-phase";
 import type { EventLocationStatus, MapsCoordinates } from "@/domain/event/event-location";
+import type { RequestGuest } from "@/domain/reservation/request-guests";
 
 export type EventOperationErrorCode =
   | "EVENT_NOT_FOUND"
@@ -128,6 +129,7 @@ export interface AdminReservationItem {
   phone: string;
   email: string;
   partySize: number;
+  guests: RequestGuest[];
   status: ReservationStatus;
   submittedAt: Date;
   acceptedAt: Date | null;

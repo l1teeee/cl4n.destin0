@@ -330,7 +330,9 @@ describe("ReservationForm", () => {
     fireEvent.keyDown(await waitForSliderReady(), { key: "End" });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(sentBody(fetchMock)).toMatchObject({ partySize: 1, guest1Name: "Ana Martinez" });
+    expect(sentBody(fetchMock)).toMatchObject({
+      guests: [{ name: "Ana Martinez", instagram: "ana.martinez" }],
+    });
   });
 
   it("asks for one person under Tus datos", async () => {
@@ -405,7 +407,9 @@ describe("ReservationForm", () => {
     fireEvent.keyDown(await waitForSliderReady(), { key: "End" });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(sentBody(fetchMock)).toMatchObject({ partySize: 1, guest1Name: "Ana Martinez" });
+    expect(sentBody(fetchMock)).toMatchObject({
+      guests: [{ name: "Ana Martinez", instagram: "ana.martinez" }],
+    });
   });
 
   it("switches the allergy legend, label and help with the party", async () => {
@@ -462,11 +466,10 @@ describe("ReservationForm", () => {
     });
     expect(JSON.parse(String(request?.body))).toMatchObject({
       eventSlug: "cena-demo",
-      partySize: 2,
-      guest1Name: "Ana Martinez",
-      guest1Instagram: "ana.martinez",
-      guest2Name: "Luis Perez",
-      guest2Instagram: "luis.perez",
+      guests: [
+        { name: "Ana Martinez", instagram: "ana.martinez" },
+        { name: "Luis Perez", instagram: "luis.perez" },
+      ],
       hasAllergies: false,
       acceptTerms: true,
       turnstileToken: "test-token",
@@ -498,9 +501,7 @@ describe("ReservationForm", () => {
     const body = sentBody(fetchMock);
     expect(body).toMatchObject({
       eventSlug: "cena-demo",
-      partySize: 1,
-      guest1Name: "Ana Martinez",
-      guest1Instagram: "ana.martinez",
+      guests: [{ name: "Ana Martinez", instagram: "ana.martinez" }],
       hasAllergies: false,
       acceptTerms: true,
       turnstileToken: "test-token",
@@ -539,7 +540,7 @@ describe("ReservationForm", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = sentBody(fetchMock);
-    expect(body).toMatchObject({ partySize: 1, guest1Name: "Ana Martinez" });
+    expect(body).toMatchObject({ guests: [{ name: "Ana Martinez", instagram: "ana.martinez" }] });
     expect(body).not.toHaveProperty("guest2Name");
     expect(body).not.toHaveProperty("guest2Instagram");
   });
@@ -556,11 +557,10 @@ describe("ReservationForm", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(sentBody(fetchMock)).toMatchObject({
-      partySize: 2,
-      guest1Name: "Ana Martinez",
-      guest1Instagram: "ana.martinez",
-      guest2Name: "Luis Perez",
-      guest2Instagram: "luis.perez",
+      guests: [
+        { name: "Ana Martinez", instagram: "ana.martinez" },
+        { name: "Luis Perez", instagram: "luis.perez" },
+      ],
       hasAllergies: true,
       allergies: "Ana: maní",
     });
@@ -917,7 +917,7 @@ describe("ReservationForm", () => {
         error: {
           code: "VALIDATION_FAILED",
           message: "Revisa los datos enviados.",
-          fields: { guest1Name: ["El nombre fue rechazado."] },
+          fields: { "guests.0.name": ["El nombre fue rechazado."] },
         },
       }),
     );
@@ -1003,8 +1003,7 @@ describe("ReservationForm", () => {
     fireEvent.keyDown(slider, { key: "End" });
     expect(await screen.findByRole("heading", { name: heading }, { timeout: 2500 })).toBeDefined();
     expect(sentBody(fetchMock)).toMatchObject({
-      partySize: 1,
-      guest1Name: "Ana Martinez",
+      guests: [{ name: "Ana Martinez", instagram: "ana.martinez" }],
       eventSlug: "cena-demo",
     });
     expect(sentBody(fetchMock)).not.toHaveProperty("locale");

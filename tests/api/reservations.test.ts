@@ -156,8 +156,8 @@ describe("POST /api/reservations", () => {
     expect(setup.rateLimiter.consume).toHaveBeenCalledTimes(callsAfterFirst.rate);
     expect(setup.botVerifier.verify).toHaveBeenCalledTimes(callsAfterFirst.bot);
     const logOutput = JSON.stringify(log.mock.calls);
-    expect(logOutput).not.toContain(String(body.guest1Name));
-    expect(logOutput).not.toContain(String(body.guest1Instagram));
+    expect(logOutput).not.toContain(String((body.guests as { name: string }[])[0]!.name));
+    expect(logOutput).not.toContain(String((body.guests as { instagram: string }[])[0]!.instagram));
     expect(logOutput).not.toContain(String(body.notes));
 
     const state = await pool.query(
@@ -273,7 +273,7 @@ describe("POST /api/reservations", () => {
       error: {
         code: "VALIDATION_FAILED",
         fields: {
-          guest1Instagram: ["Ingresa un usuario de Instagram válido."],
+          "guests.0.instagram": ["Ingresa un usuario de Instagram válido."],
         },
       },
     });
@@ -296,7 +296,7 @@ describe("POST /api/reservations", () => {
       error: {
         code: "VALIDATION_FAILED",
         fields: {
-          guest2Instagram: ["Ingresa un usuario de Instagram válido."],
+          "guests.1.instagram": ["Ingresa un usuario de Instagram válido."],
         },
       },
     });

@@ -77,8 +77,14 @@ function matchingFieldErrors(
     return result;
   }
 
+  const guestFields: Partial<Record<ReservationFormField, string>> = {
+    guest1Name: "guests.0.name",
+    guest1Instagram: "guests.0.instagram",
+    guest2Name: "guests.1.name",
+    guest2Instagram: "guests.1.instagram",
+  };
   for (const field of reservationFormFields) {
-    const messages = fields[field];
+    const messages = fields[guestFields[field] ?? field];
     if (Array.isArray(messages) && messages.every((message) => typeof message === "string")) {
       result[field] =
         locale === "es"

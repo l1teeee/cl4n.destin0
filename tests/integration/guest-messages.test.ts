@@ -88,6 +88,12 @@ async function createFixtures(client: PoolClient): Promise<Fixtures> {
      RETURNING id, full_name`,
     [eventId, randomUUID(), randomUUID(), contacts.rows[1]!.id, null],
   );
+  await client.query(
+    `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
+     SELECT id, 2, guest2_full_name, guest2_instagram_handle FROM reservations
+      WHERE event_id = $1 AND guest2_full_name IS NOT NULL`,
+    [eventId],
+  );
 
   return {
     eventId,

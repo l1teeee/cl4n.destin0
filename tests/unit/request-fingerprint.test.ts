@@ -7,11 +7,10 @@ import {
 
 const normalizedRequest: NormalizedGuestRequestFingerprintInput = {
   eventSlug: "cena-clandestino",
-  guest1Name: "Ana López",
-  guest1Instagram: "ana.lopez",
-  guest2Name: "Luis Pérez",
-  guest2Instagram: "luis.perez",
-  partySize: 2,
+  guests: [
+    { name: "Ana López", instagram: "ana.lopez" },
+    { name: "Luis Pérez", instagram: "luis.perez" },
+  ],
   hasAllergies: false,
   allergies: null,
   notes: "Sin alergias",
@@ -27,11 +26,7 @@ describe("requestFingerprint", () => {
       notes: normalizedRequest.notes,
       allergies: normalizedRequest.allergies,
       hasAllergies: normalizedRequest.hasAllergies,
-      partySize: normalizedRequest.partySize,
-      guest2Instagram: normalizedRequest.guest2Instagram,
-      guest2Name: normalizedRequest.guest2Name,
-      guest1Instagram: normalizedRequest.guest1Instagram,
-      guest1Name: normalizedRequest.guest1Name,
+      guests: normalizedRequest.guests.map(({ name, instagram }) => ({ instagram, name })),
       eventSlug: normalizedRequest.eventSlug,
     };
 
@@ -40,17 +35,33 @@ describe("requestFingerprint", () => {
 
   it.each([
     ["eventSlug", "otra-cena"],
-    ["guest1Name", "María López"],
-    ["guest1Instagram", "maria.lopez"],
-    ["guest2Name", "Mario Pérez"],
-    ["guest2Instagram", "mario.perez"],
-    ["partySize", 1],
+
     ["notes", "Vegetariano"],
     ["hasAllergies", true],
     ["allergies", "Maní"],
   ] as const)("changes when %s changes", (field, value) => {
     const changed = { ...normalizedRequest, [field]: value };
     expect(requestFingerprint(changed)).not.toBe(requestFingerprint(normalizedRequest));
+  });
+
+  it.each([0, 1])("changes when guest %i changes", (index) => {
+    for (const field of ["name", "instagram"] as const) {
+      const guests = normalizedRequest.guests.map((guest, i) =>
+        i === index ? { ...guest, [field]: "changed" } : guest,
+      );
+      expect(requestFingerprint({ ...normalizedRequest, guests })).not.toBe(
+        requestFingerprint(normalizedRequest),
+      );
+    }
+  });
+
+  it("changes with group size and guest order", () => {
+    expect(
+      requestFingerprint({ ...normalizedRequest, guests: normalizedRequest.guests.slice(0, 1) }),
+    ).not.toBe(requestFingerprint(normalizedRequest));
+    expect(
+      requestFingerprint({ ...normalizedRequest, guests: [...normalizedRequest.guests].reverse() }),
+    ).not.toBe(requestFingerprint(normalizedRequest));
   });
 
   it("ignores the Turnstile token", () => {

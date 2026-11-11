@@ -677,11 +677,10 @@ describe("unattributed personal data retention", () => {
 
 function privateFields(label: string): GuestFields {
   return {
-    partySize: 2,
-    guest1Name: `Nombre privado ${label}`,
-    guest1Instagram: `private.${label}`,
-    guest2Name: `Acompañante privado ${label}`,
-    guest2Instagram: `private.${label}.two`,
+    guests: [
+      { name: `Nombre privado ${label}`, instagram: `private.${label}` },
+      { name: `Acompañante privado ${label}`, instagram: `private.${label}.two` },
+    ],
     hasAllergies: true,
     allergies: `Alergias privadas ${label}`,
     notes: `Notas privadas ${label}`,
@@ -836,11 +835,7 @@ describe("guest audit privacy", () => {
         idempotencyKey: key,
         fingerprint: `private.${label}`,
         eventSlug: event.slug,
-        fullName: fields.guest1Name,
-        instagramHandle: fields.guest1Instagram,
-        guest2FullName: fields.guest2Name,
-        guest2InstagramHandle: fields.guest2Instagram,
-        partySize: 2,
+        guests: fields.guests,
         notes: fields.notes!,
         allergies: fields.allergies,
         linkCode: generateLinkCode(),

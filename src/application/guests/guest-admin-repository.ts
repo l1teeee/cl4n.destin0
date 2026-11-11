@@ -1,3 +1,5 @@
+import type { RequestGuest } from "@/domain/reservation/request-guests";
+
 export type GuestAdminErrorCode =
   | "INVALID_STAGE"
   | "WAITLIST_CHANGED"
@@ -11,11 +13,7 @@ export type GuestAdminErrorCode =
   | "AT_EDGE";
 
 export interface GuestFields {
-  partySize: 1 | 2;
-  guest1Name: string;
-  guest1Instagram: string;
-  guest2Name: string | null;
-  guest2Instagram: string | null;
+  guests: Omit<RequestGuest, "slot">[];
   hasAllergies: boolean;
   allergies: string | null;
   notes: string | null;
@@ -38,7 +36,7 @@ export interface GuestMutationSuccess {
 export interface GuestMutationFailure {
   ok: false;
   code: GuestAdminErrorCode;
-  field?: "guest1Instagram" | "guest2Instagram";
+  field?: `guests.${number}.instagram`;
   maxPartySize?: number;
 }
 

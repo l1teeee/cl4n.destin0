@@ -2,11 +2,7 @@ import { createHash } from "node:crypto";
 
 export interface NormalizedGuestRequestFingerprintInput {
   eventSlug: string;
-  guest1Name: string;
-  guest1Instagram: string;
-  guest2Name: string | null;
-  guest2Instagram: string | null;
-  partySize: 1 | 2;
+  guests: { name: string; instagram: string }[];
   notes?: string;
   hasAllergies: boolean;
   allergies: string | null;
@@ -24,13 +20,9 @@ export function requestFingerprint(input: NormalizedGuestRequestFingerprintInput
     acceptTerms: input.acceptTerms,
     allergies: input.allergies,
     eventSlug: input.eventSlug,
-    guest1Instagram: input.guest1Instagram,
-    guest1Name: input.guest1Name,
-    guest2Instagram: input.guest2Instagram,
-    guest2Name: input.guest2Name,
+    guests: input.guests.map(({ name, instagram }) => ({ name, instagram })),
     hasAllergies: input.hasAllergies,
     notes: input.notes ?? null,
-    partySize: input.partySize,
   };
 
   return createHash("sha256").update(canonicalJson(payload)).digest("hex");

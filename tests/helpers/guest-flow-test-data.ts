@@ -169,6 +169,13 @@ export async function insertGuestReservation(
       [eventId, partySize, number],
     );
   }
+  if (fixture.guest2FullName) {
+    await db.query(
+      `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
+       VALUES ($1, 2, $2, $3)`,
+      [result.rows[0]!.id, fixture.guest2FullName, `guest.${number}.b`],
+    );
+  }
   return result.rows[0]!.id;
 }
 

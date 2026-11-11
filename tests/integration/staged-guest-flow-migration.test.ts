@@ -178,12 +178,11 @@ describe("migration 0013 staged guest flow and messaging", () => {
       ).rejects.toMatchObject({ constraint: "reservations_guest2_pair_chk" });
       await expect(
         pool.query(
-          `UPDATE waitlist_entries
-              SET guest2_full_name = 'Guest Two', guest2_instagram_handle = 'guest.two'
-            WHERE event_id = $1`,
-          [eventId],
+          `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
+           VALUES ($1, 1, 'Guest Two', 'guest.two')`,
+          [confirmedId],
         ),
-      ).rejects.toMatchObject({ constraint: "waitlist_entries_guest2_party_chk" });
+      ).rejects.toMatchObject({ constraint: "request_guests_slot_chk" });
       await expect(
         pool.query("UPDATE reservations SET link_code = 'ABC123' WHERE id = $1", [confirmedId]),
       ).rejects.toMatchObject({ constraint: "reservations_link_code_chk" });

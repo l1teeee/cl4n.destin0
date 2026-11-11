@@ -64,11 +64,7 @@ function allocationCommand(eventSlug: string, key = randomUUID()): AllocationCom
     idempotencyKey: key,
     fingerprint: `fingerprint-${key}`,
     eventSlug,
-    fullName: "Retry Guest",
-    instagramHandle: "retry.guest",
-    guest2FullName: null,
-    guest2InstagramHandle: null,
-    partySize: 1,
+    guests: [{ name: "Retry Guest", instagram: "retry.guest" }],
     notes: "Retry test",
     allergies: null,
     linkCode: generateLinkCode(),
@@ -121,8 +117,8 @@ describe("reservation allocation repository", () => {
       email_normalized: null,
       phone_e164: null,
       instagram_handle: "person.one",
-      guest2_full_name: "Guest Two",
-      guest2_instagram_handle: "person.two",
+      guest2_full_name: null,
+      guest2_instagram_handle: null,
       link_code: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
       source: "PUBLIC",
       stage: "IN_REVIEW",
@@ -132,6 +128,13 @@ describe("reservation allocation repository", () => {
     });
     expect(reservation.rows[0]!.submitted_at).toBeInstanceOf(Date);
     expect(reservation.rows[0]!.accepted_at).toBeInstanceOf(Date);
+    const companions = await pool.query(
+      "SELECT slot, full_name, instagram_handle FROM request_guests WHERE reservation_id = $1 ORDER BY slot",
+      [reservation.rows[0]!.id],
+    );
+    expect(companions.rows).toEqual([
+      { slot: 2, full_name: "Guest Two", instagram_handle: "person.two" },
+    ]);
 
     const eventState = await pool.query(
       "SELECT reserved_seats, last_reservation_number FROM events WHERE id = $1",
@@ -242,8 +245,8 @@ describe("reservation allocation repository", () => {
         accepted_at: null,
         allergies: null,
         link_code: null,
-        guest2_full_name: "Guest 5 Companion",
-        guest2_instagram_handle: "guest.5.companion",
+        guest2_full_name: null,
+        guest2_instagram_handle: null,
         source: "PUBLIC",
         email: null,
         email_normalized: null,
@@ -255,6 +258,14 @@ describe("reservation allocation repository", () => {
       [event.id],
     );
     expect(eventState.rows[0]).toEqual({ reserved_seats: 2, last_reservation_number: 0 });
+    const companions = await pool.query(
+      `SELECT g.slot, g.full_name, g.instagram_handle FROM request_guests g
+       JOIN reservations r ON r.id = g.reservation_id WHERE r.event_id = $1`,
+      [event.id],
+    );
+    expect(companions.rows).toEqual([
+      { slot: 2, full_name: "Guest 5 Companion", instagram_handle: "guest.5.companion" },
+    ]);
   });
 
   it("blocks confirmed duplicates across either guest position", async () => {

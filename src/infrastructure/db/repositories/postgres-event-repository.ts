@@ -29,6 +29,7 @@ import {
   type MapsCoordinates,
 } from "@/domain/event/event-location";
 import { availableSeats, derivePhase, type EventLifecycleStatus } from "@/domain/event/event-phase";
+import { MAX_PARTY_SIZE, type RequestGuest } from "@/domain/reservation/request-guests";
 
 import { pool as applicationPool } from "../client";
 import { inTransaction as runInTransaction } from "../transaction";
@@ -78,6 +79,7 @@ interface ReservationRow extends QueryResultRow {
   email: string;
   party_size: number;
   status: AdminReservationItem["status"];
+  guests: RequestGuest[];
   submitted_at: Date;
   accepted_at: Date | null;
   notes: string | null;
@@ -304,7 +306,11 @@ export class PostgresEventRepository implements EventRepository {
     if (command.closesAt <= command.opensAt) {
       return failed("INVALID_WINDOW");
     }
-    if (command.maxPartySize !== 1 && command.maxPartySize !== 2) {
+    if (
+      !Number.isInteger(command.maxPartySize) ||
+      command.maxPartySize < 1 ||
+      command.maxPartySize > MAX_PARTY_SIZE
+    ) {
       return failed("MAX_PARTY_SIZE_NOT_ALLOWED");
     }
     if (command.maxPartySize > command.capacity) {
@@ -387,7 +393,11 @@ export class PostgresEventRepository implements EventRepository {
     if (command.closesAt <= command.opensAt) {
       return failed("INVALID_WINDOW");
     }
-    if (command.maxPartySize !== 1 && command.maxPartySize !== 2) {
+    if (
+      !Number.isInteger(command.maxPartySize) ||
+      command.maxPartySize < 1 ||
+      command.maxPartySize > MAX_PARTY_SIZE
+    ) {
       return failed("MAX_PARTY_SIZE_NOT_ALLOWED");
     }
 
@@ -824,7 +834,14 @@ export class PostgresEventRepository implements EventRepository {
 
     const result = await this.pool.query<ReservationRow>(
       `WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS db_now)
-       SELECT r.*, db_clock.db_now
+       SELECT r.id, r.reservation_number, r.full_name, r.instagram_handle,
+              r.phone_e164, r.email, r.party_size, r.status, r.submitted_at,
+              r.accepted_at, r.notes, db_clock.db_now,
+              jsonb_build_array(jsonb_build_object(
+                'slot', 1, 'name', r.full_name, 'instagram', r.instagram_handle
+              )) || COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                'slot', slot, 'name', full_name, 'instagram', instagram_handle
+              ) ORDER BY slot) FROM request_guests WHERE reservation_id = r.id), '[]'::jsonb) AS guests
          FROM reservations r
          CROSS JOIN db_clock
         WHERE ${conditions.join(" AND ")}
@@ -842,6 +859,7 @@ export class PostgresEventRepository implements EventRepository {
         phone: row.phone_e164,
         email: row.email,
         partySize: row.party_size,
+        guests: row.guests,
         status: row.status,
         submittedAt: row.submitted_at,
         acceptedAt: row.accepted_at,

@@ -73,8 +73,8 @@ afterAll(async () => {
 function guestForm(name = "Ana Acción", instagram = "@ana.accion"): FormData {
   const formData = new FormData();
   formData.set("partySize", "1");
-  formData.set("guest1Name", name);
-  formData.set("guest1Instagram", instagram);
+  formData.set("guestName", name);
+  formData.set("guestInstagram", instagram);
   formData.set("hasAllergies", "false");
   formData.set("notes", "");
   return formData;
@@ -124,8 +124,8 @@ async function seedQueueBlockedByCouple(slug: string) {
   await addRequestAction(blockedEventId, initialState, guestForm("Dan Cola", "@dan.cola"));
   const couple = guestForm("Eva Pareja", "@eva.pareja");
   couple.set("partySize", "2");
-  couple.set("guest2Name", "Eva Dos");
-  couple.set("guest2Instagram", "@eva.dos");
+  couple.append("guestName", "Eva Dos");
+  couple.append("guestInstagram", "@eva.dos");
   await addRequestAction(blockedEventId, initialState, couple);
   await addRequestAction(blockedEventId, initialState, guestForm("Gus Cola", "@gus.cola"));
 
@@ -391,8 +391,8 @@ describe("guest admin Server Actions", () => {
     await pool.query("UPDATE events SET max_party_size = 1 WHERE id = $1", [eventId]);
     const formData = guestForm("Pareja Acción", "@pareja.accion");
     formData.set("partySize", "2");
-    formData.set("guest2Name", "Pareja Dos");
-    formData.set("guest2Instagram", "@pareja.dos");
+    formData.append("guestName", "Pareja Dos");
+    formData.append("guestInstagram", "@pareja.dos");
 
     const result = await addRequestAction(eventId, initialState, formData);
 

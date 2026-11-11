@@ -16,7 +16,8 @@ import {
 } from "@/domain/messaging/location-message";
 import { locationPhotoUrl } from "@/domain/messaging/message-attachment-urls";
 import { renderMessageTemplate } from "@/domain/messaging/message-template";
-import { firstName, guestFirstNames } from "@/domain/reservation/guest-names";
+import { firstName } from "@/domain/reservation/guest-names";
+import { guestFirstNames } from "@/domain/reservation/request-guests";
 import { env } from "@/infrastructure/config/env";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
@@ -41,6 +42,7 @@ interface PaidGuestRow extends QueryResultRow {
   full_name: string;
   name: string;
   guest2_full_name: string | null;
+  companion_names: string[];
 }
 
 interface SummaryRow extends QueryResultRow {
@@ -116,7 +118,9 @@ async function readPaidGuest(
   reservationId: string,
 ): Promise<PaidGuestRow[]> {
   const result = await client.query<PaidGuestRow>(
-    `SELECT r.id, person.slot, person.name, r.full_name, r.guest2_full_name
+    `SELECT r.id, person.slot, person.name, r.full_name, r.guest2_full_name,
+            ARRAY(SELECT full_name FROM request_guests WHERE reservation_id = r.id
+                   ORDER BY slot) AS companion_names
        FROM reservations r
        CROSS JOIN LATERAL (VALUES (1, r.full_name), (2, r.guest2_full_name)) person(slot, name)
       WHERE r.id = $1
@@ -137,7 +141,9 @@ async function readPaidGuestsWithoutMessage(
   people?: Array<{ reservationId: string; slot: 1 | 2 }>,
 ): Promise<PaidGuestRow[]> {
   const result = await client.query<PaidGuestRow>(
-    `SELECT r.id, person.slot, person.name, r.full_name, r.guest2_full_name
+    `SELECT r.id, person.slot, person.name, r.full_name, r.guest2_full_name,
+            ARRAY(SELECT full_name FROM request_guests WHERE reservation_id = r.id
+                   ORDER BY slot) AS companion_names
        FROM reservations r
        CROSS JOIN LATERAL (VALUES (1, r.full_name), (2, r.guest2_full_name)) person(slot, name)
       WHERE r.event_id = $1
@@ -212,7 +218,7 @@ async function buildContext(
 function renderLocationBody(context: LocationMessageContext, guest: PaidGuestRow): string {
   return renderMessageTemplate(context.template, {
     nombre: firstName(guest.name),
-    nombres: guestFirstNames(guest.full_name, guest.guest2_full_name),
+    nombres: guestFirstNames([guest.full_name, ...guest.companion_names]),
     fecha: formatPublicEventDate(context.startsAt),
     ubicacion: context.locationText,
   });

@@ -56,11 +56,10 @@ afterAll(async () => {
 function guestFields(name: string, partySize: 1 | 2 = 1): GuestFields {
   const handle = name.toLowerCase().replaceAll(/[^a-z0-9]/g, "");
   return {
-    partySize,
-    guest1Name: name,
-    guest1Instagram: `${handle}${sequence}`,
-    guest2Name: partySize === 2 ? `${name} Dos` : null,
-    guest2Instagram: partySize === 2 ? `${handle}${sequence}.dos` : null,
+    guests: [
+      { name, instagram: `${handle}${sequence}` },
+      ...(partySize === 2 ? [{ name: `${name} Dos`, instagram: `${handle}${sequence}.dos` }] : []),
+    ],
     hasAllergies: false,
     allergies: null,
     notes: null,
@@ -138,16 +137,24 @@ async function insertReservation(
       eventId,
       number.rows[0]!.last_reservation_number,
       stage,
-      fields.guest1Name,
-      fields.guest1Instagram,
-      fields.guest2Name,
-      fields.guest2Instagram,
+      fields.guests[0]!.name,
+      fields.guests[0]!.instagram,
+      fields.guests[1]?.name,
+      fields.guests[1]?.instagram,
       partySize,
       generateLinkCode(),
       randomUUID(),
     ],
   );
-  return { id: result.rows[0]!.id, fields };
+  const id = result.rows[0]!.id;
+  if (fields.guests[1]) {
+    await pool.query(
+      `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
+       VALUES ($1, 2, $2, $3)`,
+      [id, fields.guests[1].name, fields.guests[1].instagram],
+    );
+  }
+  return { id, fields };
 }
 
 async function insertWaitlistEntry(
@@ -178,16 +185,24 @@ async function insertWaitlistEntry(
       eventId,
       number.rows[0]!.last_waitlist_number,
       status,
-      fields.guest1Name,
-      fields.guest1Instagram,
-      fields.guest2Name,
-      fields.guest2Instagram,
+      fields.guests[0]!.name,
+      fields.guests[0]!.instagram,
+      fields.guests[1]?.name,
+      fields.guests[1]?.instagram,
       partySize,
       generateLinkCode(),
       randomUUID(),
     ],
   );
-  return { id: result.rows[0]!.id, fields };
+  const id = result.rows[0]!.id;
+  if (fields.guests[1]) {
+    await pool.query(
+      `INSERT INTO request_guests (waitlist_entry_id, slot, full_name, instagram_handle)
+       VALUES ($1, 2, $2, $3)`,
+      [id, fields.guests[1].name, fields.guests[1].instagram],
+    );
+  }
+  return { id, fields };
 }
 
 async function linkWaitlistEntryByCode(entryId: string): Promise<string> {
@@ -496,7 +511,7 @@ describe("guest admin use cases", () => {
     );
     const serialized = JSON.stringify(audit.rows[0]!.metadata);
     expect(serialized).not.toContain("Bruno");
-    expect(serialized).not.toContain(reservation.fields.guest1Instagram);
+    expect(serialized).not.toContain(reservation.fields.guests[0]!.instagram);
     expect(audit.rows[0]!.metadata).toMatchObject({ partySize: 1, promotedCount: 1 });
     await invariant(eventId);
   });
@@ -507,9 +522,7 @@ describe("guest admin use cases", () => {
     await insertReservation(fullEventId, { name: "Dalia Ocupa" });
     const couple = {
       ...single.fields,
-      partySize: 2 as const,
-      guest2Name: "Dalia Dos",
-      guest2Instagram: "dalia.dos",
+      guests: [...single.fields.guests, { name: "Dalia Dos", instagram: "dalia.dos" }],
     };
     expect(
       await updateRequest(repository, {
@@ -527,7 +540,9 @@ describe("guest admin use cases", () => {
     const waiting = await insertWaitlistEntry(eventId, { name: "Fabio" });
     const duplicateFields = {
       ...reservation.fields,
-      guest1Instagram: waiting.fields.guest1Instagram,
+      guests: reservation.fields.guests.map((guest, index) =>
+        index === 0 ? { ...guest, instagram: waiting.fields.guests[0]!.instagram } : guest,
+      ),
     };
     expect(
       await updateRequest(repository, {
@@ -535,16 +550,14 @@ describe("guest admin use cases", () => {
         actorAdminId: adminId,
         fields: duplicateFields,
       }),
-    ).toMatchObject({ ok: false, code: "DUPLICATE_HANDLE", field: "guest1Instagram" });
+    ).toMatchObject({ ok: false, code: "DUPLICATE_HANDLE", field: "guests.0.instagram" });
 
     const shrunk = await updateRequest(repository, {
       reservationId: reservation.id,
       actorAdminId: adminId,
       fields: {
         ...reservation.fields,
-        partySize: 1,
-        guest2Name: null,
-        guest2Instagram: null,
+        guests: reservation.fields.guests.slice(0, 1),
       },
     });
     expect(shrunk).toMatchObject({
@@ -683,7 +696,7 @@ describe("guest admin use cases", () => {
     const duplicate = await insertWaitlistEntry(eventId, { name: "Duplicada Cola", partySize: 2 });
     await pool.query("UPDATE waitlist_entries SET instagram_handle = $2 WHERE id = $1", [
       duplicate.id,
-      reservation.fields.guest1Instagram,
+      reservation.fields.guests[0]!.instagram,
     ]);
     const next = await insertWaitlistEntry(eventId, { name: "Siguiente Válida" });
 
@@ -732,9 +745,7 @@ describe("guest admin use cases", () => {
         actorAdminId: adminId,
         fields: {
           ...editedHead.fields,
-          partySize: 1,
-          guest2Name: null,
-          guest2Instagram: null,
+          guests: editedHead.fields.guests.slice(0, 1),
         },
       }),
     ).toMatchObject({ ok: true, promoted: [{ entryId: editedHead.id }] });
@@ -924,7 +935,13 @@ describe("guest admin use cases", () => {
       await updateRequest(repository, {
         reservationId: reservation.id,
         actorAdminId: adminId,
-        fields: { ...couple, guest1Instagram: reservation.fields.guest1Instagram },
+        fields: {
+          ...couple,
+          guests: [
+            { ...couple.guests[0]!, instagram: reservation.fields.guests[0]!.instagram },
+            ...couple.guests.slice(1),
+          ],
+        },
       }),
     ).toEqual({ ok: false, code: "PARTY_SIZE_NOT_ALLOWED", maxPartySize: 1 });
 
@@ -933,7 +950,13 @@ describe("guest admin use cases", () => {
       await updateEntry(repository, {
         entryId: entry.id,
         actorAdminId: adminId,
-        fields: { ...couple, guest1Instagram: entry.fields.guest1Instagram },
+        fields: {
+          ...couple,
+          guests: [
+            { ...couple.guests[0]!, instagram: entry.fields.guests[0]!.instagram },
+            ...couple.guests.slice(1),
+          ],
+        },
       }),
     ).toEqual({ ok: false, code: "PARTY_SIZE_NOT_ALLOWED", maxPartySize: 1 });
     await invariant(eventId);
@@ -950,7 +973,12 @@ describe("guest admin use cases", () => {
       await updateRequest(repository, {
         reservationId: reservation.id,
         actorAdminId: adminId,
-        fields: { ...reservation.fields, guest1Name: "Pareja Corregida" },
+        fields: {
+          ...reservation.fields,
+          guests: reservation.fields.guests.map((guest, index) =>
+            index === 0 ? { ...guest, name: "Pareja Corregida" } : guest,
+          ),
+        },
       }),
     ).toMatchObject({ ok: true, guests: ["Pareja Corregida", "Pareja Existente Dos"] });
 
@@ -965,7 +993,12 @@ describe("guest admin use cases", () => {
       await updateEntry(repository, {
         entryId: entry.id,
         actorAdminId: adminId,
-        fields: { ...entry.fields, guest1Name: "Pareja en Cola Corregida" },
+        fields: {
+          ...entry.fields,
+          guests: entry.fields.guests.map((guest, index) =>
+            index === 0 ? { ...guest, name: "Pareja en Cola Corregida" } : guest,
+          ),
+        },
       }),
     ).toMatchObject({ ok: true, guests: ["Pareja en Cola Corregida", "Pareja en Cola Dos"] });
     await invariant(reservationEventId);
@@ -1126,10 +1159,10 @@ describe("guest admin use cases", () => {
       actorAdminId: adminId,
       fields: {
         ...onList.fields,
-        guest1Instagram: review.fields.guest1Instagram,
-        partySize: 2,
-        guest2Name: "Pedro Dos",
-        guest2Instagram: `${onList.fields.guest1Instagram}.dos`,
+        guests: [
+          { ...onList.fields.guests[0]!, instagram: review.fields.guests[0]!.instagram },
+          { name: "Pedro Dos", instagram: `${onList.fields.guests[0]!.instagram}.dos` },
+        ],
       },
     });
     expect(editedCancelled).toMatchObject({ ok: true, promoted: [] });
@@ -1171,7 +1204,7 @@ describe("guest admin use cases", () => {
     const serializedAudit = JSON.stringify(audit.rows.map((row) => row.metadata));
     expect(serializedAudit).not.toContain("Olivia");
     expect(serializedAudit).not.toContain("Pedro Dos");
-    expect(serializedAudit).not.toContain(onList.fields.guest1Instagram);
+    expect(serializedAudit).not.toContain(onList.fields.guests[0]!.instagram);
     await invariant(eventId);
   });
 

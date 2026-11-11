@@ -245,8 +245,10 @@ describe("admin guest import routes with PostgreSQL", () => {
       notes: 6,
     });
     expect(body.rows[0]).toMatchObject({
-      guest1Instagram: "ana",
-      guest2Instagram: "luis",
+      guests: [
+        { name: expect.any(String), instagram: "ana" },
+        { name: expect.any(String), instagram: "luis" },
+      ],
       partySize: 2,
       allergies: null,
       order: 1,

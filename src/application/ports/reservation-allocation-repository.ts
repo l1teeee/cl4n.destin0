@@ -10,14 +10,14 @@ export type AllocationOutcome =
   | {
       code: "RECEIVED";
       number: number;
-      partySize: 1 | 2;
+      partySize: number;
       eventStartsAt: Date;
       linkCode: string;
     }
   | {
       code: "WAITLISTED";
       position: number;
-      partySize: 1 | 2;
+      partySize: number;
       eventStartsAt: Date;
       linkCode: string;
     }
@@ -38,11 +38,7 @@ export interface AllocationCommand {
   idempotencyKey: string;
   fingerprint: string;
   eventSlug: string;
-  fullName: string;
-  instagramHandle: string;
-  guest2FullName: string | null;
-  guest2InstagramHandle: string | null;
-  partySize: 1 | 2;
+  guests: { name: string; instagram: string }[];
   notes?: string;
   allergies: string | null;
   linkCode: string;

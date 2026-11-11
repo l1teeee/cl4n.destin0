@@ -43,8 +43,7 @@ function guestRow(overrides: Partial<EventGuestRow> = {}): EventGuestRow {
     position: null,
     guest1Name: "Ana López",
     guest1Instagram: "ana.lopez",
-    guest2Name: null,
-    guest2Instagram: null,
+    guests: [{ slot: 1, name: "Ana López", instagram: "ana.lopez" }],
     partySize: 1,
     allergies: null,
     notes: null,
@@ -148,7 +147,13 @@ describe("GuestRowActions in review", () => {
 
   it("posts the two-seat replacements when the request is a couple", async () => {
     const guestHandlers = renderActions(
-      guestRow({ partySize: 2, guest2Name: "Pedro", guest2Instagram: "pedro" }),
+      guestRow({
+        partySize: 2,
+        guests: [
+          { slot: 1, name: "Ana López", instagram: "ana.lopez" },
+          { slot: 2, name: "Pedro", instagram: "pedro" },
+        ],
+      }),
     );
 
     await openDialog("Rechazar");
@@ -238,8 +243,10 @@ describe("GuestRowActions in the queue", () => {
         status: "WAITING",
         stage: null,
         partySize: 2,
-        guest2Name: "Luis Pérez",
-        guest2Instagram: "luis.perez",
+        guests: [
+          { slot: 1, name: "Ana López", instagram: "ana.lopez" },
+          { slot: 2, name: "Luis Pérez", instagram: "luis.perez" },
+        ],
       }),
       { freeSeats: 2 },
     );
@@ -378,7 +385,15 @@ describe("GuestRowActions releasing a request", () => {
   });
 
   it("lets a couple release the seats for a couple of the cola", async () => {
-    renderActions(guestRow({ partySize: 2, guest2Name: "Pedro", guest2Instagram: "pedro" }));
+    renderActions(
+      guestRow({
+        partySize: 2,
+        guests: [
+          { slot: 1, name: "Ana López", instagram: "ana.lopez" },
+          { slot: 2, name: "Pedro", instagram: "pedro" },
+        ],
+      }),
+    );
 
     await openDialog("Rechazar");
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar de la lista de colas" }));

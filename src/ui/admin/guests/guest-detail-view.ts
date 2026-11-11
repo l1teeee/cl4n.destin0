@@ -41,11 +41,11 @@ export function canEditGuest(row: Pick<EventGuestRow, "kind" | "status">): boole
 
 export function guestFormDefaults(row: EventGuestRow): GuestRequestFormValues {
   return {
-    partySize: row.partySize === 2 ? 2 : 1,
-    guest1Name: row.guest1Name,
-    guest1Instagram: row.guest1Instagram,
-    guest2Name: row.guest2Name ?? "",
-    guest2Instagram: row.guest2Instagram ?? "",
+    partySize: row.partySize > 1 ? 2 : 1,
+    guest1Name: row.guests[0]!.name,
+    guest1Instagram: row.guests[0]!.instagram,
+    guest2Name: row.guests[1]?.name ?? "",
+    guest2Instagram: row.guests[1]?.instagram ?? "",
     hasAllergies: row.allergies !== null,
     allergies: row.allergies ?? "",
     notes: row.notes ?? "",

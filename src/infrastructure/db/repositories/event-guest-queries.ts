@@ -7,6 +7,7 @@ import {
 } from "@/application/messaging/conversation-queries";
 import type { ConversationMessage } from "@/application/messaging/conversation-queries";
 import type { MessageKind, MessageStatus } from "@/domain/messaging/message-types";
+import type { RequestGuest } from "@/domain/reservation/request-guests";
 
 import { pool as applicationPool } from "../client";
 import { postgresMessageRepository } from "./postgres-message-repository";
@@ -30,8 +31,7 @@ export interface EventGuestRow {
   position: number | null;
   guest1Name: string;
   guest1Instagram: string;
-  guest2Name: string | null;
-  guest2Instagram: string | null;
+  guests: RequestGuest[];
   partySize: number;
   allergies: string | null;
   notes: string | null;
@@ -68,7 +68,7 @@ export interface PromotionPreviewEntry {
 export interface WaitingQueueEntry {
   id: string;
   position: number;
-  partySize: 1 | 2;
+  partySize: number;
   guests: string[];
 }
 
@@ -97,8 +97,7 @@ interface GuestRecord extends QueryResultRow {
   position: number | null;
   guest1_name: string;
   guest1_instagram: string;
-  guest2_name: string | null;
-  guest2_instagram: string | null;
+  guests: RequestGuest[];
   party_size: number;
   allergies: string | null;
   notes: string | null;
@@ -136,8 +135,13 @@ const guestRequestsCte = `
            NULL::int AS position,
            r.full_name AS guest1_name,
            r.instagram_handle AS guest1_instagram,
-           r.guest2_full_name AS guest2_name,
-           r.guest2_instagram_handle AS guest2_instagram,
+           jsonb_build_array(jsonb_build_object(
+             'slot', 1, 'name', r.full_name, 'instagram', r.instagram_handle
+           )) || COALESCE((
+             SELECT jsonb_agg(jsonb_build_object(
+               'slot', slot, 'name', full_name, 'instagram', instagram_handle
+             ) ORDER BY slot) FROM request_guests WHERE reservation_id = r.id
+           ), '[]'::jsonb) AS guests,
            r.party_size,
            r.allergies,
            r.notes,
@@ -164,8 +168,13 @@ const guestRequestsCte = `
            p.position,
            w.full_name,
            w.instagram_handle,
-           w.guest2_full_name,
-           w.guest2_instagram_handle,
+           jsonb_build_array(jsonb_build_object(
+             'slot', 1, 'name', w.full_name, 'instagram', w.instagram_handle
+           )) || COALESCE((
+             SELECT jsonb_agg(jsonb_build_object(
+               'slot', slot, 'name', full_name, 'instagram', instagram_handle
+             ) ORDER BY slot) FROM request_guests WHERE waitlist_entry_id = w.id
+           ), '[]'::jsonb),
            w.party_size,
            w.allergies,
            w.notes,
@@ -216,8 +225,7 @@ function toGuestRow(row: GuestRecord): EventGuestRow {
     position: row.position,
     guest1Name: row.guest1_name,
     guest1Instagram: row.guest1_instagram,
-    guest2Name: row.guest2_name,
-    guest2Instagram: row.guest2_instagram,
+    guests: row.guests,
     partySize: row.party_size,
     allergies: row.allergies,
     notes: row.notes,
@@ -396,11 +404,13 @@ async function listWaitingQueue(eventId: string, targetPool: Pool): Promise<Wait
     position: number;
     party_size: number;
     full_name: string;
-    guest2_full_name: string | null;
+    companion_names: string[];
   }>(
     `SELECT w.id,
             ROW_NUMBER() OVER (ORDER BY w.waitlist_number, w.id)::int AS position,
-            w.party_size, w.full_name, w.guest2_full_name
+            w.party_size, w.full_name,
+            ARRAY(SELECT full_name FROM request_guests WHERE waitlist_entry_id = w.id
+                   ORDER BY slot) AS companion_names
        FROM waitlist_entries w
        JOIN events e ON e.id = w.event_id AND e.deleted_at IS NULL
       WHERE w.event_id = $1
@@ -411,8 +421,8 @@ async function listWaitingQueue(eventId: string, targetPool: Pool): Promise<Wait
   return result.rows.map((row): WaitingQueueEntry => ({
     id: row.id,
     position: row.position,
-    partySize: row.party_size === 2 ? 2 : 1,
-    guests: [row.full_name, row.guest2_full_name].filter((name): name is string => name !== null),
+    partySize: row.party_size,
+    guests: [row.full_name, ...row.companion_names],
   }));
 }
 
@@ -432,7 +442,7 @@ export async function previewPromotion(
   const result = await targetPool.query<{
     id: string;
     full_name: string;
-    guest2_full_name: string | null;
+    companion_names: string[];
     fits_one: boolean;
     fits_two: boolean;
   }>(
@@ -446,17 +456,26 @@ export async function previewPromotion(
           AND ${WAITLIST_PROMOTION_EVENT_PREDICATE}
      ),
      candidates AS (
-       SELECT w.id, w.waitlist_number, w.party_size, w.full_name, w.guest2_full_name,
+       SELECT w.id, w.waitlist_number, w.party_size, w.full_name,
+            ARRAY(SELECT full_name FROM request_guests WHERE waitlist_entry_id = w.id
+                   ORDER BY slot) AS companion_names,
               NOT EXISTS (
                 SELECT 1
                   FROM reservations r
                  WHERE r.event_id = w.event_id
                    AND r.status = 'CONFIRMED'
                    AND (
-                     r.instagram_handle IN (w.instagram_handle, w.guest2_instagram_handle)
-                     OR r.guest2_instagram_handle IN (
-                       w.instagram_handle,
-                       w.guest2_instagram_handle
+                     EXISTS (
+                       SELECT 1 FROM (
+                         SELECT w.instagram_handle AS handle
+                         UNION ALL
+                         SELECT instagram_handle FROM request_guests WHERE waitlist_entry_id = w.id
+                       ) candidate_handles
+                       WHERE r.instagram_handle = candidate_handles.handle OR EXISTS (
+                         SELECT 1 FROM request_guests g
+                          WHERE g.reservation_id = r.id
+                            AND g.instagram_handle = candidate_handles.handle
+                       )
                      )
                    )
               ) AS can_promote
@@ -471,7 +490,7 @@ export async function previewPromotion(
               ) AS required_seats
          FROM candidates
      )
-     SELECT ordered.id, ordered.full_name, ordered.guest2_full_name,
+     SELECT ordered.id, ordered.full_name, ordered.companion_names,
             ordered.required_seats <= event.one_seat_limit AS fits_one,
             ordered.required_seats <= event.two_seat_limit AS fits_two
        FROM ordered
@@ -486,7 +505,7 @@ export async function previewPromotion(
   );
   const entry = (row: (typeof result.rows)[number]): PromotionPreviewEntry => ({
     id: row.id,
-    guests: [row.full_name, row.guest2_full_name].filter((name): name is string => name !== null),
+    guests: [row.full_name, ...row.companion_names],
   });
   return {
     waitingCount: event.rows[0]?.waitlisted_count ?? 0,

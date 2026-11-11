@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { parseDrinkPriceCents } from "@/domain/drink/drink-price";
 import { mapProviderOf } from "@/domain/event/map-links";
+import { MAX_PARTY_SIZE } from "@/domain/reservation/request-guests";
 
 // Number("") is 0, which would silently turn an empty field into "waitlist off".
 export function optionalNumber(value: FormDataEntryValue | null): number | undefined {
@@ -133,9 +134,11 @@ const eventFields = {
     .number({ error: "La capacidad debe ser un número." })
     .int("La capacidad debe ser un número entero.")
     .positive("La capacidad debe ser mayor que cero."),
-  maxPartySize: z.union([z.literal(1), z.literal(2)], {
-    error: "Máximo 2 personas por solicitud.",
-  }),
+  maxPartySize: z
+    .number({ error: "Las personas por solicitud deben ser un número." })
+    .int("Las personas por solicitud deben ser un número entero.")
+    .min(1, "Mínimo 1 persona por solicitud.")
+    .max(MAX_PARTY_SIZE, "Máximo 100 personas por solicitud."),
   autoCloseOnFull: z.boolean({ error: "El cierre automático debe ser verdadero o falso." }),
   waitlistCapacity: z
     .number({ error: "Los lugares en cola deben ser un número." })

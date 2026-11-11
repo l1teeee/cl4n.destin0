@@ -64,24 +64,24 @@ export function reservationBody(
   sequence = 1,
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const couple =
-    overrides.partySize === 2
-      ? {
-          guest2Name: `Guest ${sequence} Companion`,
-          guest2Instagram: `guest.${sequence}.companion`,
-        }
-      : {};
+  const {
+    partySize = 1,
+    guest1Name = `Guest ${sequence}`,
+    guest1Instagram = `guest.${sequence}`,
+    guest2Name = `Guest ${sequence} Companion`,
+    guest2Instagram = `guest.${sequence}.companion`,
+    ...fields
+  } = overrides;
+  const guests = [{ name: guest1Name, instagram: guest1Instagram }];
+  if (partySize === 2) guests.push({ name: guest2Name, instagram: guest2Instagram });
   return {
     eventSlug,
-    guest1Name: `Guest ${sequence}`,
-    guest1Instagram: `guest.${sequence}`,
-    partySize: 1,
+    guests,
     hasAllergies: false,
     notes: "Sin observaciones",
     acceptTerms: true,
     turnstileToken: "test-token",
-    ...couple,
-    ...overrides,
+    ...fields,
   };
 }
 

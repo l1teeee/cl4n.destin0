@@ -5,7 +5,6 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 
-import { fieldErrorsFromZod } from "@/app/admin/(protected)/form-errors";
 import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import type {
   GuestMutationFailure,
@@ -74,10 +73,15 @@ function unauthorized(): AdminActionState {
 }
 
 function validationError(error: z.ZodError): AdminActionState {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const field = issue.path.join(".");
+    if (field) fieldErrors[field] ??= issue.message;
+  }
   return {
     ok: false,
     message: "Revisa los campos marcados.",
-    fieldErrors: fieldErrorsFromZod(error),
+    fieldErrors,
   };
 }
 

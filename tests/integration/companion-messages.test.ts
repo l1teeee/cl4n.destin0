@@ -392,16 +392,29 @@ async function seedEditMessages(
   return editMessages(fixture.reservationId);
 }
 
-function editCompanion(fixture: Awaited<ReturnType<typeof couple>>, fields: Partial<GuestFields>) {
+function editCompanion(
+  fixture: Awaited<ReturnType<typeof couple>>,
+  fields: Partial<GuestFields> & {
+    partySize?: number;
+    guest2Name?: string | null;
+    guest2Instagram?: string | null;
+  },
+) {
   return new PostgresGuestAdminRepository(pool).update({
     reservationId: fixture.reservationId,
     actorAdminId: adminId,
     fields: {
-      partySize: 2,
-      guest1Name: "Ana López",
-      guest1Instagram: fixture.instagram_handle,
-      guest2Name: "Luis Pérez",
-      guest2Instagram: fixture.guest2_instagram_handle,
+      guests: [
+        { name: "Ana López", instagram: fixture.instagram_handle },
+        ...(fields.partySize === 1
+          ? []
+          : [
+              {
+                name: fields.guest2Name ?? "Luis Pérez",
+                instagram: fields.guest2Instagram ?? fixture.guest2_instagram_handle,
+              },
+            ]),
+      ],
       hasAllergies: false,
       allergies: null,
       notes: null,

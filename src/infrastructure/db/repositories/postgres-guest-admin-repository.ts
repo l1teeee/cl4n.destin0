@@ -19,6 +19,7 @@ import type {
   WaitlistEntryCommand,
 } from "@/application/guests/guest-admin-repository";
 import type { StatusMessageKind } from "@/domain/messaging/message-types";
+import type { RequestGuest } from "@/domain/reservation/request-guests";
 import { generateLinkCode as defaultGenerateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 
 import { pool as applicationPool } from "../client";
@@ -49,8 +50,7 @@ interface ReservationRow {
   stage: "IN_REVIEW" | "ON_LIST" | "PAID";
   full_name: string;
   instagram_handle: string;
-  guest2_full_name: string | null;
-  guest2_instagram_handle: string | null;
+  companions: RequestGuest[];
   party_size: number;
   allergies: string | null;
   notes: string | null;
@@ -64,8 +64,7 @@ interface WaitlistRow {
   waitlist_number: number;
   full_name: string;
   instagram_handle: string;
-  guest2_full_name: string | null;
-  guest2_instagram_handle: string | null;
+  companions: RequestGuest[];
   party_size: number;
   allergies: string | null;
   notes: string | null;
@@ -95,8 +94,8 @@ function failed(
   return { ok: false, code, ...details };
 }
 
-function guestsOf(row: Pick<ReservationRow | WaitlistRow, "full_name" | "guest2_full_name">) {
-  return [row.full_name, row.guest2_full_name].filter((name): name is string => name !== null);
+function guestsOf(row: Pick<ReservationRow | WaitlistRow, "full_name" | "companions">) {
+  return [row.full_name, ...row.companions.map((guest) => guest.name)];
 }
 
 function promotedGuests(promotions: readonly WaitlistPromotion[]): PromotedGuest[] {
@@ -222,8 +221,10 @@ async function lockReservation(
 ): Promise<ReservationRow | null> {
   const result = await client.query<ReservationRow>(
     `SELECT id, event_id, status, stage, full_name, instagram_handle,
-            guest2_full_name, guest2_instagram_handle, party_size,
-            allergies, notes, refund_status
+            COALESCE((SELECT json_agg(json_build_object(
+              'slot', slot, 'name', full_name, 'instagram', instagram_handle
+            ) ORDER BY slot) FROM request_guests WHERE reservation_id = reservations.id), '[]') AS companions,
+            party_size, allergies, notes, refund_status
        FROM reservations
       WHERE id = $1
       FOR UPDATE`,
@@ -235,7 +236,10 @@ async function lockReservation(
 async function lockWaitlistEntry(client: PoolClient, entryId: string): Promise<WaitlistRow | null> {
   const result = await client.query<WaitlistRow>(
     `SELECT id, event_id, status, waitlist_number, full_name, instagram_handle,
-            guest2_full_name, guest2_instagram_handle, party_size, allergies, notes
+            COALESCE((SELECT json_agg(json_build_object(
+              'slot', slot, 'name', full_name, 'instagram', instagram_handle
+            ) ORDER BY slot) FROM request_guests WHERE waitlist_entry_id = waitlist_entries.id), '[]') AS companions,
+            party_size, allergies, notes
        FROM waitlist_entries
       WHERE id = $1
       FOR UPDATE`,
@@ -310,64 +314,88 @@ async function duplicateHandle(
   exclude: { reservationId?: string; entryId?: string } = {},
 ): Promise<GuestMutationFailure | null> {
   const result = await client.query<{ handle: string }>(
-    `SELECT handle
-       FROM (
-         SELECT instagram_handle AS handle
-           FROM reservations
-          WHERE event_id = $1
-            AND status = 'CONFIRMED'
-            AND id <> COALESCE($4::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-         UNION ALL
-         SELECT guest2_instagram_handle
-           FROM reservations
-          WHERE event_id = $1
-            AND status = 'CONFIRMED'
-            AND guest2_instagram_handle IS NOT NULL
-            AND id <> COALESCE($4::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-         UNION ALL
-         SELECT instagram_handle
-           FROM waitlist_entries
-          WHERE event_id = $1
-            AND status = 'WAITING'
-            AND id <> COALESCE($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-         UNION ALL
-         SELECT guest2_instagram_handle
-           FROM waitlist_entries
-          WHERE event_id = $1
-            AND status = 'WAITING'
-            AND guest2_instagram_handle IS NOT NULL
-            AND id <> COALESCE($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-       ) active_handles
-      WHERE handle IN ($2, $3)
-      LIMIT 1`,
+    `SELECT handle FROM (
+       SELECT r.instagram_handle AS handle
+         FROM reservations r
+        WHERE r.event_id = $1 AND r.status = 'CONFIRMED'
+          AND r.id IS DISTINCT FROM $3::uuid
+       UNION ALL
+       SELECT g.instagram_handle FROM request_guests g
+         JOIN reservations r ON r.id = g.reservation_id
+        WHERE r.event_id = $1 AND r.status = 'CONFIRMED'
+          AND r.id IS DISTINCT FROM $3::uuid
+       UNION ALL
+       SELECT w.instagram_handle FROM waitlist_entries w
+        WHERE w.event_id = $1 AND w.status = 'WAITING'
+          AND w.id IS DISTINCT FROM $4::uuid
+       UNION ALL
+       SELECT g.instagram_handle FROM request_guests g
+         JOIN waitlist_entries w ON w.id = g.waitlist_entry_id
+        WHERE w.event_id = $1 AND w.status = 'WAITING'
+          AND w.id IS DISTINCT FROM $4::uuid
+     ) active_handles
+     WHERE handle = ANY($2::text[])`,
     [
       eventId,
-      fields.guest1Instagram,
-      fields.guest2Instagram,
+      fields.guests.map((guest) => guest.instagram),
       exclude.reservationId ?? null,
       exclude.entryId ?? null,
     ],
   );
-  const matched = result.rows[0]?.handle;
-  if (!matched) return null;
-  return {
-    ok: false,
-    code: "DUPLICATE_HANDLE",
-    field: matched === fields.guest2Instagram ? "guest2Instagram" : "guest1Instagram",
-  };
+  const handles = new Set(result.rows.map((row) => row.handle));
+  const index = fields.guests.findIndex((guest) => handles.has(guest.instagram));
+  return index < 0
+    ? null
+    : {
+        ok: false,
+        code: "DUPLICATE_HANDLE",
+        field: `guests.${index}.instagram`,
+      };
 }
 
 function changedFields(row: ReservationRow | WaitlistRow, fields: GuestFields): string[] {
   const changed: string[] = [];
-  if (row.party_size !== fields.partySize) changed.push("partySize");
-  if (row.full_name !== fields.guest1Name) changed.push("guest1Name");
-  if (row.instagram_handle !== fields.guest1Instagram) changed.push("guest1Instagram");
-  if (row.guest2_full_name !== fields.guest2Name) changed.push("guest2Name");
-  if (row.guest2_instagram_handle !== fields.guest2Instagram) changed.push("guest2Instagram");
+  if (row.party_size !== fields.guests.length) changed.push("partySize");
+  const previous = [
+    { slot: 1, name: row.full_name, instagram: row.instagram_handle },
+    ...row.companions,
+  ];
+  for (let index = 0; index < Math.max(previous.length, fields.guests.length); index += 1) {
+    if (previous[index]?.name !== fields.guests[index]?.name) changed.push(`guests.${index}.name`);
+    if (previous[index]?.instagram !== fields.guests[index]?.instagram) {
+      changed.push(`guests.${index}.instagram`);
+    }
+  }
   if ((row.allergies !== null) !== fields.hasAllergies) changed.push("hasAllergies");
   if (row.allergies !== fields.allergies) changed.push("allergies");
   if (row.notes !== fields.notes) changed.push("notes");
   return changed;
+}
+
+async function updateCompanions(
+  client: PoolClient,
+  table: "reservations" | "waitlist_entries",
+  id: string,
+  guests: GuestFields["guests"],
+): Promise<void> {
+  const column = table === "reservations" ? "reservation_id" : "waitlist_entry_id";
+  await client.query(`DELETE FROM request_guests WHERE ${column} = $1 AND slot > $2`, [
+    id,
+    guests.length,
+  ]);
+  for (const [index, guest] of guests.entries()) {
+    if (index === 0) continue;
+    await client.query(
+      `INSERT INTO request_guests (${column}, slot, full_name, instagram_handle)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (${column}, slot) DO UPDATE
+         SET full_name = EXCLUDED.full_name,
+             instagram_handle = EXCLUDED.instagram_handle,
+             contact_id = CASE WHEN request_guests.instagram_handle = EXCLUDED.instagram_handle
+               THEN request_guests.contact_id ELSE NULL END`,
+      [id, index + 1, guest.name, guest.instagram],
+    );
+  }
 }
 
 async function updateGuestData(
@@ -375,68 +403,54 @@ async function updateGuestData(
   table: "reservations" | "waitlist_entries",
   id: string,
   fields: GuestFields,
-  previousGuest2Instagram: string | null,
+  previousCompanions: RequestGuest[],
   actorAdminId: string,
 ): Promise<void> {
-  const companionRemoved = previousGuest2Instagram !== null && fields.guest2Name === null;
-  const companionHandleChanged = previousGuest2Instagram !== fields.guest2Instagram;
-  const clearCompanionContact =
-    table === "reservations" && (companionRemoved || companionHandleChanged);
   await client.query(
     `UPDATE ${table}
-        SET party_size = $2,
-            full_name = $3,
-            instagram_handle = $4,
-            ${clearCompanionContact ? "guest2_contact_id = NULL," : ""}
-            guest2_full_name = $5,
-            guest2_instagram_handle = $6,
-            allergies = $7,
-            notes = $8,
-            updated_at = clock_timestamp()
+        SET party_size = $2, full_name = $3, instagram_handle = $4,
+            allergies = $5, notes = $6, updated_at = clock_timestamp()
       WHERE id = $1`,
     [
       id,
-      fields.partySize,
-      fields.guest1Name,
-      fields.guest1Instagram,
-      fields.guest2Name,
-      fields.guest2Instagram,
+      fields.guests.length,
+      fields.guests[0]!.name,
+      fields.guests[0]!.instagram,
       fields.allergies,
       fields.notes,
     ],
   );
-  if (!clearCompanionContact) return;
+  await updateCompanions(client, table, id, fields.guests);
+  if (table !== "reservations") return;
 
-  if (companionRemoved) {
-    await client.query(
-      `UPDATE messages
-          SET status = 'DISCARDED', handled_by = $2, locked_until = NULL,
-              claims_without_progress = 0
-        WHERE reservation_id = $1 AND guest_slot = 2
-          AND status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'FAILED')
-          AND NOT (
-            status = 'QUEUED'
-            AND locked_until IS NOT NULL
-            AND locked_until > clock_timestamp()
-          )`,
-      [id, actorAdminId],
-    );
-    return;
-  }
-
+  await client.query(
+    `UPDATE messages
+        SET status = 'DISCARDED', handled_by = $3, locked_until = NULL,
+            claims_without_progress = 0
+      WHERE reservation_id = $1 AND guest_slot > $2
+        AND status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'FAILED')
+        AND NOT (
+          status = 'QUEUED' AND locked_until IS NOT NULL AND locked_until > clock_timestamp()
+        )`,
+    [id, fields.guests.length, actorAdminId],
+  );
+  const changedSlots = previousCompanions
+    .filter((guest) => {
+      const current = fields.guests[guest.slot - 1];
+      return current && current.instagram !== guest.instagram;
+    })
+    .map((guest) => guest.slot);
   await client.query(
     `UPDATE messages
         SET contact_id = NULL, status = 'WAITING_CONTACT',
             parts_sent = 0, external_part_ids = NULL, attempts = 0,
             claims_without_progress = 0, locked_until = NULL, last_error = NULL
-      WHERE reservation_id = $1 AND guest_slot = 2
+      WHERE reservation_id = $1 AND guest_slot = ANY($2::smallint[])
         AND status IN ('WAITING_CONTACT', 'WAITING_WINDOW', 'QUEUED', 'FAILED')
         AND NOT (
-          status = 'QUEUED'
-          AND locked_until IS NOT NULL
-          AND locked_until > clock_timestamp()
+          status = 'QUEUED' AND locked_until IS NOT NULL AND locked_until > clock_timestamp()
         )`,
-    [id],
+    [id, changedSlots],
   );
 }
 
@@ -752,8 +766,8 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         return failed("INVALID_STAGE");
       }
       if (
-        command.fields.partySize > reservation.party_size &&
-        command.fields.partySize > event.max_party_size
+        command.fields.guests.length > reservation.party_size &&
+        command.fields.guests.length > event.max_party_size
       ) {
         return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
       }
@@ -764,7 +778,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         if (duplicate) return duplicate;
       }
 
-      const seatDelta = command.fields.partySize - reservation.party_size;
+      const seatDelta = command.fields.guests.length - reservation.party_size;
       if (reservation.status === "CONFIRMED" && seatDelta > 0) {
         const acquired = await client.query(
           `UPDATE events
@@ -782,7 +796,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         "reservations",
         reservation.id,
         command.fields,
-        reservation.guest2_instagram_handle,
+        reservation.companions,
         command.actorAdminId,
       );
       let promotions: WaitlistPromotion[] = [];
@@ -805,9 +819,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       return {
         ok: true,
         eventId: event.id,
-        guests: [command.fields.guest1Name, command.fields.guest2Name].filter(
-          (name): name is string => name !== null,
-        ),
+        guests: command.fields.guests.map((guest) => guest.name),
         messageIds: promotions.map((promotion) => promotion.messageId),
         promoted: promotedGuests(promotions),
       };
@@ -821,8 +833,8 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       const entry = await lockWaitlistEntry(client, command.entryId);
       if (!entry || entry.status !== "WAITING") return failed("INVALID_STAGE");
       if (
-        command.fields.partySize > entry.party_size &&
-        command.fields.partySize > event.max_party_size
+        command.fields.guests.length > entry.party_size &&
+        command.fields.guests.length > event.max_party_size
       ) {
         return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
       }
@@ -836,7 +848,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         "waitlist_entries",
         entry.id,
         command.fields,
-        entry.guest2_instagram_handle,
+        entry.companions,
         command.actorAdminId,
       );
       const promotions = await promoteWaitlistDetailed(client, event.id);
@@ -850,9 +862,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       return {
         ok: true,
         eventId: event.id,
-        guests: [command.fields.guest1Name, command.fields.guest2Name].filter(
-          (name): name is string => name !== null,
-        ),
+        guests: command.fields.guests.map((guest) => guest.name),
         messageIds: promotions.map((promotion) => promotion.messageId),
         promoted: promotedGuests(promotions),
       };
@@ -869,7 +879,10 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       const order = command.direction === "UP" ? "DESC" : "ASC";
       const neighbourResult = await client.query<WaitlistRow>(
         `SELECT id, event_id, status, waitlist_number, full_name, instagram_handle,
-                guest2_full_name, guest2_instagram_handle, party_size, allergies, notes
+                COALESCE((SELECT json_agg(json_build_object(
+              'slot', slot, 'name', full_name, 'instagram', instagram_handle
+            ) ORDER BY slot) FROM request_guests WHERE waitlist_entry_id = waitlist_entries.id), '[]') AS companions,
+            party_size, allergies, notes
            FROM waitlist_entries
           WHERE event_id = $1
             AND status = 'WAITING'
@@ -1007,7 +1020,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         [event.starts_at],
       );
       if (!currentTime.rows[0]!.editable) return failed("EVENT_NOT_EDITABLE");
-      if (command.fields.partySize > event.max_party_size) {
+      if (command.fields.guests.length > event.max_party_size) {
         return failed("PARTY_SIZE_NOT_ALLOWED", { maxPartySize: event.max_party_size });
       }
       const duplicate = await duplicateHandle(client, event.id, command.fields);
@@ -1021,7 +1034,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           WHERE id = $1
             AND reserved_seats + $2 <= capacity
           RETURNING last_reservation_number, clock_timestamp() AS accepted_at`,
-        [event.id, command.fields.partySize],
+        [event.id, command.fields.guests.length],
       );
       const acquired = seats.rows[0];
       if (acquired) {
@@ -1032,25 +1045,23 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
             const result = await client.query<{ id: string }>(
               `INSERT INTO reservations (
                  event_id, reservation_number, status, stage,
-                 full_name, instagram_handle, guest2_full_name, guest2_instagram_handle,
+                 full_name, instagram_handle,
                  party_size, notes, allergies, terms_accepted_at, link_code,
                  source, created_by, idempotency_key, submitted_at, accepted_at
                )
-               SELECT $1, $2, 'CONFIRMED', 'IN_REVIEW', $3, $4, $5, $6,
-                      $7, $8, $9, NULL, $10, 'ADMIN', $11, $12,
-                      transaction_timestamp(), $13
+               SELECT $1, $2, 'CONFIRMED', 'IN_REVIEW', $3, $4,
+                      $5, $6, $7, NULL, $8, 'ADMIN', $9, $10,
+                      transaction_timestamp(), $11
                 WHERE NOT EXISTS (
-                  SELECT 1 FROM waitlist_entries WHERE link_code = $10
+                  SELECT 1 FROM waitlist_entries WHERE link_code = $8
                 )
                RETURNING id`,
               [
                 event.id,
                 acquired.last_reservation_number,
-                command.fields.guest1Name,
-                command.fields.guest1Instagram,
-                command.fields.guest2Name,
-                command.fields.guest2Instagram,
-                command.fields.partySize,
+                command.fields.guests[0]!.name,
+                command.fields.guests[0]!.instagram,
+                command.fields.guests.length,
                 command.fields.notes,
                 command.fields.allergies,
                 linkCode,
@@ -1064,6 +1075,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         );
         if (!inserted) throw new RollbackResult(failed("TRY_AGAIN"));
         const reservationId = inserted.id;
+        await updateCompanions(client, "reservations", reservationId, command.fields.guests);
         await insertAudit(client, {
           actorAdminId: command.actorAdminId,
           action: "RESERVATION_CREATED",
@@ -1073,15 +1085,13 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
             eventId: event.id,
             reservationNumber: acquired.last_reservation_number,
             stage: "IN_REVIEW",
-            partySize: command.fields.partySize,
+            partySize: command.fields.guests.length,
           },
         });
         return {
           ok: true,
           eventId: event.id,
-          guests: [command.fields.guest1Name, command.fields.guest2Name].filter(
-            (name): name is string => name !== null,
-          ),
+          guests: command.fields.guests.map((guest) => guest.name),
           messageIds: [],
           promoted: [],
           placement: "LIST" as const,
@@ -1108,24 +1118,22 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
           const result = await client.query<{ id: string }>(
             `INSERT INTO waitlist_entries (
                event_id, waitlist_number, status,
-               full_name, instagram_handle, guest2_full_name, guest2_instagram_handle,
+               full_name, instagram_handle,
                party_size, notes, allergies, terms_accepted_at, link_code,
                source, created_by, idempotency_key, submitted_at
              )
-             SELECT $1, $2, 'WAITING', $3, $4, $5, $6, $7, $8, $9,
-                    NULL, $10, 'ADMIN', $11, $12, transaction_timestamp()
+             SELECT $1, $2, 'WAITING', $3, $4, $5, $6, $7,
+                    NULL, $8, 'ADMIN', $9, $10, transaction_timestamp()
               WHERE NOT EXISTS (
-                SELECT 1 FROM reservations WHERE link_code = $10
+                SELECT 1 FROM reservations WHERE link_code = $8
               )
              RETURNING id`,
             [
               event.id,
               queued.last_waitlist_number,
-              command.fields.guest1Name,
-              command.fields.guest1Instagram,
-              command.fields.guest2Name,
-              command.fields.guest2Instagram,
-              command.fields.partySize,
+              command.fields.guests[0]!.name,
+              command.fields.guests[0]!.instagram,
+              command.fields.guests.length,
               command.fields.notes,
               command.fields.allergies,
               linkCode,
@@ -1138,6 +1146,7 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
       );
       if (!inserted) throw new RollbackResult(failed("TRY_AGAIN"));
       const entryId = inserted.id;
+      await updateCompanions(client, "waitlist_entries", entryId, command.fields.guests);
       await insertAudit(client, {
         actorAdminId: command.actorAdminId,
         action: "RESERVATION_WAITLISTED",
@@ -1146,15 +1155,13 @@ export class PostgresGuestAdminRepository implements GuestAdminRepository {
         metadata: {
           eventId: event.id,
           waitlistNumber: queued.last_waitlist_number,
-          partySize: command.fields.partySize,
+          partySize: command.fields.guests.length,
         },
       });
       return {
         ok: true,
         eventId: event.id,
-        guests: [command.fields.guest1Name, command.fields.guest2Name].filter(
-          (name): name is string => name !== null,
-        ),
+        guests: command.fields.guests.map((guest) => guest.name),
         messageIds: [],
         promoted: [],
         placement: "QUEUE" as const,

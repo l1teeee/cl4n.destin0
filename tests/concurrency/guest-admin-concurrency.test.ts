@@ -76,11 +76,10 @@ function fields(name: string, partySize: 1 | 2 = 1): GuestFields {
   sequence += 1;
   const handle = `${name.toLowerCase().replaceAll(/[^a-z0-9]/g, "")}.${sequence}`;
   return {
-    partySize,
-    guest1Name: name,
-    guest1Instagram: handle,
-    guest2Name: partySize === 2 ? `${name} Dos` : null,
-    guest2Instagram: partySize === 2 ? `${handle}.dos` : null,
+    guests: [
+      { name, instagram: handle },
+      ...(partySize === 2 ? [{ name: `${name} Dos`, instagram: `${handle}.dos` }] : []),
+    ],
     hasAllergies: false,
     allergies: null,
     notes: null,
@@ -116,16 +115,24 @@ async function insertReservation(
       eventId,
       number.rows[0]!.last_reservation_number,
       stage,
-      guestFields.guest1Name,
-      guestFields.guest1Instagram,
-      guestFields.guest2Name,
-      guestFields.guest2Instagram,
+      guestFields.guests[0]!.name,
+      guestFields.guests[0]!.instagram,
+      guestFields.guests[1]?.name,
+      guestFields.guests[1]?.instagram,
       partySize,
       generateLinkCode(),
       randomUUID(),
     ],
   );
-  return { id: inserted.rows[0]!.id, fields: guestFields };
+  const id = inserted.rows[0]!.id;
+  if (guestFields.guests[1]) {
+    await pool.query(
+      `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
+       VALUES ($1, 2, $2, $3)`,
+      [id, guestFields.guests[1].name, guestFields.guests[1].instagram],
+    );
+  }
+  return { id, fields: guestFields };
 }
 
 async function insertWaitlistEntry(
@@ -153,16 +160,24 @@ async function insertWaitlistEntry(
     [
       eventId,
       number.rows[0]!.last_waitlist_number,
-      guestFields.guest1Name,
-      guestFields.guest1Instagram,
-      guestFields.guest2Name,
-      guestFields.guest2Instagram,
+      guestFields.guests[0]!.name,
+      guestFields.guests[0]!.instagram,
+      guestFields.guests[1]?.name,
+      guestFields.guests[1]?.instagram,
       partySize,
       generateLinkCode(),
       randomUUID(),
     ],
   );
-  return { id: inserted.rows[0]!.id, fields: guestFields };
+  const id = inserted.rows[0]!.id;
+  if (guestFields.guests[1]) {
+    await pool.query(
+      `INSERT INTO request_guests (waitlist_entry_id, slot, full_name, instagram_handle)
+       VALUES ($1, 2, $2, $3)`,
+      [id, guestFields.guests[1].name, guestFields.guests[1].instagram],
+    );
+  }
+  return { id, fields: guestFields };
 }
 
 async function race<const Operations extends readonly (() => Promise<unknown>)[]>(
@@ -292,7 +307,13 @@ async function holdUncommittedLinkCode(
            party_size, terms_accepted_at, link_code, idempotency_key, submitted_at, accepted_at
          )
          VALUES ($1, 1, 'CONFIRMED', 'IN_REVIEW', $2, $3, 1, now(), $4, $5, now(), now())`,
-        [eventId, holderFields.guest1Name, holderFields.guest1Instagram, linkCode, randomUUID()],
+        [
+          eventId,
+          holderFields.guests[0]!.name,
+          holderFields.guests[0]!.instagram,
+          linkCode,
+          randomUUID(),
+        ],
       );
     } else {
       await holder.query(
@@ -301,7 +322,13 @@ async function holdUncommittedLinkCode(
            party_size, terms_accepted_at, link_code, idempotency_key, submitted_at
          )
          VALUES ($1, 1, 'WAITING', $2, $3, 1, now(), $4, $5, now())`,
-        [eventId, holderFields.guest1Name, holderFields.guest1Instagram, linkCode, randomUUID()],
+        [
+          eventId,
+          holderFields.guests[0]!.name,
+          holderFields.guests[0]!.instagram,
+          linkCode,
+          randomUUID(),
+        ],
       );
     }
     return holder;
@@ -568,9 +595,13 @@ describe("guest admin concurrency", () => {
     const reservation = await insertReservation(event.id, "Crece", "IN_REVIEW", 1);
     const grownFields: GuestFields = {
       ...reservation.fields,
-      partySize: 2,
-      guest2Name: "Crece Dos",
-      guest2Instagram: `${reservation.fields.guest1Instagram}.dos`,
+      guests: [
+        ...reservation.fields.guests,
+        {
+          name: "Crece Dos",
+          instagram: `${reservation.fields.guests[0]!.instagram}.dos`,
+        },
+      ],
     };
 
     const [growth, ...submissions] = await race([
@@ -659,9 +690,7 @@ describe("guest admin concurrency", () => {
       const second = await insertWaitlistEntry(event.id, `Segunda Reordenada ${first}`);
       const shrinkFields: GuestFields = {
         ...reservation.fields,
-        partySize: 1,
-        guest2Name: null,
-        guest2Instagram: null,
+        guests: reservation.fields.guests.slice(0, 1),
       };
       const shrink = () =>
         updateRequest(repository, {
@@ -698,9 +727,7 @@ describe("guest admin concurrency", () => {
     const head = await insertWaitlistEntry(event.id, "Misma Entrada");
     const shrunkFields: GuestFields = {
       ...reservation.fields,
-      partySize: 1,
-      guest2Name: null,
-      guest2Instagram: null,
+      guests: reservation.fields.guests.slice(0, 1),
     };
 
     const [fifo, override] = await fireBehindHeldEventLock(event.id, [

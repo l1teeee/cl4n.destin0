@@ -21,7 +21,14 @@ function guestForm(overrides: Record<string, string | undefined> = {}): FormData
     ...overrides,
   };
   const formData = new FormData();
-  for (const [key, value] of Object.entries(values)) {
+  const { partySize, guest1Name, guest1Instagram, guest2Name, guest2Instagram, ...other } = values;
+  formData.append("guestName", guest1Name ?? "");
+  formData.append("guestInstagram", guest1Instagram ?? "");
+  if (partySize === "2") {
+    formData.append("guestName", guest2Name ?? "");
+    formData.append("guestInstagram", guest2Instagram ?? "");
+  }
+  for (const [key, value] of Object.entries(other)) {
     if (value !== undefined) formData.set(key, value);
   }
   return formData;
@@ -73,11 +80,7 @@ describe("admin guest contract", () => {
     const result = adminGuestFieldsSchema.parse(readAdminGuestFields(guestForm()));
 
     expect(result).toEqual({
-      partySize: 1,
-      guest1Name: "Ana Pérez",
-      guest1Instagram: "ana.perez",
-      guest2Name: null,
-      guest2Instagram: null,
+      guests: [{ name: "Ana Pérez", instagram: "ana.perez" }],
       hasAllergies: false,
       allergies: null,
       notes: null,
@@ -115,7 +118,7 @@ describe("admin guest contract", () => {
     expect(duplicate.success).toBe(false);
     if (!duplicate.success) {
       expect(duplicate.error.issues).toContainEqual(
-        expect.objectContaining({ path: ["guest2Instagram"] }),
+        expect.objectContaining({ path: ["guests", 1, "instagram"] }),
       );
     }
   });

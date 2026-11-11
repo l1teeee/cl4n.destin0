@@ -1,147 +1,160 @@
 import { describe, expect, it } from "vitest";
 
-import { guestRequestSchema } from "@/contracts/guest-request";
+import { guestRequestSchema, partySizeOf } from "@/contracts/guest-request";
+import { MAX_PARTY_SIZE } from "@/domain/reservation/request-guests";
 
 const validRequest = {
   eventSlug: "cena-clandestino",
-  partySize: 1,
-  guest1Name: "Ana López",
-  guest1Instagram: "@ana.lopez",
+  guests: [{ name: "Ana López", instagram: "@ana.lopez" }],
   hasAllergies: false,
   acceptTerms: true,
   turnstileToken: "token",
 } as const;
 
-function expectIssue(input: Record<string, unknown>, path: string, message: string): void {
+function expectIssue(input: unknown, path: (string | number)[], message: string): void {
   const result = guestRequestSchema.safeParse(input);
   expect(result.success).toBe(false);
   if (!result.success) {
-    expect(result.error.issues).toContainEqual(expect.objectContaining({ path: [path], message }));
+    expect(result.error.issues).toContainEqual(expect.objectContaining({ path, message }));
   }
 }
 
 describe("guestRequestSchema", () => {
   it.each(["con espacio", "@@@", "a".repeat(31)])("rejects invalid Instagram %s", (value) => {
-    expectIssue(
-      { ...validRequest, guest1Instagram: value },
-      "guest1Instagram",
-      "Ingresa un usuario de Instagram válido.",
-    );
-    expectIssue(
-      { ...validRequest, partySize: 2, guest2Name: "Luis Pérez", guest2Instagram: value },
-      "guest2Instagram",
-      "Ingresa un usuario de Instagram válido.",
-    );
+    for (const index of [0, 1, 3]) {
+      const guests = Array.from({ length: 4 }, (_, slot) => ({
+        name: `Invitado ${slot}`,
+        instagram: slot === index ? value : `guest.${slot}`,
+      }));
+      expectIssue(
+        { ...validRequest, guests },
+        ["guests", index, "instagram"],
+        "Ingresa un usuario de Instagram válido.",
+      );
+    }
   });
 
   it.each(["@ana.lopez", "https://instagram.com/ana.lopez"])("accepts Instagram %s", (value) => {
-    expect(guestRequestSchema.safeParse({ ...validRequest, guest1Instagram: value }).success).toBe(
-      true,
-    );
+    expect(
+      guestRequestSchema.safeParse({
+        ...validRequest,
+        guests: [{ name: "Ana López", instagram: value }],
+      }).success,
+    ).toBe(true);
   });
 
   it("accepts and trims a single guest request", () => {
     const result = guestRequestSchema.parse({
       ...validRequest,
-      guest1Name: "  Ana López  ",
+      guests: [{ name: "  Ana López  ", instagram: "@ana.lopez" }],
       notes: "  Cerca de la entrada  ",
     });
-    expect(result.guest1Name).toBe("Ana López");
+    expect(result.guests[0]!.name).toBe("Ana López");
     expect(result.notes).toBe("Cerca de la entrada");
+    expect(partySizeOf(result)).toBe(1);
   });
 
-  it("rejects unknown client-controlled fields", () => {
-    expect(guestRequestSchema.safeParse({ ...validRequest, eventId: "client" }).success).toBe(
+  it.each([
+    "eventId",
+    "partySize",
+    "guest1Name",
+    "guest1Instagram",
+    "guest2Name",
+    "guest2Instagram",
+  ])("rejects unknown or legacy client-controlled field %s", (field) => {
+    expect(guestRequestSchema.safeParse({ ...validRequest, [field]: "client" }).success).toBe(
       false,
     );
   });
 
-  it.each([0, 3, 1.5, "2"])("rejects party size %j with the configured message", (partySize) => {
-    expectIssue({ ...validRequest, partySize }, "partySize", "Elige si vienes solo o en pareja.");
+  it.each([1, 2, 4, MAX_PARTY_SIZE])("accepts %i distinct guests", (size) => {
+    const guests = Array.from({ length: size }, (_, index) => ({
+      name: `Guest ${index}`,
+      instagram: `guest.${index}`,
+    }));
+    const result = guestRequestSchema.parse({ ...validRequest, guests });
+    expect(result.guests).toEqual(guests);
+    expect(partySizeOf(result)).toBe(size);
   });
 
-  it("requires both second guest fields for a couple", () => {
+  it.each([
+    [],
+    Array.from({ length: MAX_PARTY_SIZE + 1 }, (_, index) => ({
+      name: `Guest ${index}`,
+      instagram: `guest.${index}`,
+    })),
+    "2",
+    undefined,
+  ])("rejects invalid guest lists %#", (guests) => {
+    const result = guestRequestSchema.safeParse({ ...validRequest, guests });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === "guests")).toBe(true);
+    }
+  });
+
+  it("requires a name and Instagram for every companion", () => {
     expectIssue(
-      { ...validRequest, partySize: 2 },
-      "guest2Name",
-      "El nombre del invitado 2 es obligatorio.",
+      { ...validRequest, guests: [...validRequest.guests, { instagram: "luis" }] },
+      ["guests", 1, "name"],
+      "El nombre completo es obligatorio.",
     );
     expectIssue(
-      { ...validRequest, partySize: 2, guest2Name: "Luis Pérez" },
-      "guest2Instagram",
-      "El usuario de Instagram del invitado 2 es obligatorio.",
+      { ...validRequest, guests: [...validRequest.guests, { name: "Luis" }] },
+      ["guests", 1, "instagram"],
+      "El usuario de Instagram es obligatorio.",
     );
   });
 
-  it("rejects second guest fields for a single guest", () => {
-    expectIssue(
-      { ...validRequest, guest2Name: "Luis Pérez" },
-      "guest2Name",
-      "Quita los datos del invitado 2 o elige pareja.",
-    );
-    expectIssue(
-      { ...validRequest, guest2Instagram: "luis.perez" },
-      "guest2Instagram",
-      "Quita los datos del invitado 2 o elige pareja.",
-    );
-  });
-
-  it("requires the allergy description with party-specific messages", () => {
+  it("requires the allergy description with group-specific messages", () => {
     expectIssue(
       { ...validRequest, hasAllergies: true },
-      "allergies",
+      ["allergies"],
       "Cuéntanos a qué eres alérgico.",
     );
-    expectIssue(
-      {
-        ...validRequest,
-        partySize: 2,
-        guest2Name: "Luis Pérez",
-        guest2Instagram: "luis.perez",
-        hasAllergies: true,
-      },
-      "allergies",
-      "Cuéntanos quién y a qué es alérgico.",
-    );
+    for (const size of [2, 4]) {
+      expectIssue(
+        {
+          ...validRequest,
+          hasAllergies: true,
+          guests: Array.from({ length: size }, (_, index) => ({
+            name: `Guest ${index}`,
+            instagram: `guest.${index}`,
+          })),
+        },
+        ["allergies"],
+        "Cuéntanos quién y a qué es alérgico.",
+      );
+    }
   });
 
   it("requires the allergy boolean", () => {
     expectIssue(
       { ...validRequest, hasAllergies: undefined },
-      "hasAllergies",
+      ["hasAllergies"],
       "Indica si hay alergias.",
     );
   });
 
-  it("rejects the same normalized Instagram handle for both guests", () => {
+  it("rejects the same normalized Instagram handle anywhere in a group", () => {
     expectIssue(
       {
         ...validRequest,
-        partySize: 2,
-        guest1Instagram: " @Ana.Name ",
-        guest2Name: "Luis Pérez",
-        guest2Instagram: "ana.name",
+        guests: [
+          { name: "Ana", instagram: " @Ana.Name " },
+          { name: "Luis", instagram: "luis" },
+          { name: "Marta", instagram: "https://instagram.com/ana.name/" },
+        ],
       },
-      "guest2Instagram",
+      ["guests", 2, "instagram"],
       "Cada invitado necesita su propio usuario de Instagram.",
     );
-  });
-
-  it("accepts a valid couple with distinct handles", () => {
-    expect(
-      guestRequestSchema.safeParse({
-        ...validRequest,
-        partySize: 2,
-        guest2Name: "Luis Pérez",
-        guest2Instagram: "luis.perez",
-      }).success,
-    ).toBe(true);
   });
 
   it("requires terms acceptance", () => {
     expectIssue(
       { ...validRequest, acceptTerms: false },
-      "acceptTerms",
+      ["acceptTerms"],
       "Debes aceptar los términos y la política de privacidad.",
     );
   });
@@ -149,24 +162,47 @@ describe("guestRequestSchema", () => {
   it.each([
     ["eventSlug", " ", "El evento es obligatorio."],
     ["eventSlug", "Evento Malo", "El identificador del evento no tiene un formato válido."],
-    ["guest1Name", " ", "El nombre completo es obligatorio."],
-    ["guest1Name", "a".repeat(121), "El nombre completo no puede superar 120 caracteres."],
     ["allergies", "a".repeat(301), "La descripción de alergias no puede superar 300 caracteres."],
     ["notes", "a".repeat(501), "Las observaciones no pueden superar 500 caracteres."],
     ["turnstileToken", "a".repeat(2049), "La verificación de seguridad no es válida."],
-  ] as const)("validates %s boundaries", (field, value, message) => {
-    expectIssue({ ...validRequest, [field]: value }, field, message);
+  ])("validates %s boundaries", (field, value, message) => {
+    expectIssue({ ...validRequest, [field]: value }, [field], message);
   });
 
-  it.each(["eventSlug", "guest1Name", "guest1Instagram", "turnstileToken"])(
-    "rejects control characters in %s",
+  it.each([
+    [" ", "El nombre completo es obligatorio."],
+    ["a".repeat(121), "El nombre completo no puede superar 120 caracteres."],
+  ])("validates each name boundary %#", (name, message) => {
+    expectIssue(
+      {
+        ...validRequest,
+        guests: [{ name, instagram: "ana" }],
+      },
+      ["guests", 0, "name"],
+      message,
+    );
+  });
+
+  it.each(["eventSlug", "turnstileToken"] as const)("rejects control characters in %s", (field) => {
+    expectIssue(
+      {
+        ...validRequest,
+        [field]: `${validRequest[field]}\0`,
+      },
+      [field],
+      "No se permiten caracteres de control.",
+    );
+  });
+
+  it.each(["name", "instagram"] as const)(
+    "rejects control characters in each guest %s",
     (field) => {
       expectIssue(
         {
           ...validRequest,
-          [field]: `${String(validRequest[field as keyof typeof validRequest])}\0`,
+          guests: [{ name: "Ana", instagram: "ana", [field]: "ana\0" }],
         },
-        field,
+        ["guests", 0, field],
         "No se permiten caracteres de control.",
       );
     },
@@ -181,12 +217,12 @@ describe("guestRequestSchema", () => {
     ).toBe(true);
     expectIssue(
       { ...validRequest, notes: "Texto\0" },
-      "notes",
+      ["notes"],
       "No se permiten caracteres de control.",
     );
     expectIssue(
       { ...validRequest, allergies: "Maní\0" },
-      "allergies",
+      ["allergies"],
       "No se permiten caracteres de control.",
     );
   });

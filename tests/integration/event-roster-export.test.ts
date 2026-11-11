@@ -107,7 +107,7 @@ describe("event roster CSV route", () => {
     expect(body).toContain('"Alergias"');
     expect(body).toContain('"\'=Maní"');
     expect(body.split("\r\n")[0]).toBe(
-      '"Número","Estado","Etapa","Invitado 1","Instagram 1","Invitado 2","Instagram 2","Personas","Alergias","Observaciones","Recibida","En la lista","Pagado","Reembolso","Contacto de Instagram"',
+      '"Número","Estado","Etapa","Invitado 1","Instagram 1","Acompañantes","Personas","Alergias","Observaciones","Recibida","En la lista","Pagado","Reembolso","Contacto de Instagram"',
     );
   });
 });

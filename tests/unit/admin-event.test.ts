@@ -35,6 +35,12 @@ const validCreate = {
 } as const;
 
 describe("admin event contracts", () => {
+  it.each([1, 2, 4, 100])("accepts a maximum group size of %i up to capacity", (maxPartySize) => {
+    expect(
+      createAdminEventSchema.parse({ ...validCreate, capacity: 100, maxPartySize }).maxPartySize,
+    ).toBe(maxPartySize);
+  });
+
   it.each(["https://waze.com/ul", "https://maps.app.goo.gl/abc"])(
     "accepts the Google Maps or Waze link %s and trims it",
     (url) => {
@@ -182,11 +188,15 @@ describe("admin event contracts", () => {
     expect(
       createAdminEventSchema.safeParse({ ...validCreate, capacity: 1, maxPartySize: 2 }).success,
     ).toBe(false);
-    const tooLarge = createAdminEventSchema.safeParse({ ...validCreate, maxPartySize: 3 });
+    const tooLarge = createAdminEventSchema.safeParse({
+      ...validCreate,
+      capacity: 101,
+      maxPartySize: 101,
+    });
     expect(tooLarge.success).toBe(false);
     if (!tooLarge.success) {
       expect(tooLarge.error.issues.find((issue) => issue.path[0] === "maxPartySize")?.message).toBe(
-        "Máximo 2 personas por solicitud.",
+        "Máximo 100 personas por solicitud.",
       );
     }
   });

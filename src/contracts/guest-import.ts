@@ -49,11 +49,8 @@ export interface ImportPreviewRow {
   rowNumber: number;
   order: number | null;
   timestamp: string | null;
-  guest1Name: string;
-  guest1Instagram: string;
-  guest2Name: string | null;
-  guest2Instagram: string | null;
-  partySize: 1 | 2;
+  guests: { name: string; instagram: string }[];
+  partySize: number;
   allergies: string | null;
   notes: string | null;
   error: string | null;

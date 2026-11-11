@@ -15,11 +15,7 @@ export function importRowFingerprint(eventId: string, row: ImportPreviewRow): st
     .update(
       JSON.stringify([
         eventId,
-        row.guest1Name,
-        row.guest1Instagram,
-        row.guest2Name,
-        row.guest2Instagram,
-        row.partySize,
+        row.guests.map(({ name, instagram }) => ({ name, instagram })),
         row.allergies,
         row.notes,
       ]),

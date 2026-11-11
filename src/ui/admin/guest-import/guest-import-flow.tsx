@@ -38,11 +38,16 @@ function formatInstagramHandle(handle: string): string {
 }
 
 function formatCompanion(row: ImportPreviewRow): string {
-  const parts = [
-    row.guest2Name,
-    row.guest2Instagram ? formatInstagramHandle(row.guest2Instagram) : null,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" ") : "-";
+  return (
+    row.guests
+      .slice(1)
+      .map((guest) =>
+        [guest.name, guest.instagram ? formatInstagramHandle(guest.instagram) : null]
+          .filter(Boolean)
+          .join(" "),
+      )
+      .join("; ") || "-"
+  );
 }
 
 function formatOutcome(outcome: ImportRowOutcome): string {
@@ -291,8 +296,8 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
                     <TableCell>
                       {row.timestamp ? formatAdminDate(new Date(row.timestamp)) : "-"}
                     </TableCell>
-                    <TableCell>{row.guest1Name || "-"}</TableCell>
-                    <TableCell>{formatInstagramHandle(row.guest1Instagram)}</TableCell>
+                    <TableCell>{row.guests[0]?.name || "-"}</TableCell>
+                    <TableCell>{formatInstagramHandle(row.guests[0]?.instagram ?? "")}</TableCell>
                     <TableCell>{formatCompanion(row)}</TableCell>
                     <TableCell>{row.allergies ?? "-"}</TableCell>
                     <TableCell>

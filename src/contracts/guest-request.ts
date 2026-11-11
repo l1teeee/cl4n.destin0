@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { normalizeInstagram } from "@/domain/reservation/contact-normalization";
+import { MAX_PARTY_SIZE } from "@/domain/reservation/request-guests";
 
 export const INVALID_INSTAGRAM_MESSAGE = "Ingresa un usuario de Instagram válido.";
 
@@ -8,35 +9,19 @@ const controlCharacters = /[\u0000-\u001f\u007f]/;
 const noteControlCharacters = /[\u0000-\u0008\u000b-\u001f\u007f]/;
 const controlCharacterMessage = "No se permiten caracteres de control.";
 
-const requiredName = z
+export const requiredName = z
   .string({ error: "El nombre completo es obligatorio." })
   .refine((value) => !controlCharacters.test(value), controlCharacterMessage)
   .trim()
   .min(1, "El nombre completo es obligatorio.")
   .max(120, "El nombre completo no puede superar 120 caracteres.");
 
-const optionalName = z
-  .string({ error: "El nombre completo debe ser texto." })
-  .refine((value) => !controlCharacters.test(value), controlCharacterMessage)
-  .trim()
-  .min(1, "El nombre completo es obligatorio.")
-  .max(120, "El nombre completo no puede superar 120 caracteres.")
-  .optional();
-
-const requiredInstagram = z
+export const requiredInstagram = z
   .string({ error: "El usuario de Instagram es obligatorio." })
   .refine((value) => !controlCharacters.test(value), controlCharacterMessage)
   .trim()
   .min(1, "El usuario de Instagram es obligatorio.")
   .refine((value) => normalizeInstagram(value).ok, INVALID_INSTAGRAM_MESSAGE);
-
-const optionalInstagram = z
-  .string({ error: "El usuario de Instagram debe ser texto." })
-  .refine((value) => !controlCharacters.test(value), controlCharacterMessage)
-  .trim()
-  .min(1, "El usuario de Instagram es obligatorio.")
-  .refine((value) => normalizeInstagram(value).ok, INVALID_INSTAGRAM_MESSAGE)
-  .optional();
 
 export const guestRequestBaseSchema = z
   .object({
@@ -50,13 +35,10 @@ export const guestRequestBaseSchema = z
         /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
         "El identificador del evento no tiene un formato válido.",
       ),
-    partySize: z.union([z.literal(1), z.literal(2)], {
-      error: "Elige si vienes solo o en pareja.",
-    }),
-    guest1Name: requiredName,
-    guest1Instagram: requiredInstagram,
-    guest2Name: optionalName,
-    guest2Instagram: optionalInstagram,
+    guests: z
+      .array(z.object({ name: requiredName, instagram: requiredInstagram }))
+      .min(1)
+      .max(MAX_PARTY_SIZE),
     hasAllergies: z.boolean({ error: "Indica si hay alergias." }),
     allergies: z
       .string({ error: "La descripción de alergias debe ser texto." })
@@ -85,59 +67,29 @@ export function validateGuestRequest(
   input: GuestRequestValidationInput,
   context: z.RefinementCtx,
 ): void {
-  if (input.partySize === 2) {
-    if (!input.guest2Name) {
-      context.addIssue({
-        code: "custom",
-        message: "El nombre del invitado 2 es obligatorio.",
-        path: ["guest2Name"],
-      });
-    }
-    if (!input.guest2Instagram) {
-      context.addIssue({
-        code: "custom",
-        message: "El usuario de Instagram del invitado 2 es obligatorio.",
-        path: ["guest2Instagram"],
-      });
-    }
-  } else {
-    if (input.guest2Name !== undefined) {
-      context.addIssue({
-        code: "custom",
-        message: "Quita los datos del invitado 2 o elige pareja.",
-        path: ["guest2Name"],
-      });
-    }
-    if (input.guest2Instagram !== undefined) {
-      context.addIssue({
-        code: "custom",
-        message: "Quita los datos del invitado 2 o elige pareja.",
-        path: ["guest2Instagram"],
-      });
-    }
-  }
-
   if (input.hasAllergies && !input.allergies) {
     context.addIssue({
       code: "custom",
       message:
-        input.partySize === 2
+        input.guests.length > 1
           ? "Cuéntanos quién y a qué es alérgico."
           : "Cuéntanos a qué eres alérgico.",
       path: ["allergies"],
     });
   }
 
-  if (input.guest2Instagram) {
-    const guest1 = normalizeInstagram(input.guest1Instagram);
-    const guest2 = normalizeInstagram(input.guest2Instagram);
-    if (guest1.ok && guest2.ok && guest1.value === guest2.value) {
+  const handles = new Set<string>();
+  for (const [index, guest] of input.guests.entries()) {
+    const handle = normalizeInstagram(guest.instagram);
+    if (!handle.ok) continue;
+    if (handles.has(handle.value)) {
       context.addIssue({
         code: "custom",
         message: "Cada invitado necesita su propio usuario de Instagram.",
-        path: ["guest2Instagram"],
+        path: ["guests", index, "instagram"],
       });
     }
+    handles.add(handle.value);
   }
 }
 
@@ -146,11 +98,15 @@ export const guestRequestSchema = guestRequestBaseSchema.superRefine(validateGue
 export type GuestRequestInput = z.input<typeof guestRequestSchema>;
 export type GuestRequest = z.output<typeof guestRequestSchema>;
 
+export function partySizeOf(body: Pick<GuestRequest, "guests">): number {
+  return body.guests.length;
+}
+
 export interface GuestRequestReceivedBody {
   status: "RECEIVED";
   request: {
     number: number;
-    partySize: 1 | 2;
+    partySize: number;
     eventStartsAt: string;
     linkCode: string;
   };
@@ -160,7 +116,7 @@ export interface GuestRequestWaitlistedBody {
   status: "WAITLISTED";
   waitlist: {
     position: number;
-    partySize: 1 | 2;
+    partySize: number;
     eventStartsAt: string;
     linkCode: string;
   };

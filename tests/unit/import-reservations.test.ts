@@ -36,7 +36,7 @@ function setup(bodies: Record<string, unknown>[] = [{ code: "RECEIVED", number: 
     repository,
     generateLinkCode,
     rowKey: (id, number) => `${id}:${number}`,
-    rowFingerprint: (eventId, row) => `${eventId}:${row.guest1Instagram}`,
+    rowFingerprint: (eventId, row) => `${eventId}:${row.guests[0]!.instagram}`,
   });
   return { importReservations, allocateImported, generateLinkCode };
 }
@@ -85,9 +85,7 @@ describe("importReservations", () => {
       ...input,
       idempotencyKey: "import:3",
       fingerprint: "event:luis",
-      fullName: "Luis",
-      instagramHandle: "luis",
-      partySize: 1,
+      guests: [{ name: "Luis", instagram: "luis" }],
     });
     const mapOutcome = commands[0]![0].mapOutcome;
     expect(

@@ -7,8 +7,7 @@ interface WaitingEntryRow {
   waitlist_number: number;
   full_name: string;
   instagram_handle: string;
-  guest2_full_name: string | null;
-  guest2_instagram_handle: string | null;
+  companion_names: string[];
   phone_e164: string | null;
   email: string | null;
   email_normalized: string | null;
@@ -46,7 +45,8 @@ export const WAITLIST_PROMOTION_EVENT_PREDICATE =
   "status IN ('SCHEDULED', 'CLOSED') AND starts_at > clock_timestamp()";
 
 const WAITING_ENTRY_COLUMNS = `id, waitlist_number, full_name, instagram_handle,
-       guest2_full_name, guest2_instagram_handle,
+       ARRAY(SELECT full_name FROM request_guests
+              WHERE waitlist_entry_id = waitlist_entries.id ORDER BY slot) AS companion_names,
        phone_e164, email, email_normalized, party_size, notes, allergies,
        terms_accepted_at, link_code, contact_id, contact_linked_by, source, created_by,
        idempotency_key, submitted_at`;
@@ -92,15 +92,22 @@ async function hasConfirmedDuplicate(
 ): Promise<boolean> {
   const result = await client.query(
     `SELECT 1
-       FROM reservations
-      WHERE event_id = $1
-        AND status = 'CONFIRMED'
-        AND (
-          instagram_handle IN ($2, $3)
-          OR guest2_instagram_handle IN ($2, $3)
+       FROM reservations r
+      WHERE r.event_id = $1
+        AND r.status = 'CONFIRMED'
+        AND EXISTS (
+          SELECT 1 FROM (
+            SELECT $2::text AS handle
+            UNION ALL
+            SELECT instagram_handle FROM request_guests WHERE waitlist_entry_id = $3
+          ) entry_handles
+          WHERE r.instagram_handle = entry_handles.handle OR EXISTS (
+            SELECT 1 FROM request_guests g
+             WHERE g.reservation_id = r.id AND g.instagram_handle = entry_handles.handle
+          )
         )
       LIMIT 1`,
-    [eventId, entry.instagram_handle, entry.guest2_instagram_handle],
+    [eventId, entry.instagram_handle, entry.id],
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -161,17 +168,15 @@ async function insertPromotedReservation(
   const result = await client.query<{ id: string }>(
     `INSERT INTO reservations (
        event_id, reservation_number, status, full_name, instagram_handle,
-       guest2_full_name, guest2_instagram_handle,
        phone_e164, email, email_normalized, party_size, notes, allergies,
        terms_accepted_at, link_code, contact_id, contact_linked_by, source, created_by,
        idempotency_key, submitted_at, accepted_at
      )
      VALUES (
        $1, $2, 'CONFIRMED', $3, $4,
-       $5, $6,
-       $7, $8, $9, $10, $11, $12,
-       $13, $14, $15, $16, $17, $18,
-       $19, $20, $21
+       $5, $6, $7, $8, $9, $10,
+       $11, $12, $13, $14, $15, $16,
+       $17, $18, $19
      )
      RETURNING id`,
     [
@@ -179,8 +184,6 @@ async function insertPromotedReservation(
       seats.last_reservation_number,
       entry.full_name,
       entry.instagram_handle,
-      entry.guest2_full_name,
-      entry.guest2_instagram_handle,
       entry.phone_e164,
       entry.email,
       entry.email_normalized,
@@ -198,7 +201,16 @@ async function insertPromotedReservation(
       seats.accepted_at,
     ],
   );
-  return result.rows[0]!.id;
+  const reservationId = result.rows[0]!.id;
+  await client.query(
+    `INSERT INTO request_guests (
+       reservation_id, slot, full_name, instagram_handle, contact_id
+     )
+     SELECT $1, slot, full_name, instagram_handle, contact_id
+       FROM request_guests WHERE waitlist_entry_id = $2`,
+    [reservationId, entry.id],
+  );
+  return reservationId;
 }
 
 async function markPromoted(
@@ -278,9 +290,7 @@ async function promoteLockedEntry(
   return {
     entryId: entry.id,
     reservationId,
-    guests: [entry.full_name, entry.guest2_full_name].filter(
-      (name): name is string => name !== null,
-    ),
+    guests: [entry.full_name, ...entry.companion_names],
     messageId,
   };
 }

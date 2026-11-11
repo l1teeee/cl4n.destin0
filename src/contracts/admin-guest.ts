@@ -4,6 +4,7 @@ import type { GuestFields } from "@/application/guests/guest-admin-repository";
 import { EVENT_GUEST_VIEWS } from "@/application/guests/guest-views";
 import { INVALID_INSTAGRAM_MESSAGE } from "@/contracts/guest-request";
 import { normalizeInstagram } from "@/domain/reservation/contact-normalization";
+import { MAX_PARTY_SIZE } from "@/domain/reservation/request-guests";
 
 const controlCharacters = /[\u0000-\u001f\u007f]/;
 const noteControlCharacters = /[\u0000-\u0008\u000b-\u001f\u007f]/;
@@ -40,13 +41,7 @@ const optionalText = (max: number, tooLong: string) =>
 
 const rawGuestFieldsSchema = z
   .object({
-    partySize: z
-      .enum(["1", "2"], { error: "Elige si viene solo o en pareja." })
-      .transform((value): 1 | 2 => (value === "2" ? 2 : 1)),
-    guest1Name: name,
-    guest1Instagram: instagram,
-    guest2Name: name.optional(),
-    guest2Instagram: instagram.optional(),
+    guests: z.array(z.object({ name, instagram })).min(1).max(MAX_PARTY_SIZE),
     hasAllergies: z
       .enum(["true", "false"], { error: "Indica si hay alergias." })
       .transform((value) => value === "true"),
@@ -58,44 +53,12 @@ const rawGuestFieldsSchema = z
   })
   .strict()
   .superRefine((input, context) => {
-    if (input.partySize === 2) {
-      if (!input.guest2Name) {
-        context.addIssue({
-          code: "custom",
-          path: ["guest2Name"],
-          message: "El nombre del invitado 2 es obligatorio.",
-        });
-      }
-      if (!input.guest2Instagram) {
-        context.addIssue({
-          code: "custom",
-          path: ["guest2Instagram"],
-          message: "El usuario de Instagram del invitado 2 es obligatorio.",
-        });
-      }
-    } else {
-      if (input.guest2Name !== undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["guest2Name"],
-          message: "Quita los datos del invitado 2 o elige pareja.",
-        });
-      }
-      if (input.guest2Instagram !== undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["guest2Instagram"],
-          message: "Quita los datos del invitado 2 o elige pareja.",
-        });
-      }
-    }
-
     if (input.hasAllergies && !input.allergies) {
       context.addIssue({
         code: "custom",
         path: ["allergies"],
         message:
-          input.partySize === 2
+          input.guests.length > 1
             ? "Cuéntanos quién y a qué es alérgico."
             : "Cuéntanos a qué es alérgico.",
       });
@@ -107,20 +70,20 @@ const rawGuestFieldsSchema = z
         message: "Quita la descripción de alergias o elige sí.",
       });
     }
-    if (input.guest2Instagram && input.guest1Instagram === input.guest2Instagram) {
-      context.addIssue({
-        code: "custom",
-        path: ["guest2Instagram"],
-        message: "Cada invitado necesita su propio usuario de Instagram.",
-      });
+    const handles = new Set<string>();
+    for (const [index, guest] of input.guests.entries()) {
+      if (handles.has(guest.instagram)) {
+        context.addIssue({
+          code: "custom",
+          path: ["guests", index, "instagram"],
+          message: "Cada invitado necesita su propio usuario de Instagram.",
+        });
+      }
+      handles.add(guest.instagram);
     }
   })
   .transform((input): GuestFields => ({
-    partySize: input.partySize,
-    guest1Name: input.guest1Name,
-    guest1Instagram: input.guest1Instagram,
-    guest2Name: input.partySize === 2 ? (input.guest2Name ?? null) : null,
-    guest2Instagram: input.partySize === 2 ? (input.guest2Instagram ?? null) : null,
+    guests: input.guests,
     hasAllergies: input.hasAllergies,
     allergies: input.hasAllergies ? (input.allergies ?? null) : null,
     notes: input.notes,
@@ -164,12 +127,13 @@ export const paymentNoteSchema = z.preprocess(
 export const eventGuestViewSchema = z.enum(EVENT_GUEST_VIEWS);
 
 export function readAdminGuestFields(formData: FormData) {
+  const names = formData.getAll("guestName");
+  const handles = formData.getAll("guestInstagram");
   return {
-    partySize: formData.get("partySize"),
-    guest1Name: formData.get("guest1Name"),
-    guest1Instagram: formData.get("guest1Instagram"),
-    guest2Name: formData.get("guest2Name") ?? undefined,
-    guest2Instagram: formData.get("guest2Instagram") ?? undefined,
+    guests: Array.from({ length: Math.max(names.length, handles.length) }, (_, index) => ({
+      name: names[index],
+      instagram: handles[index],
+    })),
     hasAllergies: formData.get("hasAllergies") ?? undefined,
     allergies: formData.get("allergies") ?? undefined,
     notes: formData.get("notes"),

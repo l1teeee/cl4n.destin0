@@ -69,8 +69,7 @@ export async function GET(
       "Etapa",
       "Invitado 1",
       "Instagram 1",
-      "Invitado 2",
-      "Instagram 2",
+      "Acompañantes",
       "Personas",
       "Alergias",
       "Observaciones",
@@ -90,8 +89,10 @@ export async function GET(
       stageLabel(guest.stage),
       guest.guest1Name,
       guest.guest1Instagram,
-      guest.guest2Name ?? "",
-      guest.guest2Instagram ?? "",
+      guest.guests
+        .slice(1)
+        .map((person) => `${person.name} (@${person.instagram})`)
+        .join("; "),
       guest.partySize,
       guest.allergies ?? "",
       guest.notes ?? "",

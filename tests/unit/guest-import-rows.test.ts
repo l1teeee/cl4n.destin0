@@ -32,10 +32,10 @@ describe("buildImportRows", () => {
         rowNumber: 3,
         order: 1,
         timestamp: null,
-        guest1Name: "Ana",
-        guest1Instagram: "ana",
-        guest2Name: "Luis",
-        guest2Instagram: "luis",
+        guests: [
+          { name: "Ana", instagram: "ana" },
+          { name: "Luis", instagram: "luis" },
+        ],
         partySize: 2,
         allergies: null,
         notes: "hola",
@@ -79,11 +79,12 @@ describe("buildImportRows", () => {
     expect(rows([data])[0]).toMatchObject({ order: null, error: message });
     const publicResult = guestRequestSchema.safeParse({
       eventSlug: "event",
-      partySize: data[2] || data[3] ? 2 : 1,
-      guest1Name: data[0],
-      guest1Instagram: data[1],
-      guest2Name: data[2] || undefined,
-      guest2Instagram: data[3] || undefined,
+      guests: [
+        { name: data[0], instagram: data[1] },
+        ...(data[2] || data[3]
+          ? [{ name: data[2] || undefined, instagram: data[3] || undefined }]
+          : []),
+      ],
       hasAllergies: Boolean(data[4]),
       allergies: data[4] || undefined,
       notes: data[5] || undefined,
@@ -92,7 +93,13 @@ describe("buildImportRows", () => {
     });
     expect(publicResult.success).toBe(false);
     if (!publicResult.success)
-      expect(publicResult.error.issues.map((issue) => issue.message)).toContain(message);
+      expect(publicResult.error.issues.map((issue) => issue.message)).toContain(
+        message === "El nombre del invitado 2 es obligatorio."
+          ? "El nombre completo es obligatorio."
+          : message === "El usuario de Instagram del invitado 2 es obligatorio."
+            ? "El usuario de Instagram es obligatorio."
+            : message,
+      );
   });
 
   it("allows boundary lengths and newlines in allergies and notes", () => {

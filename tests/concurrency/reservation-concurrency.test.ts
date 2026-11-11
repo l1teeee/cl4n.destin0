@@ -180,19 +180,17 @@ async function assertInvariants(
          FROM reservations
         WHERE event_id = $1 AND status = 'CONFIRMED'
        UNION ALL
-       SELECT guest2_instagram_handle
-         FROM reservations
-        WHERE event_id = $1 AND status = 'CONFIRMED'
-          AND guest2_instagram_handle IS NOT NULL
+       SELECT g.instagram_handle FROM request_guests g
+         JOIN reservations r ON r.id = g.reservation_id
+        WHERE r.event_id = $1 AND r.status = 'CONFIRMED'
        UNION ALL
        SELECT instagram_handle
          FROM waitlist_entries
         WHERE event_id = $1 AND status = 'WAITING'
        UNION ALL
-       SELECT guest2_instagram_handle
-         FROM waitlist_entries
-        WHERE event_id = $1 AND status = 'WAITING'
-          AND guest2_instagram_handle IS NOT NULL
+       SELECT g.instagram_handle FROM request_guests g
+         JOIN waitlist_entries w ON w.id = g.waitlist_entry_id
+        WHERE w.event_id = $1 AND w.status = 'WAITING'
      )
      SELECT 1 FROM active_handles GROUP BY handle HAVING COUNT(*) > 1`,
     [eventId],
@@ -398,16 +396,20 @@ async function activeIdentitiesForHandle(
 ): Promise<Array<{ source: string }>> {
   const identities = await pool.query<{ source: string }>(
     `SELECT 'CONFIRMED' AS source
-       FROM reservations
-      WHERE event_id = $1
-        AND status = 'CONFIRMED'
-        AND (instagram_handle = $2 OR guest2_instagram_handle = $2)
+       FROM reservations r
+      WHERE r.event_id = $1
+        AND r.status = 'CONFIRMED'
+        AND (r.instagram_handle = $2 OR EXISTS (
+          SELECT 1 FROM request_guests g WHERE g.reservation_id = r.id AND g.instagram_handle = $2
+        ))
       UNION ALL
      SELECT 'WAITING' AS source
-       FROM waitlist_entries
-      WHERE event_id = $1
-        AND status = 'WAITING'
-        AND (instagram_handle = $2 OR guest2_instagram_handle = $2)`,
+       FROM waitlist_entries w
+      WHERE w.event_id = $1
+        AND w.status = 'WAITING'
+        AND (w.instagram_handle = $2 OR EXISTS (
+          SELECT 1 FROM request_guests g WHERE g.waitlist_entry_id = w.id AND g.instagram_handle = $2
+        ))`,
     [eventId, handle],
   );
   return identities.rows;

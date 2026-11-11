@@ -13,8 +13,7 @@ function guestRow(overrides: Partial<EventGuestRow> = {}): EventGuestRow {
     position: null,
     guest1Name: "Ana López",
     guest1Instagram: "ana.lopez",
-    guest2Name: null,
-    guest2Instagram: null,
+    guests: [{ slot: 1, name: "Ana López", instagram: "ana.lopez" }],
     partySize: 1,
     allergies: null,
     notes: null,
@@ -89,8 +88,10 @@ describe("guestRowData guests", () => {
   it("lists both guests of a couple in order", () => {
     const couple = guestRow({
       partySize: 2,
-      guest2Name: "Luis Pérez",
-      guest2Instagram: "luis_perez",
+      guests: [
+        { slot: 1, name: "Ana López", instagram: "ana.lopez" },
+        { slot: 2, name: "Luis Pérez", instagram: "luis_perez" },
+      ],
     });
 
     expect(guestRowData(couple).guests).toEqual([
@@ -109,7 +110,16 @@ describe("guestRowData guests", () => {
 
   it("names the guests for the confirmations", () => {
     expect(guestNames(guestRow())).toEqual(["Ana López"]);
-    expect(guestNames(guestRow({ guest2Name: "Luis Pérez" }))).toEqual(["Ana López", "Luis Pérez"]);
+    expect(
+      guestNames(
+        guestRow({
+          guests: [
+            { slot: 1, name: "Ana López", instagram: "ana.lopez" },
+            { slot: 2, name: "Luis Pérez", instagram: "luis.perez" },
+          ],
+        }),
+      ),
+    ).toEqual(["Ana López", "Luis Pérez"]);
   });
 
   it("labels the party size in Spanish", () => {

@@ -133,7 +133,10 @@ describe("reservation import on PostgreSQL", () => {
     expect(keys.rows[0]!.scope).toBe("reservation_import");
     const changed = {
       ...input,
-      rows: input.rows.map((row) => ({ ...row, guest1Name: "Changed" })),
+      rows: input.rows.map((row) => ({
+        ...row,
+        guests: row.guests.map((guest) => ({ ...guest, name: "Changed" })),
+      })),
     };
     expect((await importReservations(changed)).every((row) => row.result === "CHANGED")).toBe(true);
   });
@@ -256,9 +259,8 @@ describe("reservation import on PostgreSQL", () => {
     const event = await insertTestEvent(pool, { maxPartySize: 1 });
     const row = {
       ...rows()[0]!,
-      partySize: 2 as const,
-      guest2Name: "Companion",
-      guest2Instagram: "companion",
+      partySize: 2,
+      guests: [...rows()[0]!.guests, { name: "Companion", instagram: "companion" }],
     };
     expect(
       (

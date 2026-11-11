@@ -287,7 +287,19 @@ export function ReservationForm({
     token: string,
     alreadyRetried: boolean,
   ): Promise<ReservationFormState> {
-    const { guest2Name, guest2Instagram, allergies, ...requestFields } = fields;
+    const {
+      guest1Name,
+      guest1Instagram,
+      guest2Name,
+      guest2Instagram,
+      partySize,
+      allergies,
+      ...requestFields
+    } = fields;
+    const guests = [{ name: guest1Name, instagram: guest1Instagram }];
+    if (partySize === 2) {
+      guests.push({ name: guest2Name!, instagram: guest2Instagram! });
+    }
     let response: Response;
     try {
       response = await fetch("/api/reservations", {
@@ -298,7 +310,7 @@ export function ReservationForm({
         },
         body: JSON.stringify({
           ...requestFields,
-          ...(fields.partySize === 2 ? { guest2Name, guest2Instagram } : {}),
+          guests,
           ...(fields.hasAllergies ? { allergies } : {}),
           eventSlug,
           turnstileToken: token,

@@ -78,8 +78,8 @@ describe("toFormState", () => {
         {
           status: 422,
           body: errorBody("VALIDATION_FAILED", "Mensaje del servidor", {
-            guest1Instagram: ["Ingresa un usuario de Instagram válido."],
-            guest2Name: ["El nombre del invitado 2 es obligatorio."],
+            "guests.0.instagram": ["Ingresa un usuario de Instagram válido."],
+            "guests.1.name": ["El nombre del invitado 2 es obligatorio."],
             allergies: ["Cuéntanos quién y a qué es alérgico."],
             notes: ["Mensaje futuro del servidor"],
             email: ["No debe mostrarse"],
@@ -212,8 +212,8 @@ describe("toFormState", () => {
       toFormState({
         status: 422,
         body: errorBody("VALIDATION_FAILED", "Revisa estos datos.", {
-          guest1Instagram: ["Usuario inválido."],
-          guest2Name: ["Falta el nombre."],
+          "guests.0.instagram": ["Usuario inválido."],
+          "guests.1.name": ["Falta el nombre."],
           email: ["Ya no se pide."],
           phone: ["Ya no se pide."],
           eventSlug: ["No debe mostrarse."],

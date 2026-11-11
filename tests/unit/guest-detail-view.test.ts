@@ -17,8 +17,7 @@ function guestRow(overrides: Partial<EventGuestRow> = {}): EventGuestRow {
     position: null,
     guest1Name: "Ana López",
     guest1Instagram: "ana.lopez",
-    guest2Name: null,
-    guest2Instagram: null,
+    guests: [{ slot: 1, name: "Ana López", instagram: "ana.lopez" }],
     partySize: 1,
     allergies: null,
     notes: null,
@@ -178,10 +177,12 @@ describe("guestFormDefaults", () => {
       guestFormDefaults(
         guestRow({
           partySize: 2,
-          guest2Name: "Luis Pérez",
-          guest2Instagram: "luis_perez",
           allergies: "Ana: maní",
           notes: "Mesa tranquila",
+          guests: [
+            { slot: 1, name: "Ana López", instagram: "ana.lopez" },
+            { slot: 2, name: "Luis Pérez", instagram: "luis_perez" },
+          ],
         }),
       ),
     ).toEqual({

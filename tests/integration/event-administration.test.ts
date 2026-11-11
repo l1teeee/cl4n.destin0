@@ -457,7 +457,7 @@ describe("event mutations", () => {
       "SLUG_LOCKED",
     );
     expectError(
-      await repository.update({ ...update, slug: "cena-actualizada", maxPartySize: 3 }, adminId),
+      await repository.update({ ...update, slug: "cena-actualizada", maxPartySize: 101 }, adminId),
       "MAX_PARTY_SIZE_NOT_ALLOWED",
     );
   });

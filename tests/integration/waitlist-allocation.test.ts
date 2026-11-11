@@ -513,10 +513,11 @@ describe("waitlist promotion", () => {
       stage: string;
     }>(
       `SELECT r.reservation_number, r.status, r.allergies,
-              r.guest2_full_name, r.guest2_instagram_handle, r.link_code,
+              g.full_name AS guest2_full_name, g.instagram_handle AS guest2_instagram_handle, r.link_code,
               r.contact_id, r.contact_linked_by, r.source, r.created_by, r.stage
          FROM waitlist_entries w
          JOIN reservations r ON r.id = w.promoted_reservation_id
+         JOIN request_guests g ON g.reservation_id = r.id AND g.slot = 2
         WHERE w.event_id = $1 AND w.status = 'PROMOTED'`,
       [event.id],
     );

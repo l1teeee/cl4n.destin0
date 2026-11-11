@@ -98,7 +98,7 @@ function TextAreaField({
   );
 }
 
-// The action receives partySize as "1" or "2" and hasAllergies as "true" or "false".
+// Guest fields are posted in slot order; party size only controls the visible fields.
 export function GuestRequestForm({
   action,
   submitLabel,
@@ -154,35 +154,35 @@ export function GuestRequestForm({
       )}
       <TextField
         id={idFor("guest1Name")}
-        name="guest1Name"
+        name="guestName"
         label={couple ? "Persona 1: nombre completo" : "Nombre completo"}
         defaultValue={defaultValues?.guest1Name}
-        error={errors?.guest1Name}
+        error={errors?.["guests.0.name"]}
         maxLength={120}
       />
       <TextField
         id={idFor("guest1Instagram")}
-        name="guest1Instagram"
+        name="guestInstagram"
         label={couple ? "Persona 1: usuario de Instagram" : "Usuario de Instagram"}
         defaultValue={defaultValues?.guest1Instagram}
-        error={errors?.guest1Instagram}
+        error={errors?.["guests.0.instagram"]}
       />
       {couple ? (
         <>
           <TextField
             id={idFor("guest2Name")}
-            name="guest2Name"
+            name="guestName"
             label="Persona 2: nombre completo"
             defaultValue={defaultValues?.guest2Name}
-            error={errors?.guest2Name}
+            error={errors?.["guests.1.name"]}
             maxLength={120}
           />
           <TextField
             id={idFor("guest2Instagram")}
-            name="guest2Instagram"
+            name="guestInstagram"
             label="Persona 2: usuario de Instagram"
             defaultValue={defaultValues?.guest2Instagram}
-            error={errors?.guest2Instagram}
+            error={errors?.["guests.1.instagram"]}
           />
         </>
       ) : null}

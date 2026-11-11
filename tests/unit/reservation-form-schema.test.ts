@@ -72,20 +72,13 @@ describe("reservationFormSchema", () => {
   it.each([
     ["one person", singleGuest],
     ["couple", couple],
-    ["no party chosen", { ...singleGuest, partySize: undefined }],
-    ["party of zero", { ...singleGuest, partySize: 0 }],
-    ["party of three", { ...couple, partySize: 3 }],
-    ["fractional party", { ...singleGuest, partySize: 1.5 }],
-    ["party sent as text", { ...couple, partySize: "2" }],
+
     ["blank first name", { ...singleGuest, guest1Name: " " }],
     ["long first name", { ...singleGuest, guest1Name: "a".repeat(121) }],
     ["blank first Instagram user", { ...singleGuest, guest1Instagram: " " }],
     ["couple without second guest", { ...singleGuest, partySize: 2 }],
     ["couple with blank second name", { ...couple, guest2Name: " " }],
-    [
-      "one person with second guest",
-      { ...singleGuest, guest2Name: "Luis Pérez", guest2Instagram: "luis.perez" },
-    ],
+
     ["same Instagram user twice", { ...couple, guest2Instagram: "@Ana.Lopez" }],
     ["long notes", { ...singleGuest, notes: "a".repeat(501) }],
     ["allergies without detail", { ...singleGuest, hasAllergies: true }],
@@ -95,12 +88,22 @@ describe("reservationFormSchema", () => {
     ["terms rejected", { ...singleGuest, acceptTerms: false }],
   ])("keeps the contract result for %s", (_label, fields) => {
     const formResult = reservationFormSchema(2).safeParse(fields).success;
+    const { partySize, guest1Name, guest1Instagram, guest2Name, guest2Instagram, ...common } =
+      fields as Record<string, unknown>;
     const requestResult = guestRequestSchema.safeParse({
-      ...fields,
+      ...common,
+      guests: [
+        { name: guest1Name, instagram: guest1Instagram },
+        ...(partySize === 2 ? [{ name: guest2Name, instagram: guest2Instagram }] : []),
+      ],
       eventSlug: "cena-clandestino",
       turnstileToken: "token",
     }).success;
     expect(formResult).toBe(requestResult);
+  });
+
+  it.each([undefined, 0, 3, 1.5, "2"])("rejects unsupported form count %j", (partySize) => {
+    expect(reservationFormSchema(2).safeParse({ ...singleGuest, partySize }).success).toBe(false);
   });
 
   it("accepts one person and a couple", () => {

@@ -18,26 +18,16 @@ type MessageBadgeView = NonNullable<GuestRowView["message"]>;
 
 export type GuestRowData = Omit<GuestRowView, "detail" | "actions">;
 
-export function guestNames(row: Pick<EventGuestRow, "guest1Name" | "guest2Name">): string[] {
-  return row.guest2Name === null ? [row.guest1Name] : [row.guest1Name, row.guest2Name];
+export function guestNames(row: Pick<EventGuestRow, "guests">): string[] {
+  return row.guests.map((guest) => guest.name);
 }
 
 function guestIdentities(row: EventGuestRow): GuestIdentity[] {
-  const guests: GuestIdentity[] = [
-    {
-      name: row.guest1Name,
-      instagram: row.guest1Instagram,
-      profileHref: instagramProfileHref(row.guest1Instagram),
-    },
-  ];
-  if (row.guest2Name !== null && row.guest2Instagram !== null) {
-    guests.push({
-      name: row.guest2Name,
-      instagram: row.guest2Instagram,
-      profileHref: instagramProfileHref(row.guest2Instagram),
-    });
-  }
-  return guests;
+  return row.guests.map((guest) => ({
+    name: guest.name,
+    instagram: guest.instagram,
+    profileHref: instagramProfileHref(guest.instagram),
+  }));
 }
 
 function numberLabel(row: EventGuestRow): string {

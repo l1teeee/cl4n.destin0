@@ -4,7 +4,8 @@ import { renderMessageTemplate } from "@/domain/messaging/message-template";
 import type { MessageKind, TemplateKey } from "@/domain/messaging/message-types";
 import { paymentMessageValues } from "@/domain/messaging/payment-message";
 import type { AccountType, PaymentSettings } from "@/domain/payment/payment-settings";
-import { firstName, guestFirstNames } from "@/domain/reservation/guest-names";
+import { firstName } from "@/domain/reservation/guest-names";
+import { guestFirstNames } from "@/domain/reservation/request-guests";
 import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 
 export type GuestMessageSubject = { reservationId: string } | { waitlistEntryId: string };
@@ -18,7 +19,7 @@ interface EnqueuedMessageRow {
 
 interface GuestMessageValueRow {
   full_name: string;
-  guest2_full_name: string | null;
+  companion_names: string[];
   starts_at: Date;
   payment_instructions: string | null;
   party_size: number;
@@ -143,7 +144,10 @@ export async function loadGuestMessageValues(
 ): Promise<Record<string, string>> {
   const [subjectId, subjectKind] = subjectParameters(subject);
   const result = await client.query<GuestMessageValueRow>(
-    `SELECT r.full_name, r.guest2_full_name, e.starts_at, e.payment_instructions,
+    `SELECT r.full_name,
+            ARRAY(SELECT full_name FROM request_guests
+                   WHERE reservation_id = r.id ORDER BY slot) AS companion_names,
+            e.starts_at, e.payment_instructions,
             r.party_size, e.price_cents, ps.bank_name, ps.account_type, ps.account_number,
             ps.account_holder, ps.payment_link,
             NULL::integer AS queue_position
@@ -153,7 +157,10 @@ export async function loadGuestMessageValues(
       WHERE r.id = $1::uuid
         AND $2::text = 'reservation'
      UNION ALL
-     SELECT w.full_name, w.guest2_full_name, e.starts_at, e.payment_instructions,
+     SELECT w.full_name,
+            ARRAY(SELECT full_name FROM request_guests
+                   WHERE waitlist_entry_id = w.id ORDER BY slot) AS companion_names,
+            e.starts_at, e.payment_instructions,
             w.party_size, e.price_cents, ps.bank_name, ps.account_type, ps.account_number,
             ps.account_holder, ps.payment_link,
             CASE WHEN w.status = 'WAITING' THEN (
@@ -178,7 +185,7 @@ export async function loadGuestMessageValues(
 
   const values: Record<string, string> = {
     nombre: firstName(row.full_name),
-    nombres: guestFirstNames(row.full_name, row.guest2_full_name),
+    nombres: guestFirstNames([row.full_name, ...row.companion_names]),
     fecha: formatPublicEventDate(row.starts_at),
     ...paymentValues(row),
   };

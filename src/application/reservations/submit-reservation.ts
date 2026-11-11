@@ -31,11 +31,7 @@ export interface SubmitReservationDependencies {
   generateLinkCode(): string;
   computeFingerprint(input: {
     eventSlug: string;
-    guest1Name: string;
-    guest1Instagram: string;
-    guest2Name: string | null;
-    guest2Instagram: string | null;
-    partySize: 1 | 2;
+    guests: { name: string; instagram: string }[];
     notes?: string;
     hasAllergies: boolean;
     allergies: string | null;
@@ -82,32 +78,25 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
     if (!parsed.success) {
       const fieldErrors: Record<string, string[]> = {};
       for (const issue of parsed.error.issues) {
-        const field = String(issue.path[0] ?? "request");
+        const field = issue.path.join(".") || "request";
         (fieldErrors[field] ??= []).push(issue.message);
       }
       return validationFailure(fieldErrors);
     }
 
-    const guest1Instagram = normalizeInstagram(parsed.data.guest1Instagram);
-    const guest2Instagram = parsed.data.guest2Instagram
-      ? normalizeInstagram(parsed.data.guest2Instagram)
-      : null;
+    const guests: { name: string; instagram: string }[] = [];
+    for (const [index, guest] of parsed.data.guests.entries()) {
+      const normalized = normalizeInstagram(guest.instagram);
+      if (!normalized.ok) {
+        return normalizationFailure(`guests.${index}.instagram`, INVALID_INSTAGRAM_MESSAGE);
+      }
+      guests.push({ name: guest.name, instagram: normalized.value });
+    }
     const allergies = parsed.data.hasAllergies ? parsed.data.allergies! : null;
-
-    if (!guest1Instagram.ok) {
-      return normalizationFailure("guest1Instagram", INVALID_INSTAGRAM_MESSAGE);
-    }
-    if (guest2Instagram && !guest2Instagram.ok) {
-      return normalizationFailure("guest2Instagram", INVALID_INSTAGRAM_MESSAGE);
-    }
 
     const fingerprint = dependencies.computeFingerprint({
       eventSlug: parsed.data.eventSlug,
-      guest1Name: parsed.data.guest1Name,
-      guest1Instagram: guest1Instagram.value,
-      guest2Name: parsed.data.guest2Name ?? null,
-      guest2Instagram: guest2Instagram?.value ?? null,
-      partySize: parsed.data.partySize,
+      guests,
       notes: parsed.data.notes,
       hasAllergies: parsed.data.hasAllergies,
       allergies,
@@ -157,10 +146,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       };
     }
 
-    const handles = new Set([guest1Instagram.value]);
-    if (guest2Instagram?.ok) {
-      handles.add(guest2Instagram.value);
-    }
+    const handles = new Set(guests.map((guest) => guest.instagram));
     const identityLimits = await Promise.all(
       [...handles].map((handle) =>
         dependencies.rateLimiter.consume({
@@ -184,11 +170,7 @@ export function createSubmitReservation(dependencies: SubmitReservationDependenc
       idempotencyKey: input.idempotencyKey,
       fingerprint,
       eventSlug: parsed.data.eventSlug,
-      fullName: parsed.data.guest1Name,
-      instagramHandle: guest1Instagram.value,
-      guest2FullName: parsed.data.guest2Name ?? null,
-      guest2InstagramHandle: guest2Instagram?.value ?? null,
-      partySize: parsed.data.partySize,
+      guests,
       notes: parsed.data.notes,
       allergies,
       linkCode: dependencies.generateLinkCode(),
