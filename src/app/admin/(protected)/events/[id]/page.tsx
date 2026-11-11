@@ -105,6 +105,7 @@ import {
   updateRequestAction,
   verifyPaymentAction,
 } from "../guest-actions";
+import { eraseGuestDataAction } from "../erasure-actions";
 
 export const maxDuration = 60;
 
@@ -134,6 +135,7 @@ async function loadEconomy(eventId: string) {
 export default async function EventDetailPage({ params, searchParams }: EventDetailPageProps) {
   const authorization = await requireAdmin("page");
   const canSendMessages = hasPermission(authorization.session.admin.role, "messages.send");
+  const canErase = hasPermission(authorization.session.admin.role, "privacy.erase");
   const { id } = await params;
   const eventResult = await getAdminEventDetail(postgresEventRepository, id);
   const event = eventResult.value;
@@ -515,6 +517,9 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
           guests={guests.guests}
           preview={guests.preview}
           paymentMissing={event.priceCents === null || paymentSettings === null}
+          canErase={canErase}
+          eventStarted={event.startsAt <= eventResult.databaseTime}
+          eraseAction={eraseGuestDataAction}
           handlers={{
             accept: acceptRequestAction,
             verifyPayment: verifyPaymentAction,

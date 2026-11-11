@@ -9,6 +9,7 @@ export const adminPermissions = [
   "templates.edit",
   "instagram.connect",
   "payments.manage",
+  "privacy.erase",
 ] as const;
 
 export type AdminPermission = (typeof adminPermissions)[number];

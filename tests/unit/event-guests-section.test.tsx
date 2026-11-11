@@ -33,6 +33,9 @@ function renderSection(paymentMissing: boolean) {
       preview={{ waitingCount: 0, waiting: [], oneSeat: [], twoSeats: [] }}
       handlers={{ add: vi.fn() } as unknown as GuestActionHandlers}
       paymentMissing={paymentMissing}
+      canErase={false}
+      eventStarted={false}
+      eraseAction={vi.fn()}
     />,
   );
 }

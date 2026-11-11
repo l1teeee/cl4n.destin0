@@ -13,7 +13,7 @@ import { AddGuestSheet } from "./add-guest-sheet";
 import type { GuestActionHandlers } from "./guest-action-handlers";
 import { guestSummaryItems, guestViewTabs } from "./guest-list-view";
 import { GuestRowActions } from "./guest-row-actions";
-import { GuestRowDetail } from "./guest-row-detail";
+import { GuestRowDetail, type EraseGuestDataAction } from "./guest-row-detail";
 import { guestRowData } from "./guest-row-view";
 import { GuestSummaryBar } from "./guest-summary-bar";
 import { GuestTable, type GuestRowView } from "./guest-table";
@@ -28,6 +28,9 @@ interface EventGuestsSectionProps {
   preview: PromotionPreview;
   handlers: GuestActionHandlers;
   paymentMissing: boolean;
+  canErase: boolean;
+  eventStarted: boolean;
+  eraseAction: EraseGuestDataAction;
 }
 
 export function EventGuestsSection({
@@ -39,6 +42,9 @@ export function EventGuestsSection({
   preview,
   handlers,
   paymentMissing,
+  canErase,
+  eventStarted,
+  eraseAction,
 }: EventGuestsSectionProps) {
   const allowCouple = maxPartySize >= 2;
   const freeSeats = counts.capacity - counts.occupiedSeats;
@@ -48,7 +54,15 @@ export function EventGuestsSection({
     return {
       ...data,
       detail: (
-        <GuestRowDetail guest={guest} data={data} allowCouple={allowCouple} handlers={handlers} />
+        <GuestRowDetail
+          guest={guest}
+          data={data}
+          allowCouple={allowCouple}
+          handlers={handlers}
+          canErase={canErase}
+          eventStarted={eventStarted}
+          eraseAction={eraseAction}
+        />
       ),
       actions: (
         <GuestRowActions
