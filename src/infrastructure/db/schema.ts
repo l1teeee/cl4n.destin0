@@ -586,10 +586,6 @@ export const reservations = pgTable(
       sql`(${table.guest2FullName} IS NULL) = (${table.guest2InstagramHandle} IS NULL)`,
     ),
     check(
-      "reservations_guest2_party_chk",
-      sql`${table.guest2FullName} IS NULL OR (${table.partySize} = 2 AND char_length(${table.guest2FullName}) BETWEEN 1 AND 120)`,
-    ),
-    check(
       "reservations_guest2_instagram_chk",
       sql`${table.guest2InstagramHandle} IS NULL OR ${table.guest2InstagramHandle} ~ '^[a-z0-9._]{1,30}$'`,
     ),
@@ -751,10 +747,6 @@ export const waitlistEntries = pgTable(
     check(
       "waitlist_entries_guest2_pair_chk",
       sql`(${table.guest2FullName} IS NULL) = (${table.guest2InstagramHandle} IS NULL)`,
-    ),
-    check(
-      "waitlist_entries_guest2_party_chk",
-      sql`${table.guest2FullName} IS NULL OR (${table.partySize} = 2 AND char_length(${table.guest2FullName}) BETWEEN 1 AND 120)`,
     ),
     check(
       "waitlist_entries_guest2_instagram_chk",
