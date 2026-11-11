@@ -166,3 +166,4 @@ Guest email kinds are no longer written. Their templates and composer branches a
 - Contingency when Meta fails: a health banner (connection missing or expired, failed or retrying messages, last webhook signal), the Sin enviar page, one-click "Enviar por Instagram" and "Ya lo envié" (stored as SENT_MANUALLY, never delivered).
 - One shared send dialog (all or chosen, people grouped by reservation with one color per group) is used for clues, location and tabs.
 - Deploy note: migration 0020 drops and re-creates the CLUE and LOCATION unique indexes. Run it right before pushing the code that uses them, at a quiet time, because old code cannot queue clues or locations between the migration and the new deployment.
+- Superseded for party size by ADR-011.
