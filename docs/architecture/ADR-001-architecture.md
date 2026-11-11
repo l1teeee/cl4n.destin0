@@ -22,7 +22,7 @@ These are deliberate, reviewable product calls. Each one is cheap to change.
 5. **Hidden counts.** Remaining seat counts are not shown publicly. The page says "ACCESO LIMITADO" only.
 6. **Admin access.** A handful of admins exist, created by CLI. There is no public signup, password reset email, magic link or OAuth. Transactional emails exist as described in section 18.
 7. **Time zone.** Admins enter times in America/El_Salvador (UTC-6, no DST). Everything is stored in UTC.
-8. **Cancelled events.** Cancelling an event does not auto-cancel its reservations. The owner contacts guests directly.
+8. **Cancelled events.** Cancelling an event does not auto-cancel its reservations. The owner contacts guests directly. Amended 2026-11-10 (owner decision): cancelling an event now cancels every active request and cola entry in the same transaction, marks paid requests as refund PENDING and queues a CANCELLED_PAID or CANCELLED_UNPAID DM per request. Refunds are still made by hand and marked as refunded later.
 
 ## 3. Architecture proposal
 

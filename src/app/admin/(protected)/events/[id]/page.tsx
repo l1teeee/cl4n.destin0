@@ -446,7 +446,7 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             <MutationForm
               action={cancelEventAction.bind(null, id)}
               label="Cancelar experiencia"
-              confirmation="Esta acción cancela la experiencia y no se puede revertir. Confirma para continuar."
+              confirmation="Se cancelará la experiencia y todas sus solicitudes, incluida la cola. Quienes ya pagaron quedarán con devolución pendiente y cada persona recibirá un mensaje por Instagram. No se puede revertir."
               danger
             />
           ) : null}
