@@ -1057,4 +1057,138 @@ describe("ReservationForm", () => {
     fireEvent.click(yesOption);
     expect(((await screen.findByLabelText("¿A qué?")) as HTMLTextAreaElement).value).toBe("");
   });
+
+  it("renders Solo and En pareja with no stepper when maxPartySize is 2", () => {
+    renderForm(2);
+
+    expect(screen.getByRole("radiogroup", { name: "¿Cuántas personas?" })).toBeDefined();
+    expect(screen.getByRole("radio", { name: "Solo" })).toBeDefined();
+    expect(screen.getByRole("radio", { name: "En pareja" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Agregar una persona" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Quitar una persona" })).toBeNull();
+  });
+
+  it("renders the stepper for maxPartySize 4, adds up to 4 blocks and not beyond, and removes the last block", () => {
+    renderForm(4);
+
+    expect(screen.queryByRole("radiogroup", { name: "¿Cuántas personas?" })).toBeNull();
+    expect(screen.getByRole("group", { name: "¿Cuántas personas vienen?" })).toBeDefined();
+    expect(screen.getByText("Hasta 4 personas por solicitud.")).toBeDefined();
+
+    const removeButton = screen.getByRole("button", {
+      name: "Quitar una persona",
+    }) as HTMLButtonElement;
+    const addButton = screen.getByRole("button", {
+      name: "Agregar una persona",
+    }) as HTMLButtonElement;
+
+    expect(removeButton.disabled).toBe(true);
+    expect(addButton.disabled).toBe(false);
+    expect(screen.getByRole("group", { name: "Tus datos" })).toBeDefined();
+    expect(screen.queryByRole("group", { name: "Persona 2" })).toBeNull();
+
+    fireEvent.click(addButton);
+    expect(removeButton.disabled).toBe(false);
+    expect(screen.getByRole("group", { name: "Persona 2" })).toBeDefined();
+    expect(
+      screen.getByRole("radiogroup", { name: "¿Alguien del grupo tiene alergias?" }),
+    ).toBeDefined();
+
+    fireEvent.click(addButton);
+    expect(screen.getByRole("group", { name: "Persona 3" })).toBeDefined();
+
+    fireEvent.click(addButton);
+    const persona4 = screen.getByRole("group", { name: "Persona 4" });
+    expect(persona4).toBeDefined();
+    expect(addButton.disabled).toBe(true);
+
+    fillGuest(persona4, "Diego Castro", "diego.castro");
+    fireEvent.click(addButton);
+    expect(screen.queryByRole("group", { name: "Persona 5" })).toBeNull();
+
+    fireEvent.click(removeButton);
+    expect(screen.queryByRole("group", { name: "Persona 4" })).toBeNull();
+    expect(addButton.disabled).toBe(false);
+
+    fireEvent.click(addButton);
+    const reopenedPersona4 = screen.getByRole("group", { name: "Persona 4" });
+    expect(
+      (within(reopenedPersona4).getByLabelText("Nombre completo") as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      (within(reopenedPersona4).getByLabelText("Usuario de Instagram") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  it("submits guests in order and lists all names on the confirmation screen for a group", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(receivedResponse(3));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderForm(4);
+    await screen.findByTestId("turnstile");
+
+    const addButton = screen.getByRole("button", { name: "Agregar una persona" });
+    fireEvent.click(addButton);
+    fireEvent.click(addButton);
+
+    fillGuest(screen.getByRole("group", { name: "Tus datos" }), "Ana Martinez", "ana.martinez");
+    fillGuest(screen.getByRole("group", { name: "Persona 2" }), "Luis Perez", "luis.perez");
+    fillGuest(screen.getByRole("group", { name: "Persona 3" }), "Carla Gomez", "carla.gomez");
+    answerAllergiesAndAcceptTerms();
+
+    fireEvent.keyDown(await waitForSliderReady(), { key: "End" });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = sentBody(fetchMock);
+    expect(body).toMatchObject({
+      guests: [
+        { name: "Ana Martinez", instagram: "ana.martinez" },
+        { name: "Luis Perez", instagram: "luis.perez" },
+        { name: "Carla Gomez", instagram: "carla.gomez" },
+      ],
+    });
+    expect(body).not.toHaveProperty("additionalGuests");
+
+    expect(
+      await screen.findByRole("heading", { name: "¡FELICIDADES!" }, { timeout: 2500 }),
+    ).toBeDefined();
+    expect(screen.getByText("Ana Martinez, Luis Perez y Carla Gomez")).toBeDefined();
+  });
+
+  it("shows server error guests.2.instagram under Persona 3", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(422, {
+        error: {
+          code: "VALIDATION_FAILED",
+          message: "Revisa los datos enviados.",
+          fields: {
+            "guests.2.instagram": ["El usuario de Instagram de la persona 3 fue rechazado."],
+          },
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderForm(4);
+    await screen.findByTestId("turnstile");
+
+    const addButton = screen.getByRole("button", { name: "Agregar una persona" });
+    fireEvent.click(addButton);
+    fireEvent.click(addButton);
+
+    fillGuest(screen.getByRole("group", { name: "Tus datos" }), "Ana Martinez", "ana.martinez");
+    fillGuest(screen.getByRole("group", { name: "Persona 2" }), "Luis Perez", "luis.perez");
+    const persona3 = screen.getByRole("group", { name: "Persona 3" });
+    fillGuest(persona3, "Carla Gomez", "carla.gomez");
+    answerAllergiesAndAcceptTerms();
+
+    fireEvent.keyDown(await waitForSliderReady(), { key: "End" });
+
+    expect(
+      await within(persona3).findByText("El usuario de Instagram de la persona 3 fue rechazado."),
+    ).toBeDefined();
+    expect(
+      within(persona3).getByLabelText("Usuario de Instagram").getAttribute("aria-invalid"),
+    ).toBe("true");
+  });
 });

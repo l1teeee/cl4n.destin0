@@ -214,6 +214,7 @@ describe("toFormState", () => {
         body: errorBody("VALIDATION_FAILED", "Revisa estos datos.", {
           "guests.0.instagram": ["Usuario inválido."],
           "guests.1.name": ["Falta el nombre."],
+          "guests.2.instagram": ["Cada invitado necesita su propio usuario de Instagram."],
           email: ["Ya no se pide."],
           phone: ["Ya no se pide."],
           eventSlug: ["No debe mostrarse."],
@@ -225,6 +226,7 @@ describe("toFormState", () => {
       fieldErrors: {
         guest1Instagram: ["Usuario inválido."],
         guest2Name: ["Falta el nombre."],
+        "guests.2.instagram": ["Cada invitado necesita su propio usuario de Instagram."],
       },
       code: "VALIDATION_FAILED",
       automaticRetry: false,
