@@ -173,4 +173,34 @@ describe("reservationFormSchema", () => {
     expect(result.guest1Name).toBe("Ana López");
     expect(result.guest2Instagram).toBe("luis.perez");
   });
+
+  it("validates group additional guests and flags duplicate Instagram handles on the duplicated block", () => {
+    const schema = reservationFormSchema(4);
+    expect(
+      schema.safeParse({
+        ...singleGuest,
+        partySize: 3,
+        additionalGuests: [
+          { name: "Luis Pérez", instagram: "luis.perez" },
+          { name: "Carla Gómez", instagram: "carla.gomez" },
+        ],
+      }).success,
+    ).toBe(true);
+
+    const duplicateResult = schema.safeParse({
+      ...singleGuest,
+      partySize: 3,
+      additionalGuests: [
+        { name: "Luis Pérez", instagram: "luis.perez" },
+        { name: "Carla Gómez", instagram: "@Ana.Lopez" },
+      ],
+    });
+    expect(duplicateResult.success).toBe(false);
+    expect(duplicateResult.error?.issues).toEqual([
+      expect.objectContaining({
+        path: ["additionalGuests", 1, "instagram"],
+        message: "Cada invitado necesita su propio usuario de Instagram.",
+      }),
+    ]);
+  });
 });

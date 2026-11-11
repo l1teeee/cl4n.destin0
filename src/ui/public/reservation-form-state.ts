@@ -1,4 +1,5 @@
 import type { ReservationErrorCode } from "@/domain/reservation/reservation-outcome";
+import { MAX_PARTY_SIZE } from "@/domain/reservation/request-guests";
 import { publicMessages, type PublicLocale, type PublicMessages } from "./i18n/messages";
 import { translateReservationValidation } from "./reservation-form-schema";
 
@@ -15,7 +16,8 @@ export const reservationFormFields = [
   "acceptTerms",
 ] as const;
 
-export type ReservationFormField = (typeof reservationFormFields)[number];
+export type GuestServerField = `guests.${number}.${"name" | "instagram"}`;
+export type ReservationFormField = (typeof reservationFormFields)[number] | GuestServerField;
 
 export interface ReservationResponseData {
   status: number;
@@ -67,6 +69,8 @@ function parsedError(body: unknown): ParsedError {
   };
 }
 
+const guestFieldPattern = /^guests\.(\d+)\.(name|instagram)$/;
+
 function matchingFieldErrors(
   fields: Record<string, unknown> | undefined,
   locale: PublicLocale,
@@ -87,6 +91,18 @@ function matchingFieldErrors(
     const messages = fields[guestFields[field] ?? field];
     if (Array.isArray(messages) && messages.every((message) => typeof message === "string")) {
       result[field] =
+        locale === "es"
+          ? messages
+          : messages.map((message) => translateReservationValidation(message, copy));
+    }
+  }
+  for (const [key, messages] of Object.entries(fields)) {
+    const match = guestFieldPattern.exec(key);
+    if (!match) continue;
+    const index = Number(match[1]);
+    if (index < 2 || index >= MAX_PARTY_SIZE) continue;
+    if (Array.isArray(messages) && messages.every((message) => typeof message === "string")) {
+      result[key as GuestServerField] =
         locale === "es"
           ? messages
           : messages.map((message) => translateReservationValidation(message, copy));

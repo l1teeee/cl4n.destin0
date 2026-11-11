@@ -5,11 +5,12 @@ import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch, type FieldPath } from "react-hook-form";
 
 import { Button } from "@/ui/primitives/button";
 import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmented-control";
 import SlideCommit from "@/ui/primitives/slide-commit";
+import { FieldError, GroupGuestFields } from "./group-guest-fields";
 import type { PublicLocale, PublicMessages } from "./i18n/messages";
 import { configuredInstagramUsername } from "./instagram-profile";
 
@@ -29,6 +30,8 @@ import {
   type ReservationFormInput,
   type ReservationFormValues,
 } from "./reservation-form-schema";
+
+export { FieldError };
 
 interface ReservationFormProps {
   eventSlug: string;
@@ -59,6 +62,12 @@ function formatPartySize(partySize: number, messages: PublicMessages["reservatio
 }
 
 function submittedGuestNames(fields: ReservationFormValues): string[] {
+  if (fields.additionalGuests && fields.additionalGuests.length > 0) {
+    return [
+      fields.guest1Name,
+      ...fields.additionalGuests.slice(0, fields.partySize - 1).map((guest) => guest.name),
+    ];
+  }
   if (fields.partySize === 2 && fields.guest2Name) {
     return [fields.guest1Name, fields.guest2Name];
   }
@@ -66,26 +75,63 @@ function submittedGuestNames(fields: ReservationFormValues): string[] {
 }
 
 function formatGuestNames(names: string[], messages: PublicMessages["reservation"]): string {
-  return names.join(` ${messages.nameConjunction} `);
+  if (names.length < 2) return names.join("");
+  return `${names.slice(0, -1).join(", ")} ${messages.nameConjunction} ${names[names.length - 1]}`;
 }
 
-function allergiesDescription(isCouple: boolean, hasError: boolean): string | undefined {
+function allergiesDescription(hasMultipleGuests: boolean, hasError: boolean): string | undefined {
   const ids: string[] = [];
-  if (isCouple) ids.push("allergies-help");
+  if (hasMultipleGuests) ids.push("allergies-help");
   if (hasError) ids.push("allergies-error");
   return ids.length > 0 ? ids.join(" ") : undefined;
 }
 
-export function FieldError({ message, id }: { message?: string; id?: string }) {
-  return (
-    <p
-      id={id}
-      className="reservation-field-error mt-1 min-h-5 text-sm leading-5"
-      aria-live="polite"
-    >
-      {message ?? ""}
-    </p>
-  );
+const serverGuestFieldPattern = /^guests\.(\d+)\.(name|instagram)$/;
+
+function formErrorPath(
+  field: ReservationFormField,
+  isGroupEvent: boolean,
+): FieldPath<ReservationFormInput> {
+  if (isGroupEvent) {
+    if (field === "guest2Name") return "additionalGuests.0.name";
+    if (field === "guest2Instagram") return "additionalGuests.0.instagram";
+    const match = serverGuestFieldPattern.exec(field);
+    if (match) {
+      const guestIndex = Number(match[1]);
+      const property = match[2] as "name" | "instagram";
+      if (guestIndex === 0) {
+        return property === "name" ? "guest1Name" : "guest1Instagram";
+      }
+      return `additionalGuests.${guestIndex - 1}.${property}`;
+    }
+  }
+  return field as FieldPath<ReservationFormInput>;
+}
+
+function visualOrderFields(
+  isGroupEvent: boolean,
+  additionalCount: number,
+): FieldPath<ReservationFormInput>[] {
+  if (!isGroupEvent) {
+    return [...reservationFormFields];
+  }
+  const dynamicGuestFields: FieldPath<ReservationFormInput>[] = [];
+  for (let index = 0; index < additionalCount; index += 1) {
+    dynamicGuestFields.push(
+      `additionalGuests.${index}.name`,
+      `additionalGuests.${index}.instagram`,
+    );
+  }
+  return [
+    "partySize",
+    "guest1Name",
+    "guest1Instagram",
+    ...dynamicGuestFields,
+    "hasAllergies",
+    "allergies",
+    "notes",
+    "acceptTerms",
+  ];
 }
 
 function InstagramLastStep({
@@ -195,26 +241,42 @@ export function ReservationForm({
   const [submittedNames, setSubmittedNames] = useState<string[]>([]);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const instagramUsername = configuredInstagramUsername();
+  const isGroupEvent = maxPartySize >= 3;
   const canChoosePartySize = maxPartySize >= 2;
   const {
     register,
     handleSubmit,
     clearErrors,
     getFieldState,
+    getValues,
     setError,
     setFocus,
+    setValue,
     trigger,
     unregister,
     control,
     formState: { errors, isSubmitting, isValid },
   } = useForm<ReservationFormInput, unknown, ReservationFormValues>({
     resolver: zodResolver(reservationFormSchema(maxPartySize, messages)),
-    defaultValues: { partySize: 1 },
+    defaultValues: {
+      partySize: 1,
+      ...(isGroupEvent ? { additionalGuests: [] } : {}),
+    },
     mode: "onTouched",
+  });
+  const {
+    fields: guestFields,
+    append,
+    remove,
+  } = useFieldArray({
+    control,
+    name: "additionalGuests",
   });
   const partySize = useWatch({ control, name: "partySize" });
   const hasAllergies = useWatch({ control, name: "hasAllergies" });
-  const isCouple = partySize === 2;
+  const currentPartySize = partySize ?? 1;
+  const isCouple = !isGroupEvent && currentPartySize === 2;
+  const hasMultipleGuests = currentPartySize > 1;
   const secondGuest = useSecondGuestTransition(isCouple);
 
   function choosePartySize(value: string, onChange: (partySize: number) => void) {
@@ -222,6 +284,24 @@ export function ReservationForm({
       secondGuest.restartCollapsingBlock();
     }
     onChange(Number(value));
+  }
+
+  function incrementPartySize() {
+    const current = getValues("partySize") ?? 1;
+    if (current >= maxPartySize) return;
+    const next = current + 1;
+    clearErrors("partySize");
+    setValue("partySize", next, { shouldDirty: true });
+    append({ name: "", instagram: "" }, { shouldFocus: false });
+  }
+
+  function decrementPartySize() {
+    const current = getValues("partySize") ?? 1;
+    if (current <= 1) return;
+    const next = current - 1;
+    clearErrors("partySize");
+    setValue("partySize", next, { shouldDirty: true });
+    remove(next - 1);
   }
 
   useEffect(() => {
@@ -244,10 +324,10 @@ export function ReservationForm({
   }, [hasAllergies, unregister]);
 
   useEffect(() => {
-    if (partySize === 1) {
+    if (!isGroupEvent && partySize === 1) {
       unregister(["guest2Name", "guest2Instagram"]);
     }
-  }, [partySize, unregister]);
+  }, [isGroupEvent, partySize, unregister]);
 
   useEffect(
     () => () => {
@@ -269,12 +349,15 @@ export function ReservationForm({
   }
 
   function applyFormState(nextState: ReservationFormState) {
-    clearErrors(reservationFormFields);
+    clearErrors();
     if (nextState.kind === "error") {
-      for (const [field, messages] of Object.entries(nextState.fieldErrors)) {
-        const message = messages?.[0];
+      for (const [field, fieldMessages] of Object.entries(nextState.fieldErrors)) {
+        const message = fieldMessages?.[0];
         if (message) {
-          setError(field as ReservationFormField, { type: "server", message });
+          setError(formErrorPath(field as ReservationFormField, isGroupEvent), {
+            type: "server",
+            message,
+          });
         }
       }
     }
@@ -292,12 +375,17 @@ export function ReservationForm({
       guest1Instagram,
       guest2Name,
       guest2Instagram,
+      additionalGuests,
       partySize,
       allergies,
       ...requestFields
     } = fields;
     const guests = [{ name: guest1Name, instagram: guest1Instagram }];
-    if (partySize === 2) {
+    if (isGroupEvent) {
+      for (const guest of (additionalGuests ?? []).slice(0, partySize - 1)) {
+        guests.push({ name: guest.name, instagram: guest.instagram });
+      }
+    } else if (partySize === 2) {
       guests.push({ name: guest2Name!, instagram: guest2Instagram! });
     }
     let response: Response;
@@ -415,7 +503,8 @@ export function ReservationForm({
     const valid = await trigger();
     if (valid) return;
 
-    const firstInvalidField = reservationFormFields.find((field) => getFieldState(field).invalid);
+    const orderedFields = visualOrderFields(isGroupEvent, guestFields.length);
+    const firstInvalidField = orderedFields.find((field) => getFieldState(field).invalid);
     if (firstInvalidField) setFocus(firstInvalidField);
   }
 
@@ -504,7 +593,56 @@ export function ReservationForm({
 
   return (
     <form onSubmit={(event) => event.preventDefault()} className="reservation-form" noValidate>
-      {canChoosePartySize ? (
+      {isGroupEvent ? (
+        <div className="reservation-section">
+          <h2 className="reservation-section-heading">{messages.who}</h2>
+          <fieldset className="reservation-party">
+            <legend id="partySize-legend" className="reservation-label">
+              {messages.groupPartySize}
+            </legend>
+            <div
+              className="flex w-full items-center justify-between gap-4"
+              aria-labelledby="partySize-legend"
+              aria-describedby={
+                errors.partySize ? "partySize-help partySize-error" : "partySize-help"
+              }
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="min-h-11 min-w-11"
+                aria-label={messages.removePerson}
+                disabled={currentPartySize <= 1}
+                onClick={decrementPartySize}
+              >
+                -
+              </Button>
+              <output
+                aria-live="polite"
+                className="min-w-12 text-center text-lg font-semibold tabular-nums"
+              >
+                {currentPartySize}
+              </output>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="min-h-11 min-w-11"
+                aria-label={messages.addPerson}
+                disabled={currentPartySize >= maxPartySize}
+                onClick={incrementPartySize}
+              >
+                +
+              </Button>
+            </div>
+            <p id="partySize-help" className="reservation-help">
+              {messages.partySizeHelp.replace("{max}", String(maxPartySize))}
+            </p>
+            <FieldError id="partySize-error" message={errors.partySize?.message} />
+          </fieldset>
+        </div>
+      ) : canChoosePartySize ? (
         <div className="reservation-section">
           <h2 className="reservation-section-heading">{messages.who}</h2>
           <fieldset className="reservation-party">
@@ -578,7 +716,14 @@ export function ReservationForm({
         </div>
       </div>
 
-      {secondGuest.isRendered ? (
+      {isGroupEvent ? (
+        <GroupGuestFields
+          fields={guestFields}
+          register={register}
+          errors={errors}
+          messages={messages}
+        />
+      ) : secondGuest.isRendered ? (
         <div
           key={secondGuest.epoch}
           className="reservation-collapse"
@@ -641,7 +786,13 @@ export function ReservationForm({
           aria-describedby={errors.hasAllergies ? "hasAllergies-error" : undefined}
         >
           <legend className="reservation-label">
-            {isCouple ? messages.coupleAllergies : messages.soloAllergies}
+            {isGroupEvent
+              ? hasMultipleGuests
+                ? messages.groupAllergies
+                : messages.soloAllergies
+              : isCouple
+                ? messages.coupleAllergies
+                : messages.soloAllergies}
           </legend>
           <Controller
             control={control}
@@ -680,7 +831,7 @@ export function ReservationForm({
         {hasAllergies ? (
           <div className="reservation-field">
             <label htmlFor="allergies" className="reservation-label">
-              {isCouple ? messages.coupleAllergyDetail : messages.soloAllergyDetail}
+              {hasMultipleGuests ? messages.coupleAllergyDetail : messages.soloAllergyDetail}
             </label>
             <textarea
               id="allergies"
@@ -688,10 +839,10 @@ export function ReservationForm({
               maxLength={300}
               className={inputClassName}
               aria-invalid={Boolean(errors.allergies)}
-              aria-describedby={allergiesDescription(isCouple, Boolean(errors.allergies))}
+              aria-describedby={allergiesDescription(hasMultipleGuests, Boolean(errors.allergies))}
               {...register("allergies")}
             />
-            {isCouple ? (
+            {hasMultipleGuests ? (
               <p id="allergies-help" className="reservation-help">
                 {messages.allergyHelp}
               </p>
