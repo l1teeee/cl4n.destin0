@@ -1,8 +1,10 @@
 import { ChevronDown } from "lucide-react";
 
+import type { AdminActionState } from "@/app/admin/(protected)/events/actions";
 import type { GuestRequestDetail } from "@/infrastructure/db/repositories/event-guest-queries";
 import { MessageThread } from "@/ui/admin/messages/message-thread";
 
+import { EraseGuestDataButton } from "./erase-guest-data-button";
 import type { GuestActionHandlers } from "./guest-action-handlers";
 import { guestsLabel } from "./guest-copy";
 import { GuestDetailSheet } from "./guest-detail-sheet";
@@ -15,14 +17,23 @@ import {
 import { GuestRequestForm } from "./guest-request-form";
 import type { GuestRowData } from "./guest-row-view";
 
+export type EraseGuestDataAction = (
+  subject: { kind: GuestRequestDetail["kind"]; id: string },
+  state: AdminActionState,
+  formData: FormData,
+) => Promise<AdminActionState>;
+
 interface GuestRowDetailProps {
   guest: GuestRequestDetail;
   data: GuestRowData;
   allowCouple: boolean;
   handlers: GuestActionHandlers;
+  canErase: boolean;
+  eventStarted: boolean;
+  eraseAction: EraseGuestDataAction;
 }
 
-type EditGuestDataProps = Omit<GuestRowDetailProps, "data">;
+type EditGuestDataProps = Pick<GuestRowDetailProps, "guest" | "allowCouple" | "handlers">;
 
 function EditGuestData({ guest, allowCouple, handlers }: EditGuestDataProps) {
   const update = guest.kind === "RESERVATION" ? handlers.updateRequest : handlers.updateEntry;
@@ -48,7 +59,21 @@ function EditGuestData({ guest, allowCouple, handlers }: EditGuestDataProps) {
   );
 }
 
-export function GuestRowDetail({ guest, data, allowCouple, handlers }: GuestRowDetailProps) {
+const erasedName = "eliminado";
+
+function isHoldingSeat(guest: GuestRequestDetail): boolean {
+  return guest.kind === "RESERVATION" ? guest.status === "CONFIRMED" : guest.status === "WAITING";
+}
+
+export function GuestRowDetail({
+  guest,
+  data,
+  allowCouple,
+  handlers,
+  canErase,
+  eventStarted,
+  eraseAction,
+}: GuestRowDetailProps) {
   return (
     <GuestDetailSheet
       triggerLabel="Ver ficha"
@@ -71,9 +96,17 @@ export function GuestRowDetail({ guest, data, allowCouple, handlers }: GuestRowD
         />
       }
       actions={
-        canEditGuest(guest) ? (
-          <EditGuestData guest={guest} allowCouple={allowCouple} handlers={handlers} />
-        ) : null
+        <>
+          {canEditGuest(guest) ? (
+            <EditGuestData guest={guest} allowCouple={allowCouple} handlers={handlers} />
+          ) : null}
+          {canErase && guest.guest1Name !== erasedName ? (
+            <EraseGuestDataButton
+              action={eraseAction.bind(null, { kind: guest.kind, id: guest.id })}
+              enabled={eventStarted || !isHoldingSeat(guest)}
+            />
+          ) : null}
+        </>
       }
     />
   );
