@@ -1,5 +1,5 @@
 export interface RecipientPerson {
-  slot: 1 | 2;
+  slot: number;
   name: string;
   instagram: string | null;
   linked: boolean;

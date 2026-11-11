@@ -14,6 +14,17 @@ interface ClueDeliveryRow extends QueryResultRow {
 }
 
 /**
+ * SQL expression for the contact of a guest slot: the titular contact for slot 1, otherwise the
+ * contact of the request_guests row of that slot. `slot` and `reservation` are SQL aliases.
+ */
+export function slotContactSql(slot: string, reservation: string): string {
+  return `CASE WHEN ${slot} = 1 THEN ${reservation}.contact_id ELSE (
+    SELECT rg.contact_id FROM request_guests rg
+     WHERE rg.reservation_id = ${reservation}.id AND rg.slot = ${slot}
+  ) END`;
+}
+
+/**
  * Runs inside the clue send transaction. It deliberately takes no lock on the event row (ADR-007
  * decision 8): a guest who turns PAID at the same moment may miss this clue, which ADR-007 accepts.
  */
@@ -26,7 +37,7 @@ export async function enqueueClueMessages(
     body: string;
     imageIds: readonly string[];
     actorId: string;
-    person?: { reservationId: string; slot: 1 | 2 };
+    person?: { reservationId: string; slot: number };
   },
 ): Promise<string[]> {
   const imageUrls = input.imageIds.map((imageId) =>
@@ -37,7 +48,7 @@ export async function enqueueClueMessages(
     // FOR SHARE on the reservations makes the insert wait for a concurrent unlink and then read the
     // new contact, so no QUEUED row is left on a contact that was just unlinked.
     `WITH paid_guests AS (
-       SELECT r.id, r.contact_id, r.guest2_contact_id, r.guest2_full_name, r.event_id
+       SELECT r.id, r.contact_id, r.event_id
          FROM reservations r
         WHERE r.event_id = $1
           AND r.status = 'CONFIRMED'
@@ -53,8 +64,12 @@ export async function enqueueClueMessages(
             CASE WHEN person.contact_id IS NULL THEN 'WAITING_CONTACT' ELSE 'QUEUED' END,
             $3::text, $4::text[], $2::uuid, $5::uuid
        FROM paid_guests guest
-       CROSS JOIN LATERAL (VALUES (1, guest.contact_id), (2, guest.guest2_contact_id)) person(slot, contact_id)
-      WHERE (person.slot = 1 OR guest.guest2_full_name IS NOT NULL)
+       CROSS JOIN LATERAL (
+         SELECT 1 AS slot, guest.contact_id
+         UNION ALL
+         SELECT rg.slot, rg.contact_id FROM request_guests rg WHERE rg.reservation_id = guest.id
+       ) person
+      WHERE true
         ${input.person ? "AND person.slot = $7::smallint" : ""}
      ON CONFLICT (reservation_id, guest_slot, clue_id) WHERE kind = 'CLUE'
      DO NOTHING
@@ -90,10 +105,12 @@ export async function queryClueRecipients(pool: Pool, eventId: string): Promise<
               END
             ) FILTER (WHERE c.id IS NOT NULL), '{}'::jsonb) AS status_by_item
        FROM reservations r
-       CROSS JOIN LATERAL (VALUES
-         (1, r.full_name, r.instagram_handle, r.contact_id),
-         (2, r.guest2_full_name, r.guest2_instagram_handle, r.guest2_contact_id)
-       ) person(slot, name, handle, contact_id)
+       CROSS JOIN LATERAL (
+         SELECT 1 AS slot, r.full_name AS name, r.instagram_handle AS handle, r.contact_id
+         UNION ALL
+         SELECT rg.slot, rg.full_name, rg.instagram_handle, rg.contact_id
+           FROM request_guests rg WHERE rg.reservation_id = r.id
+       ) person
        LEFT JOIN messaging_contacts contact ON contact.id = person.contact_id
        LEFT JOIN event_clues c ON c.event_id = r.event_id
        LEFT JOIN messages m ON m.reservation_id = r.id AND m.guest_slot = person.slot
@@ -127,11 +144,14 @@ export async function queryClueDelivery(
     `WITH paid_guests AS (
        SELECT r.id, person.slot
          FROM reservations r
-         CROSS JOIN LATERAL (VALUES (1, r.full_name), (2, r.guest2_full_name)) person(slot, name)
+         CROSS JOIN LATERAL (
+           SELECT 1 AS slot
+           UNION ALL
+           SELECT rg.slot FROM request_guests rg WHERE rg.reservation_id = r.id
+         ) person
         WHERE r.event_id = $1
           AND r.status = 'CONFIRMED'
           AND r.stage = 'PAID'
-          AND person.name IS NOT NULL
      )
      SELECT c.id AS clue_id,
             (SELECT count(*) FROM paid_guests)::int AS paid,

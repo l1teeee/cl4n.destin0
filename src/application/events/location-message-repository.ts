@@ -43,7 +43,7 @@ export interface LocationMessageRepository {
   sendLocationToPeople(
     eventId: string,
     expectedLocation: LoadedLocationVersion,
-    people: Array<{ reservationId: string; slot: 1 | 2 }>,
+    people: Array<{ reservationId: string; slot: number }>,
     adminId: string,
   ): Promise<SendLocationToPaidGuestsResult>;
   listLocationRecipients(eventId: string): Promise<RecipientGroup[]>;

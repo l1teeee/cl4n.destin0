@@ -85,7 +85,7 @@ export function sendLocationToPeople(
   repository: LocationMessageRepository,
   eventId: string,
   expectedLocation: LoadedLocationVersion,
-  people: Array<{ reservationId: string; slot: 1 | 2 }>,
+  people: Array<{ reservationId: string; slot: number }>,
   adminId: string,
 ) {
   return repository.sendLocationToPeople(eventId, expectedLocation, people, adminId);

@@ -1627,11 +1627,11 @@ describe("delete conversation", () => {
           contactId: link === "reservation" ? contactId : undefined,
         });
         if (link === "companion") {
+          await pool.query("UPDATE reservations SET party_size = 2 WHERE id = $1", [requestId]);
           await pool.query(
-            `UPDATE reservations
-                SET party_size = 2, guest2_full_name = 'Companion',
-                    guest2_instagram_handle = 'delete.companion', guest2_contact_id = $2
-              WHERE id = $1`,
+            `INSERT INTO request_guests (
+               reservation_id, slot, full_name, instagram_handle, contact_id
+             ) VALUES ($1, 2, 'Companion', 'delete.companion', $2)`,
             [requestId, contactId],
           );
         }

@@ -40,7 +40,7 @@ export interface EventClueRepository {
     eventId: string;
     clueId: string;
     reservationId: string;
-    slot: 1 | 2;
+    slot: number;
     actorId: string;
   }): Promise<SendClueResult>;
   listRecipients(eventId: string): Promise<RecipientGroup[]>;

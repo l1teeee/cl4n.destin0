@@ -79,7 +79,7 @@ describe("sendEventLocationAction", () => {
       contactId: await insertMessagingContact(pool),
       guest2FullName: "Luis Pérez",
     });
-    await pool.query("UPDATE reservations SET guest2_contact_id = $2 WHERE id = $1", [
+    await pool.query("UPDATE request_guests SET contact_id = $2 WHERE reservation_id = $1", [
       couple,
       companionId,
     ]);
@@ -106,7 +106,7 @@ describe("sendEventLocationAction", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/admin/mensajes/sin-enviar");
   });
 
-  it.each(["bad:1", "00000000-0000-0000-0000-000000000000:3", "not-a-uuid:2"])(
+  it.each(["bad:1", "00000000-0000-0000-0000-000000000000:101", "not-a-uuid:2"])(
     "rejects an invalid chosen person: %s",
     async (person) => {
       const eventId = await insertLocationEvent(pool);

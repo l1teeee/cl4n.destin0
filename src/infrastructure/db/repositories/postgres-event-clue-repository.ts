@@ -127,7 +127,7 @@ export class PostgresEventClueRepository implements EventClueRepository {
     eventId: string;
     clueId: string;
     reservationId: string;
-    slot: 1 | 2;
+    slot: number;
     actorId: string;
   }): Promise<SendClueResult> {
     const { reservationId, slot, ...clue } = input;
@@ -138,7 +138,7 @@ export class PostgresEventClueRepository implements EventClueRepository {
     eventId: string;
     clueId: string;
     actorId: string;
-    person?: { reservationId: string; slot: 1 | 2 };
+    person?: { reservationId: string; slot: number };
   }): Promise<SendClueResult> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
       const result = await client.query<{ body: string; slug: string; image_ids: string[] }>(
@@ -158,7 +158,10 @@ export class PostgresEventClueRepository implements EventClueRepository {
         const guest = await client.query(
           `SELECT id FROM reservations
             WHERE id = $1 AND event_id = $2 AND status = 'CONFIRMED' AND stage = 'PAID'
-              AND ($3::smallint = 1 OR guest2_full_name IS NOT NULL)
+              AND ($3::smallint = 1 OR EXISTS (
+                SELECT 1 FROM request_guests rg
+                 WHERE rg.reservation_id = reservations.id AND rg.slot = $3::smallint
+              ))
             FOR SHARE`,
           [input.person.reservationId, input.eventId, input.person.slot],
         );

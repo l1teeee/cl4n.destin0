@@ -69,8 +69,10 @@ async function couple(options: { companionContact?: boolean; primaryContact?: bo
     instagram_handle: string;
     guest2_instagram_handle: string;
   }>(
-    `UPDATE reservations SET guest2_contact_id = $2 WHERE id = $1
-     RETURNING instagram_handle, guest2_instagram_handle`,
+    `UPDATE request_guests rg SET contact_id = $2
+       FROM reservations r
+      WHERE rg.reservation_id = r.id AND r.id = $1 AND rg.slot = 2
+     RETURNING r.instagram_handle, rg.instagram_handle AS guest2_instagram_handle`,
     [reservationId, companionId],
   );
   return { eventId, reservationId, primaryId, companionId, ...reservation.rows[0]! };
@@ -85,7 +87,7 @@ async function clue(eventId: string) {
 async function rows(reservationId: string) {
   const result = await pool.query<{
     id: string;
-    guest_slot: 1 | 2;
+    guest_slot: number;
     contact_id: string | null;
     status: string;
     kind: string;
@@ -249,7 +251,7 @@ describe("clues and companion conversations", () => {
   it("does not link ambiguous companion usernames or a contact already linked as titular", async () => {
     const first = await couple();
     const second = await couple();
-    await pool.query("UPDATE reservations SET guest2_instagram_handle = $2 WHERE id = $1", [
+    await pool.query("UPDATE request_guests SET instagram_handle = $2 WHERE reservation_id = $1", [
       second.reservationId,
       first.guest2_instagram_handle,
     ]);
@@ -300,7 +302,7 @@ describe("clues and companion conversations", () => {
       { guest_slot: 1, status: "QUEUED", contact_id: fixture.primaryId },
       { guest_slot: 2, status: "WAITING_CONTACT", contact_id: null },
     ]);
-    await pool.query("UPDATE reservations SET guest2_contact_id = $2 WHERE id = $1", [
+    await pool.query("UPDATE request_guests SET contact_id = $2 WHERE reservation_id = $1", [
       fixture.reservationId,
       fixture.companionId,
     ]);
@@ -452,21 +454,17 @@ describe("editing companion contacts", () => {
       expect(after.find((row) => row.id === message.id)).toEqual(expected);
     }
     const reservation = await pool.query(
-      `SELECT r.guest2_contact_id, r.guest2_full_name, r.guest2_instagram_handle,
-              r.contact_id, r.party_size, e.reserved_seats
+      `SELECT r.contact_id, r.party_size, e.reserved_seats
          FROM reservations r JOIN events e ON e.id = r.event_id WHERE r.id = $1`,
       [fixture.reservationId],
     );
     expect(reservation.rows).toEqual([
-      {
-        guest2_contact_id: null,
-        guest2_full_name: null,
-        guest2_instagram_handle: null,
-        contact_id: fixture.primaryId,
-        party_size: 1,
-        reserved_seats: 1,
-      },
+      { contact_id: fixture.primaryId, party_size: 1, reserved_seats: 1 },
     ]);
+    const guests = await pool.query("SELECT 1 FROM request_guests WHERE reservation_id = $1", [
+      fixture.reservationId,
+    ]);
+    expect(guests.rowCount).toBe(0);
   });
 
   it("clears the companion link and delivery progress on a handle change and relinks the new username", async () => {
@@ -498,14 +496,17 @@ describe("editing companion contacts", () => {
       expect(after.find((row) => row.id === message.id)).toEqual(expected);
     }
     const reservation = await pool.query(
-      "SELECT contact_id, guest2_contact_id, guest2_instagram_handle FROM reservations WHERE id = $1",
+      `SELECT r.contact_id, rg.contact_id AS companion_contact_id,
+              rg.instagram_handle AS companion_instagram_handle
+         FROM reservations r JOIN request_guests rg ON rg.reservation_id = r.id AND rg.slot = 2
+        WHERE r.id = $1`,
       [fixture.reservationId],
     );
     expect(reservation.rows).toEqual([
       {
         contact_id: fixture.primaryId,
-        guest2_contact_id: null,
-        guest2_instagram_handle: username,
+        companion_contact_id: null,
+        companion_instagram_handle: username,
       },
     ]);
 
@@ -532,14 +533,17 @@ describe("editing companion contacts", () => {
 
     expect(await editMessages(fixture.reservationId)).toEqual(before);
     const reservation = await pool.query(
-      "SELECT contact_id, guest2_contact_id, guest2_full_name FROM reservations WHERE id = $1",
+      `SELECT r.contact_id, rg.contact_id AS companion_contact_id,
+              rg.full_name AS companion_full_name
+         FROM reservations r JOIN request_guests rg ON rg.reservation_id = r.id AND rg.slot = 2
+        WHERE r.id = $1`,
       [fixture.reservationId],
     );
     expect(reservation.rows).toEqual([
       {
         contact_id: fixture.primaryId,
-        guest2_contact_id: fixture.companionId,
-        guest2_full_name: "Luis Rodríguez",
+        companion_contact_id: fixture.companionId,
+        companion_full_name: "Luis Rodríguez",
       },
     ]);
   });
@@ -689,5 +693,120 @@ describe("location recipients", () => {
       ok: true,
       value: { locationRevision: 1, location: { mapsUrl: "https://ul.waze.com/ul" } },
     });
+  });
+});
+
+async function groupOfFour(options: { slot3Contact?: boolean } = {}) {
+  const fixture = await couple();
+  const slot3Id = options.slot3Contact ? await insertMessagingContact(pool) : null;
+  await pool.query("UPDATE reservations SET party_size = 4 WHERE id = $1", [fixture.reservationId]);
+  await pool.query("UPDATE events SET reserved_seats = reserved_seats + 2 WHERE id = $1", [
+    fixture.eventId,
+  ]);
+  await pool.query(
+    `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle, contact_id)
+     VALUES ($1, 3, 'Marta Gómez', $2, $3), ($1, 4, 'Pedro Ruiz', $4, NULL)`,
+    [
+      fixture.reservationId,
+      `${fixture.instagram_handle}.three`,
+      slot3Id,
+      `${fixture.instagram_handle}.four`,
+    ],
+  );
+  return {
+    ...fixture,
+    slot3Id,
+    slot3Handle: `${fixture.instagram_handle}.three`,
+  };
+}
+
+describe("groups of four", () => {
+  it("queues one location and one clue message per guest slot with the contact of that slot", async () => {
+    const fixture = await groupOfFour({ slot3Contact: true });
+
+    await clues.sendToAll(await clue(fixture.eventId));
+    await locations.sendLocationToPaidGuests(fixture.eventId, version, adminId);
+
+    const queued = await rows(fixture.reservationId);
+    expect(queued.map((row) => [row.kind, row.guest_slot])).toEqual([
+      ["CLUE", 1],
+      ["CLUE", 2],
+      ["CLUE", 3],
+      ["CLUE", 4],
+      ["LOCATION", 1],
+      ["LOCATION", 2],
+      ["LOCATION", 3],
+      ["LOCATION", 4],
+    ]);
+    const contactBySlot = new Map<number, string | null>([
+      [1, fixture.primaryId],
+      [2, null],
+      [3, fixture.slot3Id],
+      [4, null],
+    ]);
+    for (const row of queued) {
+      expect(row.contact_id).toBe(contactBySlot.get(row.guest_slot));
+      expect(row.status).toBe(row.contact_id ? "QUEUED" : "WAITING_CONTACT");
+    }
+    const delivery = await locations.getLocationDeliverySummary(fixture.eventId);
+    expect(delivery.paid).toBeGreaterThanOrEqual(4);
+  });
+
+  it("links the third guest by username to their own slot only", async () => {
+    const fixture = await groupOfFour();
+    await clues.sendToAll(await clue(fixture.eventId));
+
+    const slot3Id = await writeAs(fixture.slot3Handle);
+
+    const queued = await rows(fixture.reservationId);
+    expect(queued.filter((row) => row.guest_slot === 3)).toMatchObject([
+      { status: "QUEUED", contact_id: slot3Id },
+    ]);
+    expect(
+      queued.filter((row) => row.guest_slot !== 3).every((row) => row.contact_id !== slot3Id),
+    ).toBe(true);
+    const guests = await pool.query<{ slot: number; contact_id: string | null }>(
+      "SELECT slot, contact_id FROM request_guests WHERE reservation_id = $1 ORDER BY slot",
+      [fixture.reservationId],
+    );
+    expect(guests.rows).toEqual([
+      { slot: 2, contact_id: null },
+      { slot: 3, contact_id: slot3Id },
+      { slot: 4, contact_id: null },
+    ]);
+    const conversation = await messages.getConversation(slot3Id);
+    expect(conversation?.linkedRequests).toContainEqual(
+      expect.objectContaining({
+        id: fixture.reservationId,
+        role: "COMPANION",
+        guests: ["Ana López", "Luis Pérez", "Marta Gómez", "Pedro Ruiz"],
+      }),
+    );
+  });
+
+  it("refuses to delete a conversation linked to a third guest and unlinks only that slot", async () => {
+    const fixture = await groupOfFour({ slot3Contact: true });
+    await clues.sendToAll(await clue(fixture.eventId));
+
+    expect(await messages.deleteConversation(fixture.slot3Id!, adminId)).toBe("LINKED");
+    expect(
+      await messages.unlinkContact(
+        fixture.slot3Id!,
+        { reservationId: fixture.reservationId },
+        adminId,
+      ),
+    ).toBe("UPDATED");
+
+    expect(await rows(fixture.reservationId)).toMatchObject([
+      { guest_slot: 1, status: "QUEUED", contact_id: fixture.primaryId },
+      { guest_slot: 2, status: "WAITING_CONTACT", contact_id: null },
+      { guest_slot: 3, status: "WAITING_CONTACT", contact_id: null },
+      { guest_slot: 4, status: "WAITING_CONTACT", contact_id: null },
+    ]);
+    const guest = await pool.query(
+      "SELECT contact_id FROM request_guests WHERE reservation_id = $1 AND slot = 3",
+      [fixture.reservationId],
+    );
+    expect(guest.rows).toEqual([{ contact_id: null }]);
   });
 });

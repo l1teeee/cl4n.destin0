@@ -37,6 +37,7 @@ import {
   updateAdminEventSchema,
 } from "@/contracts/admin-event";
 import type { ScheduleErrors } from "@/domain/event/event-schedule";
+import { MAX_PARTY_SIZE } from "@/domain/reservation/request-guests";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { postgresEventClueRepository } from "@/infrastructure/db/repositories/postgres-event-clue-repository";
@@ -61,6 +62,7 @@ export interface AdminActionState {
   fieldErrors?: Partial<Record<string, string>>;
 }
 
+const slotSchema = z.number().int().min(1).max(MAX_PARTY_SIZE);
 const idSchema = z.object({ id: z.string().uuid("El identificador no es válido.") }).strict();
 const capacitySchema = z
   .object({
@@ -475,7 +477,7 @@ export async function sendEventLocationToPeopleAction(
     .array(
       z.object({
         reservationId: z.string().uuid(),
-        slot: z.union([z.literal(1), z.literal(2)]),
+        slot: slotSchema,
       }),
     )
     .safeParse(people);
@@ -623,7 +625,7 @@ export async function sendClueToPersonAction(
   eventId: string,
   clueId: string,
   reservationId: string,
-  slot: 1 | 2,
+  slot: number,
   _previousState: AdminActionState,
   _formData: FormData,
 ): Promise<AdminActionState> {
@@ -635,7 +637,7 @@ export async function sendClueToPersonAction(
   const parsed = clueActionSchema.safeParse({ eventId, clueId });
   if (!parsed.success) return formValidationError(parsed.error);
   const parsedReservation = z
-    .object({ id: z.string().uuid(), slot: z.union([z.literal(1), z.literal(2)]) })
+    .object({ id: z.string().uuid(), slot: slotSchema })
     .safeParse({ id: reservationId, slot });
   if (!parsedReservation.success) return formValidationError(parsedReservation.error);
   const result = await sendClueToPerson(postgresEventRepository, postgresEventClueRepository, {
@@ -680,7 +682,7 @@ export async function sendClueToPeopleAction(
     .array(
       z.object({
         reservationId: z.string().uuid(),
-        slot: z.union([z.literal(1), z.literal(2)]),
+        slot: slotSchema,
       }),
     )
     .safeParse(

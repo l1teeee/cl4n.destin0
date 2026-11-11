@@ -64,7 +64,7 @@ export async function sendClueToAll(
 export async function sendClueToPerson(
   events: EventRepository,
   clues: EventClueRepository,
-  input: RemoveEventClueInput & { reservationId: string; slot: 1 | 2 },
+  input: RemoveEventClueInput & { reservationId: string; slot: number },
 ) {
   const detail = (await events.getAdminEvent(input.eventId)).value;
   if (!detail) return { ok: false as const, error: "EVENT_NOT_FOUND" as const };

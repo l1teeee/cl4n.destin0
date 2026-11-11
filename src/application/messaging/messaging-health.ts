@@ -13,7 +13,7 @@ export interface UnsentMessage {
   contactId: string | null;
   // The linked contact's username, else the Instagram handle typed in the request form.
   instagramUsername: string | null;
-  // "full_name" or "full_name y guest2_full_name" of the request; null without a request.
+  // Full name of the guest the message is addressed to (titular or companion); null without a request.
   guestName: string | null;
   eventName: string | null;
   eventStartsAt: Date | null;

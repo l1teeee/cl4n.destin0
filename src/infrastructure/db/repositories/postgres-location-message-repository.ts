@@ -24,6 +24,7 @@ import { formatPublicEventDate } from "@/infrastructure/time/el-salvador-time";
 import { pool as applicationPool } from "../client";
 import { isLockOrStatementTimeout } from "../retryable-database-error";
 import { inTransaction } from "../transaction";
+import { slotContactSql } from "./clue-messages";
 
 interface LocationEventRow extends QueryResultRow {
   status: "DRAFT" | "SCHEDULED" | "CLOSED" | "COMPLETED" | "CANCELLED";
@@ -38,10 +39,9 @@ interface LocationEventRow extends QueryResultRow {
 
 interface PaidGuestRow extends QueryResultRow {
   id: string;
-  slot: 1 | 2;
+  slot: number;
   full_name: string;
   name: string;
-  guest2_full_name: string | null;
   companion_names: string[];
 }
 
@@ -66,7 +66,7 @@ interface LocationMessageContext {
 
 interface LocationDraft {
   reservationId: string;
-  slot: 1 | 2;
+  slot: number;
   body: string;
 }
 
@@ -118,16 +118,19 @@ async function readPaidGuest(
   reservationId: string,
 ): Promise<PaidGuestRow[]> {
   const result = await client.query<PaidGuestRow>(
-    `SELECT r.id, person.slot, person.name, r.full_name, r.guest2_full_name,
+    `SELECT r.id, person.slot, person.name, r.full_name,
             ARRAY(SELECT full_name FROM request_guests WHERE reservation_id = r.id
                    ORDER BY slot) AS companion_names
        FROM reservations r
-       CROSS JOIN LATERAL (VALUES (1, r.full_name), (2, r.guest2_full_name)) person(slot, name)
+       CROSS JOIN LATERAL (
+         SELECT 1 AS slot, r.full_name AS name
+         UNION ALL
+         SELECT rg.slot, rg.full_name FROM request_guests rg WHERE rg.reservation_id = r.id
+       ) person
       WHERE r.id = $1
         AND r.event_id = $2
         AND r.status = 'CONFIRMED'
         AND r.stage = 'PAID'
-        AND person.name IS NOT NULL
       ORDER BY person.slot`,
     [reservationId, eventId],
   );
@@ -138,18 +141,21 @@ async function readPaidGuestsWithoutMessage(
   client: PoolClient,
   eventId: string,
   locationRevision: number,
-  people?: Array<{ reservationId: string; slot: 1 | 2 }>,
+  people?: Array<{ reservationId: string; slot: number }>,
 ): Promise<PaidGuestRow[]> {
   const result = await client.query<PaidGuestRow>(
-    `SELECT r.id, person.slot, person.name, r.full_name, r.guest2_full_name,
+    `SELECT r.id, person.slot, person.name, r.full_name,
             ARRAY(SELECT full_name FROM request_guests WHERE reservation_id = r.id
                    ORDER BY slot) AS companion_names
        FROM reservations r
-       CROSS JOIN LATERAL (VALUES (1, r.full_name), (2, r.guest2_full_name)) person(slot, name)
+       CROSS JOIN LATERAL (
+         SELECT 1 AS slot, r.full_name AS name
+         UNION ALL
+         SELECT rg.slot, rg.full_name FROM request_guests rg WHERE rg.reservation_id = r.id
+       ) person
       WHERE r.event_id = $1
         AND r.status = 'CONFIRMED'
         AND r.stage = 'PAID'
-        AND person.name IS NOT NULL
         AND ($3::uuid[] IS NULL OR (r.id, person.slot) IN (
           SELECT * FROM unnest($3::uuid[], $4::smallint[])
         ))
@@ -256,7 +262,7 @@ async function insertLocationMessages(
   // read the new contact, so a QUEUED row can never be left on a contact that was just unlinked.
   const result = await client.query<{ id: string }>(
     `WITH paid_guests AS (
-       SELECT r.id, r.contact_id, r.guest2_contact_id, r.guest2_full_name, r.event_id
+       SELECT r.id, r.contact_id, r.event_id
          FROM reservations r
         WHERE r.id = ANY($1::uuid[])
           AND r.event_id = $7::uuid
@@ -273,10 +279,11 @@ async function insertLocationMessages(
             draft.body, $5::text[], $3::integer, $6::uuid, clock_timestamp()
        FROM unnest($1::uuid[], $2::text[], $8::smallint[]) AS draft(reservation_id, body, slot)
        JOIN paid_guests guest ON guest.id = draft.reservation_id
-       CROSS JOIN LATERAL (VALUES (
-         CASE WHEN draft.slot = 2 THEN guest.guest2_contact_id ELSE guest.contact_id END
-       )) recipient(contact_id)
-      WHERE draft.slot = 1 OR guest.guest2_full_name IS NOT NULL
+       CROSS JOIN LATERAL (VALUES (${slotContactSql("draft.slot", "guest")})) recipient(contact_id)
+      WHERE draft.slot = 1 OR EXISTS (
+        SELECT 1 FROM request_guests rg
+         WHERE rg.reservation_id = guest.id AND rg.slot = draft.slot
+      )
      ON CONFLICT (reservation_id, guest_slot, location_revision) WHERE kind = 'LOCATION'
      DO NOTHING
      RETURNING id`,
@@ -300,11 +307,11 @@ async function insertLocationMessages(
 async function reviveUndeliveredMessages(
   client: PoolClient,
   context: LocationMessageContext,
-  people?: Array<{ reservationId: string; slot: 1 | 2 }>,
+  people?: Array<{ reservationId: string; slot: number }>,
 ): Promise<string[]> {
   const result = await client.query<{ id: string }>(
     `WITH paid_guests AS (
-       SELECT r.id, r.contact_id, r.guest2_contact_id, r.guest2_full_name
+       SELECT r.id, r.contact_id
          FROM reservations r
         WHERE r.event_id = $1 AND r.status = 'CONFIRMED' AND r.stage = 'PAID'
           AND ($4::uuid[] IS NULL OR r.id = ANY($4::uuid[]))
@@ -312,9 +319,9 @@ async function reviveUndeliveredMessages(
         FOR SHARE OF r
      )
      UPDATE messages m
-        SET contact_id = CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END,
+        SET contact_id = ${slotContactSql("m.guest_slot", "r")},
             status = CASE WHEN
-              CASE WHEN m.guest_slot = 2 THEN r.guest2_contact_id ELSE r.contact_id END IS NULL
+              ${slotContactSql("m.guest_slot", "r")} IS NULL
               THEN 'WAITING_CONTACT' ELSE 'QUEUED' END,
             attachment_urls = $3::text[],
             parts_sent = 0,
@@ -326,7 +333,10 @@ async function reviveUndeliveredMessages(
             last_error = NULL
        FROM paid_guests r
       WHERE r.id = m.reservation_id
-        AND (m.guest_slot = 1 OR r.guest2_full_name IS NOT NULL)
+        AND (m.guest_slot = 1 OR EXISTS (
+          SELECT 1 FROM request_guests rg
+           WHERE rg.reservation_id = r.id AND rg.slot = m.guest_slot
+        ))
         AND ($4::uuid[] IS NULL OR (r.id, m.guest_slot) IN (
           SELECT * FROM unnest($4::uuid[], $5::smallint[])
         ))
@@ -433,7 +443,7 @@ async function sendLocationInTransaction(
   eventId: string,
   expectedLocation: LoadedLocationVersion,
   adminId: string,
-  people?: Array<{ reservationId: string; slot: 1 | 2 }>,
+  people?: Array<{ reservationId: string; slot: number }>,
 ): Promise<SendLocationToPaidGuestsResult> {
   const event = await lockEventLocation(client, eventId);
   if (!event) {
@@ -485,7 +495,7 @@ export class PostgresLocationMessageRepository implements LocationMessageReposit
   async sendLocationToPeople(
     eventId: string,
     expectedLocation: LoadedLocationVersion,
-    people: Array<{ reservationId: string; slot: 1 | 2 }>,
+    people: Array<{ reservationId: string; slot: number }>,
     adminId: string,
   ): Promise<SendLocationToPaidGuestsResult> {
     return this.sendLocation(eventId, expectedLocation, adminId, people);
@@ -495,7 +505,7 @@ export class PostgresLocationMessageRepository implements LocationMessageReposit
     eventId: string,
     expectedLocation: LoadedLocationVersion,
     adminId: string,
-    people?: Array<{ reservationId: string; slot: 1 | 2 }>,
+    people?: Array<{ reservationId: string; slot: number }>,
   ): Promise<SendLocationToPaidGuestsResult> {
     try {
       return await inTransaction(this.pool, transactionSettings, (client) =>
@@ -528,10 +538,12 @@ export class PostgresLocationMessageRepository implements LocationMessageReposit
               ) ORDER BY person.slot) AS people
          FROM reservations r
          JOIN events e ON e.id = r.event_id
-         CROSS JOIN LATERAL (VALUES
-           (1, r.full_name, r.instagram_handle, r.contact_id),
-           (2, r.guest2_full_name, r.guest2_instagram_handle, r.guest2_contact_id)
-         ) person(slot, name, handle, contact_id)
+         CROSS JOIN LATERAL (
+           SELECT 1 AS slot, r.full_name AS name, r.instagram_handle AS handle, r.contact_id
+           UNION ALL
+           SELECT rg.slot, rg.full_name, rg.instagram_handle, rg.contact_id
+             FROM request_guests rg WHERE rg.reservation_id = r.id
+         ) person
          LEFT JOIN messaging_contacts contact ON contact.id = person.contact_id
          LEFT JOIN messages m ON m.reservation_id = r.id AND m.guest_slot = person.slot
            AND m.kind = 'LOCATION' AND m.location_revision = e.location_revision
@@ -554,11 +566,14 @@ export class PostgresLocationMessageRepository implements LocationMessageReposit
          SELECT r.id, person.slot, e.location_revision
            FROM reservations r
            JOIN events e ON e.id = r.event_id
-           CROSS JOIN LATERAL (VALUES (1, r.full_name), (2, r.guest2_full_name)) person(slot, name)
+           CROSS JOIN LATERAL (
+             SELECT 1 AS slot
+             UNION ALL
+             SELECT rg.slot FROM request_guests rg WHERE rg.reservation_id = r.id
+           ) person
           WHERE r.event_id = $1
             AND r.status = 'CONFIRMED'
             AND r.stage = 'PAID'
-            AND person.name IS NOT NULL
        ), guest_delivery AS (
          SELECT current_message.status AS current_status,
                 current_message.sent_at AS current_sent_at,
