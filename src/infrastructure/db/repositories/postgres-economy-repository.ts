@@ -67,7 +67,7 @@ const eligibleGuestSource = `
    AND r.event_id = $1
    AND r.status = 'CONFIRMED'
    AND r.stage IN ('ON_LIST', 'PAID')
-   AND ($3::smallint = 1 OR r.party_size = 2)`;
+   AND $3::smallint BETWEEN 1 AND r.party_size`;
 
 const itemSources: Record<AddConsumptionCommand["source"], string> = {
   DRINK: `SELECT d.id AS drink_id, NULL::uuid AS extra_id, d.name, d.price_cents
@@ -148,12 +148,12 @@ export class PostgresEconomyRepository implements EconomyRepository {
              JOIN events e ON e.id = r.event_id AND e.deleted_at IS NULL
             WHERE r.event_id = $1 AND r.status = 'CONFIRMED' AND r.stage IN ('ON_LIST', 'PAID')
            UNION ALL
-           SELECT r.id, r.reservation_number, r.stage, 2,
-                  COALESCE(r.guest2_full_name, 'Acompañante'), r.guest2_instagram_handle
+           SELECT r.id, r.reservation_number, r.stage, g.slot::integer,
+                  g.full_name, g.instagram_handle
              FROM reservations r
              JOIN events e ON e.id = r.event_id AND e.deleted_at IS NULL
+             JOIN request_guests g ON g.reservation_id = r.id AND g.slot <= r.party_size
             WHERE r.event_id = $1 AND r.status = 'CONFIRMED' AND r.stage IN ('ON_LIST', 'PAID')
-              AND r.party_size = 2
          ), totals AS (
            SELECT t.*,
                   COALESCE((

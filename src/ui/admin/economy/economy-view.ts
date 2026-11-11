@@ -57,6 +57,10 @@ export function guestHeading(guest: EconomyGuest): string {
   return parts.join(" · ");
 }
 
+export function guestRoleLabel(slot: number): string {
+  return slot === 1 ? "Titular" : `Acompañante ${slot - 1}`;
+}
+
 export function stageLabel(stage: EconomyGuest["stage"]): string {
   return stage === "PAID" ? "Confirmado" : "En la lista";
 }

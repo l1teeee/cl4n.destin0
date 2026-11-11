@@ -24,7 +24,7 @@ const input: GroupTabMessageInput = {
       totalCents: 1075,
     },
   ],
-  isCouple: false,
+  groupSize: 1,
   settings,
 };
 
@@ -76,7 +76,7 @@ describe("groupTabMessageValues", () => {
   it("formats couple subtotals and the group total", () => {
     const values = groupTabMessageValues({
       ...input,
-      isCouple: true,
+      groupSize: 2,
       people: [
         ...input.people,
         {
@@ -90,5 +90,32 @@ describe("groupTabMessageValues", () => {
       "María\n2 × Café: $6.50\n1 × Postre: $4.25\nSubtotal: $10.75\n\nLuis\n1 × Té: $2.00\nSubtotal: $2.00",
     );
     expect(values.total).toBe("$12.75");
+  });
+
+  it("adds the group heading and per-person subtotals from four people", () => {
+    const person = (fullName: string) => ({
+      fullName,
+      lines: [{ itemName: "Té", quantity: 1, totalCents: 200 }],
+      totalCents: 200,
+    });
+    const values = groupTabMessageValues({
+      ...input,
+      groupSize: 4,
+      people: [
+        person("María López"),
+        person("Luis Pérez"),
+        person("Ana Gómez"),
+        person("Eva Ruiz"),
+      ],
+    });
+    expect(values.consumos).toBe(
+      "Cuenta de tu grupo de 4:\n\nMaría\n1 × Té: $2.00\nSubtotal: $2.00\n\nLuis\n1 × Té: $2.00\nSubtotal: $2.00\n\nAna\n1 × Té: $2.00\nSubtotal: $2.00\n\nEva\n1 × Té: $2.00\nSubtotal: $2.00",
+    );
+    expect(values.total).toBe("$8.00");
+  });
+
+  it("keeps the solo and pair wording free of the group heading", () => {
+    expect(groupTabMessageValues(input).consumos).not.toContain("grupo");
+    expect(groupTabMessageValues({ ...input, groupSize: 2 }).consumos).not.toContain("grupo");
   });
 });

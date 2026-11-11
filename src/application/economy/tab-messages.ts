@@ -51,7 +51,7 @@ export async function buildTabMessages(
           titularFullName: group[0]!.fullName,
           eventDate: input.eventDate,
           people,
-          isCouple: group.length === 2,
+          groupSize: group.length,
           settings,
         }),
       ),
