@@ -193,4 +193,15 @@ Guests are contacted only by Instagram DM (ADR-009). Do this section after the o
     - `UPDATE events SET slug = 'd-' || replace(id::text, '-', '') WHERE deleted_at IS NOT NULL;`
   - Undeleting an event is `UPDATE events SET deleted_at = NULL WHERE id = ...`. It only works if no live event has reused its slug.
 
+## Importar solicitudes (ADR-010)
+
+The "Importar solicitudes" button is located in the event detail page header actions (`/admin/events/[id]`).
+
+- **Accepted formats:** CSV from Google Forms, XLSX from Google Sheets, and JSON (a list of objects keyed by column title).
+- **Limits:** 1 MB file size, 200 rows, and 40 columns.
+- **Allocation engine:** Rows go through the same allocation engine in timestamp order: seats first (Por revisar), then the cola.
+- **Window:** Works while the public window is closed as long as the event is published (SCHEDULED or CLOSED) and has not started.
+- **Idempotency:** A retry with the same import id safely replays and never duplicates.
+- **Privacy notice:** Imported people did not accept the site terms (the Google Form should carry its own privacy notice).
+
 Never modify production silently after deployment. Every change goes through the same local gate and owner approval.

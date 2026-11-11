@@ -1,5 +1,17 @@
 # Clandestino - MVP Product Requirements
 
+## Estado (2026-11-10)
+
+This document reflects the original MVP product requirements. Several areas have been superseded:
+
+- Email and phone fields removed (ADR-009: Instagram only).
+- Request stages Por revisar / En la lista / Confirmado and the cola replace the old states (ADR-009, ADR-002).
+- Messages go by Instagram DM, not email (ADR-009).
+- Location and clues by DM (ADR-005, ADR-007).
+- Drinks, extras and tabs (ADR-006, ADR-009 amendment).
+- Guest import (ADR-010).
+- 90-day personal data retention (DEPLOYMENT).
+
 Source: owner brief, 2026-10-04. Architecture decisions that implement these requirements are in `docs/architecture/ADR-001-architecture.md`.
 
 ## Concept

@@ -94,6 +94,9 @@ section 5.1 for the real Instagram connection.
    linking of a conversation to a request. `/admin/mensajes/plantillas` edits the text of every
    automatic message; `{nombre}`, `{fecha}`, `{posicion}`, `{pago}` and `{ubicacion}` are replaced
    when the message is created.
+7. **Guest import.** Admins can import guest responses from Google Forms, Google Sheets, or JSON
+   through the allocation engine without bypassing capacity. See the import section in
+   `docs/DEPLOYMENT.md`.
 
 ## Review the guest flow locally
 
