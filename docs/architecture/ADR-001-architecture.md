@@ -22,7 +22,7 @@ These are deliberate, reviewable product calls. Each one is cheap to change.
 5. **Hidden counts.** Remaining seat counts are not shown publicly. The page says "ACCESO LIMITADO" only.
 6. **Admin access.** A handful of admins exist, created by CLI. There is no public signup, password reset email, magic link or OAuth. Transactional emails exist as described in section 18.
 7. **Time zone.** Admins enter times in America/El_Salvador (UTC-6, no DST). Everything is stored in UTC.
-8. **Cancelled events.** Cancelling an event does not auto-cancel its reservations. The owner contacts guests directly.
+8. **Cancelled events.** Cancelling an event does not auto-cancel its reservations. The owner contacts guests directly. Amended 2026-11-10 (owner decision): cancelling an event now cancels every active request and cola entry in the same transaction, marks paid requests as refund PENDING and queues a CANCELLED_PAID or CANCELLED_UNPAID DM per request. Refunds are still made by hand and marked as refunded later.
 
 ## 3. Architecture proposal
 
@@ -255,7 +255,7 @@ All of these run in one transaction with their audit row.
 - **Turnstile binding.** The token's `cData` carries the Idempotency-Key, and the server checks `cdata == key`.
   - siteverify does NOT receive an `idempotency_key`. We never retry the siteverify call, so it would buy nothing. If Cloudflare cached outcomes by that key alone, a first failure could replay for every later fresh token under the same reservation key.
   - A spent or expired token returns 403 `BOT_CHECK_FAILED` with `reason: 'TOKEN_EXPIRED_OR_SPENT'`. The client resets the widget and resubmits with the same key. If the first attempt committed, the resubmit is a replay. If it did not, the resubmit is verified fresh.
-- **Retention.** Records are kept indefinitely in the MVP, since the volume is tiny. A cleanup job for records older than 30 days is a future item.
+- **Retention.** Personal data is purged 90 days after the event's start by the daily retention cron (see DEPLOYMENT).
 
 ## 9. Preliminary schema (PostgreSQL 18)
 

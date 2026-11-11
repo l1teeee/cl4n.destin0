@@ -6,7 +6,6 @@ import { getAdminEventDetail } from "@/application/events/event-use-cases";
 import { requireAdmin } from "@/infrastructure/auth/require-admin";
 import { postgresEventRepository } from "@/infrastructure/db/repositories/postgres-event-repository";
 import { GuestImportFlow } from "@/ui/admin/guest-import/guest-import-flow";
-import { ImportFormatHelp } from "@/ui/admin/guest-import/import-format-help";
 import { LinkPendingIndicator } from "@/ui/admin/link-pending";
 import { Alert } from "@/ui/primitives/alert";
 import { Button } from "@/ui/primitives/button";
@@ -48,7 +47,6 @@ export default async function ImportEventGuestsPage({ params }: ImportEventGuest
       ) : (
         <Alert>Solo puedes importar en experiencias publicadas que aún no empiezan.</Alert>
       )}
-      <ImportFormatHelp />
     </main>
   );
 }

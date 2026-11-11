@@ -8,6 +8,7 @@ import type {
   AdminReservationQuery,
   AuditLogItem,
   AuditLogQuery,
+  CancelledEventRecord,
   CreateEventCommand,
   DatabaseTimedResult,
   EventOperationResult,
@@ -33,6 +34,7 @@ import { MAX_PARTY_SIZE, type RequestGuest } from "@/domain/reservation/request-
 
 import { pool as applicationPool } from "../client";
 import { inTransaction as runInTransaction } from "../transaction";
+import { cancelEventRequests } from "./event-cancellation";
 import { promoteWaitlist } from "./waitlist-promotion";
 
 interface EventRow extends QueryResultRow {
@@ -644,8 +646,34 @@ export class PostgresEventRepository implements EventRepository {
     return this.transition(id, "COMPLETED", actorAdminId, "EVENT_UPDATED");
   }
 
-  cancel(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>> {
-    return this.transition(id, "CANCELLED", actorAdminId, "EVENT_UPDATED");
+  cancel(id: string, actorAdminId: string): Promise<EventOperationResult<CancelledEventRecord>> {
+    return inTransaction(this.pool, async (client) => {
+      const locked = await lockEvent(client, id);
+      if (!locked) {
+        return failed("EVENT_NOT_FOUND");
+      }
+      if (!canTransition(locked.status, "CANCELLED")) {
+        return failed("INVALID_TRANSITION");
+      }
+
+      const cancellation = await cancelEventRequests(client, id, actorAdminId);
+      const updated = await client.query<EventRow>(
+        `UPDATE events
+            SET status = 'CANCELLED', updated_at = clock_timestamp()
+          WHERE id = $1
+          RETURNING ${eventColumns}`,
+        [id],
+      );
+      await insertAudit(client, actorAdminId, "EVENT_UPDATED", id, {
+        changedFields: ["status"],
+        before: { status: locked.status },
+        after: { status: "CANCELLED" },
+        cancelledReservations: cancellation.cancelledReservations,
+        refundsPending: cancellation.refundsPending,
+        cancelledEntries: cancellation.cancelledEntries,
+      });
+      return successful({ ...eventRecord(updated.rows[0]!), ...cancellation });
+    });
   }
 
   async delete(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>> {

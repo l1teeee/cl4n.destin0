@@ -4,6 +4,7 @@ import type {
   AdminReservationItem,
   AdminReservationQuery,
   AuditLogQuery,
+  CancelledEventRecord,
   CreateEventCommand,
   DatabaseTimedResult,
   EventOperationResult,
@@ -40,7 +41,7 @@ export interface EventRepository {
   ): Promise<EventOperationResult<EventRecord>>;
   closeNow(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   complete(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
-  cancel(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
+  cancel(id: string, actorAdminId: string): Promise<EventOperationResult<CancelledEventRecord>>;
   delete(id: string, actorAdminId: string): Promise<EventOperationResult<EventRecord>>;
   changeCapacity(
     id: string,

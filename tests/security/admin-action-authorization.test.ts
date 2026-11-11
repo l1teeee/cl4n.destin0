@@ -13,7 +13,7 @@ function actionFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) return actionFiles(entryPath);
-    return entry.name === "actions.ts" ? [entryPath] : [];
+    return entry.name.endsWith(".ts") ? [entryPath] : [];
   });
 }
 
@@ -89,11 +89,48 @@ function firstAwaitedCallName(body: ts.Block): string | undefined {
     : undefined;
 }
 
-const unauthenticatedActions = [
-  "signInAction",
-  "requestPasswordResetAction",
-  "completePasswordResetAction",
-];
+const unauthenticatedActions: Record<string, string> = {
+  "admin/login/actions.ts:signInAction": "Signing in requires no session.",
+  "admin/forgot/actions.ts:requestPasswordResetAction": "Recovery starts without a session.",
+  "admin/reset/actions.ts:completePasswordResetAction": "Reset links work without a session.",
+};
+
+// Add imported guard helpers here with the file in which they call an accepted guard.
+const importedGuardHelpers: Record<string, string> = {};
+
+function isGuard(name: string | undefined, sourceFile: ts.SourceFile, guards: string[]): boolean {
+  if (!name) return false;
+  if (guards.includes(name)) return true;
+  const local = sourceFile.statements.find(
+    (statement): statement is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(statement) && statement.name?.text === name,
+  );
+  if (local?.body) return guards.includes(firstAwaitedCallName(local.body) ?? "");
+  const helperFile = importedGuardHelpers[name];
+  if (!helperFile) return false;
+  const imported = sourceFile.statements.some(
+    (statement) =>
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text ===
+        `@/${helperFile.replace(/^src\//, "").replace(/\.ts$/, "")}` &&
+      statement.importClause?.namedBindings &&
+      ts.isNamedImports(statement.importClause.namedBindings) &&
+      statement.importClause.namedBindings.elements.some((element) => element.name.text === name),
+  );
+  if (!imported) return false;
+  const helper = ts.createSourceFile(
+    helperFile,
+    readFileSync(helperFile, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const declaration = helper.statements.find(
+    (statement): statement is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(statement) && statement.name?.text === name,
+  );
+  return !!declaration?.body && guards.includes(firstAwaitedCallName(declaration.body) ?? "");
+}
 
 function isUserManagementFile(file: string): boolean {
   return file.split(path.sep).includes("users");
@@ -101,22 +138,32 @@ function isUserManagementFile(file: string): boolean {
 
 describe("admin Server Action authorization", () => {
   const adminDirectory = path.join(process.cwd(), "src", "app", "admin");
+  const appDirectory = path.join(process.cwd(), "src", "app");
 
   it("requires authorization as the first awaited call in every action except the sign-in and recovery ones", () => {
     const violations: string[] = [];
 
-    for (const file of actionFiles(adminDirectory)) {
+    for (const file of actionFiles(appDirectory)) {
       const source = readFileSync(file, "utf8");
       const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+      const first = sourceFile.statements[0];
+      if (
+        !first ||
+        !ts.isExpressionStatement(first) ||
+        !ts.isStringLiteral(first.expression) ||
+        first.expression.text !== "use server"
+      )
+        continue;
       const allowedGuards = isUserManagementFile(file)
         ? ["requirePermission"]
         : ["requireAdmin", "requirePermission"];
 
       for (const action of exportedAsyncFunctions(sourceFile)) {
-        if (unauthenticatedActions.includes(action.name)) continue;
+        const actionId = `${path.relative(appDirectory, file).split(path.sep).join("/")}:${action.name}`;
+        if (Object.hasOwn(unauthenticatedActions, actionId)) continue;
 
         const guard = firstAwaitedCallName(action.body);
-        if (!guard || !allowedGuards.includes(guard)) {
+        if (!isGuard(guard, sourceFile, allowedGuards)) {
           violations.push(`${path.relative(process.cwd(), file)}:${action.name}`);
         }
       }

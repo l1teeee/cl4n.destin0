@@ -1,12 +1,12 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import {
   IMPORT_FIELDS,
   IMPORT_FIELD_LABELS,
-  IMPORT_FILE_EXTENSIONS,
   type ColumnMapping,
   type ImportErrorResponse,
   type ImportField,
@@ -15,11 +15,14 @@ import {
   type ImportRowOutcome,
   type ImportRunResponse,
 } from "@/contracts/guest-import";
+import { StatGrid } from "@/ui/admin/stat-grid";
 import { formatAdminDate } from "@/ui/admin/view-model";
+import { cn } from "@/ui/cn";
 import { Alert } from "@/ui/primitives/alert";
+import { Badge } from "@/ui/primitives/badge";
 import { Button } from "@/ui/primitives/button";
-import { Input } from "@/ui/primitives/input";
 import { Label } from "@/ui/primitives/label";
+import { SegmentedControl, SegmentedControlItem } from "@/ui/primitives/segmented-control";
 import {
   Table,
   TableBody,
@@ -28,6 +31,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/ui/primitives/table";
+
+import { ImportDropzone } from "./import-dropzone";
+import { ImportFormatHelp } from "./import-format-help";
+import { ImportSteps } from "./import-steps";
 
 const selectClassName =
   "block min-h-11 w-full min-w-0 rounded-none border border-input bg-transparent px-[0.8rem] py-[0.65rem] text-sm text-foreground transition-[border-color,background-color] duration-200 placeholder:text-muted-foreground disabled:opacity-50 read-only:opacity-50 focus:border-primary/50 focus-visible:outline-none aria-invalid:border-destructive aria-invalid:focus:border-destructive [@media(hover:hover)_and_(pointer:fine)]:aria-invalid:hover:border-destructive [@media(hover:hover)_and_(pointer:fine)]:hover:not-focus:border-[#b9b7b0]";
@@ -38,19 +45,18 @@ function formatInstagramHandle(handle: string): string {
 }
 
 function formatCompanion(row: ImportPreviewRow): string {
-  return (
-    row.guests
-      .slice(1)
-      .map((guest) =>
-        [guest.name, guest.instagram ? formatInstagramHandle(guest.instagram) : null]
-          .filter(Boolean)
-          .join(" "),
-      )
-      .join("; ") || "-"
-  );
+  const parts = [
+    row.guest2Name,
+    row.guest2Instagram ? formatInstagramHandle(row.guest2Instagram) : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" ") : "-";
 }
 
-function formatOutcome(outcome: ImportRowOutcome): string {
+const REQUIRED_FIELDS: readonly ImportField[] = ["guest1Name", "guest1Instagram"];
+
+type RowFilter = "all" | "errors";
+
+function formatOutcomeText(outcome: ImportRowOutcome): string {
   if (outcome.result === "RECEIVED") {
     return `Por revisar, #${outcome.reservationNumber}`;
   }
@@ -58,6 +64,25 @@ function formatOutcome(outcome: ImportRowOutcome): string {
     return `Cola, posición ${outcome.waitlistPosition}`;
   }
   return outcome.message;
+}
+
+function OutcomeBadge({ outcome }: { outcome: ImportRowOutcome }) {
+  if (outcome.result === "RECEIVED") {
+    return <Badge variant="confirmed">{formatOutcomeText(outcome)}</Badge>;
+  }
+  if (outcome.result === "WAITLISTED") {
+    return <Badge variant="waitlist">{formatOutcomeText(outcome)}</Badge>;
+  }
+  return <span className="text-destructive">{formatOutcomeText(outcome)}</span>;
+}
+
+function exampleValue(rows: ImportPreviewRow[], field: ImportField): string | null {
+  const row = rows.find((candidate) => Boolean(candidate[field]));
+  return row ? String(row[field]) : null;
+}
+
+function formatFileSize(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -81,6 +106,7 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<"preview" | "run" | null>(null);
   const [retryRun, setRetryRun] = useState(false);
+  const [rowFilter, setRowFilter] = useState<RowFilter>("all");
 
   const step = result ? "result" : preview ? "preview" : "upload";
   const prevStepRef = useRef(step);
@@ -102,6 +128,7 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
     setError(null);
     setPending(null);
     setRetryRun(false);
+    setRowFilter("all");
   }
 
   async function requestPreview(selectedFile: File, customMapping?: ColumnMapping) {
@@ -181,195 +208,285 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
     }
   }
 
-  return (
-    <section className="admin-section space-y-6">
-      {error ? (
-        <Alert variant="destructive" role="alert">
-          {error}
-        </Alert>
-      ) : null}
+  const missingRequired = preview
+    ? REQUIRED_FIELDS.some((field) => mapping[field] === undefined)
+    : false;
+  const currentStep = result ? 4 : !preview ? 1 : missingRequired ? 2 : 3;
+  const visibleRows = preview
+    ? rowFilter === "errors"
+      ? preview.rows.filter((row) => row.error)
+      : preview.rows
+    : [];
 
-      {step === "upload" ? (
-        <div className="space-y-4">
-          <h2 ref={headingRef} tabIndex={-1} className="admin-section-title">
-            Archivo de respuestas
-          </h2>
-          <div className="max-w-md space-y-2">
-            <Label htmlFor="import-file-input">Archivo de respuestas</Label>
-            <Input
-              id="import-file-input"
-              type="file"
-              accept={IMPORT_FILE_EXTENSIONS.join(",")}
+  async function handleFileChosen(selected: File) {
+    setFile(selected);
+    await requestPreview(selected);
+  }
+
+  return (
+    <div className="space-y-8">
+      <section className="admin-section space-y-6">
+        <ImportSteps current={currentStep} />
+
+        {error ? (
+          <Alert variant="destructive" role="alert">
+            {error}
+          </Alert>
+        ) : null}
+
+        {pending === "preview" ? (
+          <p className="flex items-center gap-2 text-sm" aria-live="polite">
+            <Loader2
+              className="size-4 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            Leyendo archivo...
+          </p>
+        ) : null}
+
+        {step === "upload" ? (
+          <div className="space-y-4">
+            <h2 ref={headingRef} tabIndex={-1} className="admin-section-title">
+              Archivo de respuestas
+            </h2>
+            <ImportDropzone
               disabled={pending !== null}
-              onChange={(event) => {
-                const selected = event.target.files?.[0] ?? null;
-                setFile(selected);
-                setError(null);
+              onFile={(selected) => {
+                void handleFileChosen(selected);
               }}
+              onReject={setError}
             />
           </div>
-          <div>
+        ) : null}
+
+        {step === "preview" && file ? (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="min-w-0 truncate font-semibold">{file.name}</span>
+            <span className="admin-muted">{formatFileSize(file.size)}</span>
             <Button
               type="button"
-              disabled={!file || pending !== null}
-              onClick={() => {
-                if (file) void requestPreview(file);
-              }}
+              variant="outline"
+              size="sm"
+              className="min-h-11"
+              disabled={pending !== null}
+              onClick={resetAll}
             >
-              {pending === "preview" ? "Leyendo..." : "Leer archivo"}
+              Cambiar archivo
             </Button>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {step === "preview" && preview ? (
-        <div className="space-y-6">
-          <h2 ref={headingRef} tabIndex={-1} className="admin-section-title">
-            Vista previa
-          </h2>
+        {step === "preview" && preview ? (
+          <div className="space-y-6">
+            <h2 ref={headingRef} tabIndex={-1} className="admin-section-title">
+              Columnas
+            </h2>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {IMPORT_FIELDS.map((field) => {
-              const selectId = `mapping-${field}`;
-              const selectedIndex = mapping[field];
-              return (
-                <div key={field} className="space-y-2">
-                  <Label htmlFor={selectId}>{IMPORT_FIELD_LABELS[field]}</Label>
-                  <select
-                    id={selectId}
-                    className={selectClassName}
-                    value={selectedIndex !== undefined ? String(selectedIndex) : ""}
-                    disabled={pending !== null}
-                    onChange={(event) => {
-                      void handleMappingChange(field, event.target.value);
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {IMPORT_FIELDS.map((field) => {
+                const selectId = `mapping-${field}`;
+                const selectedIndex = mapping[field];
+                const isRequired = REQUIRED_FIELDS.includes(field);
+                const isMissing = isRequired && selectedIndex === undefined;
+                const example =
+                  selectedIndex !== undefined ? exampleValue(preview.rows, field) : null;
+                return (
+                  <div
+                    key={field}
+                    className={cn(
+                      "space-y-2 rounded-lg border border-border p-4",
+                      isMissing && "border-destructive",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor={selectId}>{IMPORT_FIELD_LABELS[field]}</Label>
+                      {isRequired ? <Badge>Obligatorio</Badge> : null}
+                    </div>
+                    <select
+                      id={selectId}
+                      className={selectClassName}
+                      value={selectedIndex !== undefined ? String(selectedIndex) : ""}
+                      disabled={pending !== null}
+                      aria-invalid={isMissing}
+                      onChange={(event) => {
+                        void handleMappingChange(field, event.target.value);
+                      }}
+                    >
+                      <option value="" className="bg-background text-foreground">
+                        Sin columna
+                      </option>
+                      {preview.headers.map((header, index) => (
+                        <option
+                          key={`${index}-${header}`}
+                          value={String(index)}
+                          className="bg-background text-foreground"
+                        >
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                    {isMissing ? (
+                      <p className="text-sm text-destructive">
+                        Elige la columna de {IMPORT_FIELD_LABELS[field]}.
+                      </p>
+                    ) : null}
+                    {example ? (
+                      <p className="admin-muted truncate text-sm">Ejemplo: {example}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            {!missingRequired ? (
+              <div className="space-y-6">
+                <h2 className="admin-section-title">Revisión</h2>
+
+                <StatGrid
+                  items={[
+                    { label: "Listas para importar", value: preview.summary.valid },
+                    { label: "Con errores", value: preview.summary.invalid },
+                    { label: "Lugares disponibles", value: preview.summary.availableSeats },
+                    { label: "Espacio en la cola", value: preview.summary.waitlistAvailable },
+                  ]}
+                />
+
+                <p className="admin-muted text-sm">
+                  Se importan en orden de marca temporal: primero ocupan lugares y luego pasan a la
+                  cola. Si llegan solicitudes del formulario público al mismo tiempo, el resultado
+                  puede variar.
+                </p>
+
+                <SegmentedControl
+                  value={rowFilter}
+                  onValueChange={(value) => setRowFilter(value as RowFilter)}
+                  aria-label="Filtrar filas"
+                >
+                  <SegmentedControlItem value="all" className="min-h-11">
+                    Todas
+                  </SegmentedControlItem>
+                  <SegmentedControlItem value="errors" className="min-h-11">
+                    Con errores
+                  </SegmentedControlItem>
+                </SegmentedControl>
+
+                <div className="max-w-full overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Orden</TableHead>
+                        <TableHead>Fila</TableHead>
+                        <TableHead>Marca temporal</TableHead>
+                        <TableHead>Nombre</TableHead>
+                        <TableHead>Instagram</TableHead>
+                        <TableHead>Acompañante</TableHead>
+                        <TableHead>Alergias</TableHead>
+                        <TableHead>Estado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {visibleRows.map((row) => (
+                        <TableRow key={row.rowNumber}>
+                          <TableCell>{row.order ?? "-"}</TableCell>
+                          <TableCell>{row.rowNumber}</TableCell>
+                          <TableCell>
+                            {row.timestamp ? formatAdminDate(new Date(row.timestamp)) : "-"}
+                          </TableCell>
+                          <TableCell>{row.guest1Name || "-"}</TableCell>
+                          <TableCell>{formatInstagramHandle(row.guest1Instagram)}</TableCell>
+                          <TableCell>{formatCompanion(row)}</TableCell>
+                          <TableCell>{row.allergies ?? "-"}</TableCell>
+                          <TableCell>
+                            {row.error ? (
+                              <span className="text-destructive">{row.error}</span>
+                            ) : (
+                              <Badge variant="confirmed">Lista</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="sticky bottom-0 flex flex-wrap gap-3 border-t border-border bg-background/95 py-3">
+                  <Button
+                    type="button"
+                    className="min-h-11"
+                    disabled={preview.summary.valid === 0 || pending !== null}
+                    onClick={() => {
+                      void handleRunImport();
                     }}
                   >
-                    <option value="" className="bg-background text-foreground">
-                      Sin columna
-                    </option>
-                    {preview.headers.map((header, index) => (
-                      <option
-                        key={`${index}-${header}`}
-                        value={String(index)}
-                        className="bg-background text-foreground"
-                      >
-                        {header}
-                      </option>
-                    ))}
-                  </select>
+                    {pending === "run"
+                      ? "Importando..."
+                      : retryRun
+                        ? "Reintentar importación"
+                        : `Importar ${preview.summary.valid} solicitudes`}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={pending !== null}
+                    onClick={resetAll}
+                  >
+                    Elegir otro archivo
+                  </Button>
                 </div>
-              );
-            })}
+              </div>
+            ) : null}
           </div>
+        ) : null}
 
-          <div className="space-y-1 text-sm">
-            <p>
-              {preview.summary.valid} listas para importar, {preview.summary.invalid} con errores.
-              Lugares disponibles: {preview.summary.availableSeats}. Espacio en la cola:{" "}
-              {preview.summary.waitlistAvailable}.
-            </p>
-            <p className="admin-muted">
-              El resultado final puede variar si llegan solicitudes del formulario público al mismo
-              tiempo.
-            </p>
-          </div>
+        {step === "result" && result ? (
+          <div className="space-y-6">
+            <h2 ref={headingRef} tabIndex={-1} className="admin-section-title">
+              Resultado
+            </h2>
 
-          <div className="max-w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Orden</TableHead>
-                  <TableHead>Fila</TableHead>
-                  <TableHead>Marca temporal</TableHead>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Instagram</TableHead>
-                  <TableHead>Acompañante</TableHead>
-                  <TableHead>Alergias</TableHead>
-                  <TableHead>Estado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {preview.rows.map((row) => (
-                  <TableRow key={row.rowNumber}>
-                    <TableCell>{row.order ?? "-"}</TableCell>
-                    <TableCell>{row.rowNumber}</TableCell>
-                    <TableCell>
-                      {row.timestamp ? formatAdminDate(new Date(row.timestamp)) : "-"}
-                    </TableCell>
-                    <TableCell>{row.guests[0]?.name || "-"}</TableCell>
-                    <TableCell>{formatInstagramHandle(row.guests[0]?.instagram ?? "")}</TableCell>
-                    <TableCell>{formatCompanion(row)}</TableCell>
-                    <TableCell>{row.allergies ?? "-"}</TableCell>
-                    <TableCell>
-                      {row.error ? <span className="text-destructive">{row.error}</span> : "Lista"}
-                    </TableCell>
+            <StatGrid
+              items={[
+                { label: "En Por revisar", value: result.summary.received },
+                { label: "En la cola", value: result.summary.waitlisted },
+                { label: "Sin importar", value: result.summary.skipped },
+              ]}
+            />
+
+            <div className="max-w-full overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fila</TableHead>
+                    <TableHead>Resultado</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {result.outcomes.map((outcome) => (
+                    <TableRow key={outcome.rowNumber}>
+                      <TableCell>{outcome.rowNumber}</TableCell>
+                      <TableCell>
+                        <OutcomeBadge outcome={outcome} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Button asChild className="min-h-11">
+                <Link href={`/admin/events/${eventId}`}>Ver la experiencia</Link>
+              </Button>
+              <Button type="button" variant="outline" className="min-h-11" onClick={resetAll}>
+                Importar otro archivo
+              </Button>
+            </div>
           </div>
+        ) : null}
+      </section>
 
-          <div className="flex flex-wrap gap-3">
-            <Button
-              type="button"
-              disabled={preview.summary.valid === 0 || pending !== null}
-              onClick={() => {
-                void handleRunImport();
-              }}
-            >
-              {pending === "run"
-                ? "Importando..."
-                : retryRun
-                  ? "Reintentar importación"
-                  : `Importar ${preview.summary.valid} solicitudes`}
-            </Button>
-            <Button type="button" variant="outline" disabled={pending !== null} onClick={resetAll}>
-              Elegir otro archivo
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {step === "result" && result ? (
-        <div className="space-y-6">
-          <h2 ref={headingRef} tabIndex={-1} className="admin-section-title">
-            Resultado de la importación
-          </h2>
-
-          <p className="text-sm">
-            {result.summary.received} en Por revisar, {result.summary.waitlisted} en la cola,{" "}
-            {result.summary.skipped} sin importar.
-          </p>
-
-          <div className="max-w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fila</TableHead>
-                  <TableHead>Resultado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {result.outcomes.map((outcome) => (
-                  <TableRow key={outcome.rowNumber}>
-                    <TableCell>{outcome.rowNumber}</TableCell>
-                    <TableCell>{formatOutcome(outcome)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Button asChild>
-              <Link href={`/admin/events/${eventId}`}>Ver la experiencia</Link>
-            </Button>
-            <Button type="button" variant="outline" onClick={resetAll}>
-              Importar otro archivo
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </section>
+      <ImportFormatHelp collapsed={step !== "upload"} />
+    </div>
   );
 }
