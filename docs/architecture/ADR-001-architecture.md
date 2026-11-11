@@ -255,7 +255,7 @@ All of these run in one transaction with their audit row.
 - **Turnstile binding.** The token's `cData` carries the Idempotency-Key, and the server checks `cdata == key`.
   - siteverify does NOT receive an `idempotency_key`. We never retry the siteverify call, so it would buy nothing. If Cloudflare cached outcomes by that key alone, a first failure could replay for every later fresh token under the same reservation key.
   - A spent or expired token returns 403 `BOT_CHECK_FAILED` with `reason: 'TOKEN_EXPIRED_OR_SPENT'`. The client resets the widget and resubmits with the same key. If the first attempt committed, the resubmit is a replay. If it did not, the resubmit is verified fresh.
-- **Retention.** Records are kept indefinitely in the MVP, since the volume is tiny. A cleanup job for records older than 30 days is a future item.
+- **Retention.** Personal data is purged 90 days after the event's start by the daily retention cron (see DEPLOYMENT).
 
 ## 9. Preliminary schema (PostgreSQL 18)
 
