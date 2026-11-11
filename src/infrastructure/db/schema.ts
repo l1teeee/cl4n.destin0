@@ -523,8 +523,6 @@ export const reservations = pgTable(
     status: reservationStatus("status").notNull(),
     fullName: text("full_name").notNull(),
     instagramHandle: text("instagram_handle").notNull(),
-    guest2FullName: text("guest2_full_name"),
-    guest2InstagramHandle: text("guest2_instagram_handle"),
     phoneE164: text("phone_e164"),
     email: text("email"),
     emailNormalized: text("email_normalized"),
@@ -535,7 +533,6 @@ export const reservations = pgTable(
     linkCode: text("link_code"),
     contactId: uuid("contact_id"),
     contactLinkedBy: text("contact_linked_by"),
-    guest2ContactId: uuid("guest2_contact_id"),
     source: text("source").notNull().default("PUBLIC"),
     createdBy: uuid("created_by"),
     stage: text("stage").notNull().default("IN_REVIEW"),
@@ -565,11 +562,6 @@ export const reservations = pgTable(
       foreignColumns: [messagingContacts.id],
     }).onDelete("set null"),
     foreignKey({
-      name: "reservations_guest2_contact_fk",
-      columns: [table.guest2ContactId],
-      foreignColumns: [messagingContacts.id],
-    }).onDelete("set null"),
-    foreignKey({
       name: "reservations_created_by_admin_fk",
       columns: [table.createdBy],
       foreignColumns: [adminUsers.id],
@@ -582,14 +574,6 @@ export const reservations = pgTable(
     ),
     check("reservations_party_size_positive_chk", sql`${table.partySize} >= 1`),
     check(
-      "reservations_guest2_pair_chk",
-      sql`(${table.guest2FullName} IS NULL) = (${table.guest2InstagramHandle} IS NULL)`,
-    ),
-    check(
-      "reservations_guest2_instagram_chk",
-      sql`${table.guest2InstagramHandle} IS NULL OR ${table.guest2InstagramHandle} ~ '^[a-z0-9._]{1,30}$'`,
-    ),
-    check(
       "reservations_link_code_chk",
       sql`${table.linkCode} IS NULL OR ${table.linkCode} ~ '^[A-HJ-NP-Z2-9]{6}$'`,
     ),
@@ -600,14 +584,6 @@ export const reservations = pgTable(
     check(
       "reservations_contact_link_pair_chk",
       sql`(${table.contactId} IS NULL) = (${table.contactLinkedBy} IS NULL)`,
-    ),
-    check(
-      "reservations_guest2_contact_requires_guest2_chk",
-      sql`${table.guest2ContactId} IS NULL OR ${table.guest2FullName} IS NOT NULL`,
-    ),
-    check(
-      "reservations_guest2_contact_distinct_chk",
-      sql`${table.guest2ContactId} IS NULL OR ${table.guest2ContactId} IS DISTINCT FROM ${table.contactId}`,
     ),
     check("reservations_source_chk", sql`${table.source} IN ('PUBLIC', 'ADMIN')`),
     check(
@@ -673,7 +649,6 @@ export const reservations = pgTable(
       .on(table.linkCode)
       .where(sql`${table.linkCode} IS NOT NULL`),
     index("reservations_contact_id_idx").on(table.contactId),
-    index("reservations_guest2_contact_idx").on(table.guest2ContactId),
     index("reservations_event_status_idx").on(table.eventId, table.status),
     index("reservations_event_submitted_at_idx").on(table.eventId, table.submittedAt),
   ],
@@ -688,8 +663,6 @@ export const waitlistEntries = pgTable(
     status: text("status").notNull(),
     fullName: text("full_name").notNull(),
     instagramHandle: text("instagram_handle").notNull(),
-    guest2FullName: text("guest2_full_name"),
-    guest2InstagramHandle: text("guest2_instagram_handle"),
     phoneE164: text("phone_e164"),
     email: text("email"),
     emailNormalized: text("email_normalized"),
@@ -744,14 +717,6 @@ export const waitlistEntries = pgTable(
       sql`char_length(${table.fullName}) BETWEEN 1 AND 120`,
     ),
     check("waitlist_entries_party_size_positive_chk", sql`${table.partySize} >= 1`),
-    check(
-      "waitlist_entries_guest2_pair_chk",
-      sql`(${table.guest2FullName} IS NULL) = (${table.guest2InstagramHandle} IS NULL)`,
-    ),
-    check(
-      "waitlist_entries_guest2_instagram_chk",
-      sql`${table.guest2InstagramHandle} IS NULL OR ${table.guest2InstagramHandle} ~ '^[a-z0-9._]{1,30}$'`,
-    ),
     check(
       "waitlist_entries_link_code_chk",
       sql`${table.linkCode} IS NULL OR ${table.linkCode} ~ '^[A-HJ-NP-Z2-9]{6}$'`,

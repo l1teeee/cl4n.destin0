@@ -170,14 +170,6 @@ describe("migration 0013 staged guest flow and messaging", () => {
 
       await expect(
         pool.query(
-          `UPDATE reservations
-              SET guest2_full_name = 'Guest Two', guest2_instagram_handle = NULL
-            WHERE id = $1`,
-          [confirmedId],
-        ),
-      ).rejects.toMatchObject({ constraint: "reservations_guest2_pair_chk" });
-      await expect(
-        pool.query(
           `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
            VALUES ($1, 1, 'Guest Two', 'guest.two')`,
           [confirmedId],

@@ -101,8 +101,6 @@ describe("reservation allocation repository", () => {
       email_normalized: null;
       phone_e164: null;
       instagram_handle: string;
-      guest2_full_name: string;
-      guest2_instagram_handle: string;
       link_code: string;
       source: string;
       stage: string;
@@ -117,8 +115,6 @@ describe("reservation allocation repository", () => {
       email_normalized: null,
       phone_e164: null,
       instagram_handle: "person.one",
-      guest2_full_name: null,
-      guest2_instagram_handle: null,
       link_code: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/),
       source: "PUBLIC",
       stage: "IN_REVIEW",
@@ -233,7 +229,7 @@ describe("reservation allocation repository", () => {
     expect(result.body).toMatchObject({ error: { code: "EVENT_FULL" } });
     const reservation = await pool.query(
       `SELECT status, reservation_number, accepted_at, allergies, link_code,
-              guest2_full_name, guest2_instagram_handle, source,
+              source,
               email, email_normalized, phone_e164
          FROM reservations WHERE event_id = $1`,
       [event.id],
@@ -245,8 +241,6 @@ describe("reservation allocation repository", () => {
         accepted_at: null,
         allergies: null,
         link_code: null,
-        guest2_full_name: null,
-        guest2_instagram_handle: null,
         source: "PUBLIC",
         email: null,
         email_normalized: null,

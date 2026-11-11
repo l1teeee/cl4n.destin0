@@ -511,11 +511,10 @@ describe("Instagram webhook ingestion", () => {
     const reservationId = await createReservation(eventId, {
       handle: "guest.one",
     });
+    await pool.query("UPDATE reservations SET party_size = 2 WHERE id = $1", [reservationId]);
     await pool.query(
-      `UPDATE reservations
-          SET party_size = 2, guest2_full_name = 'Guest Two',
-              guest2_instagram_handle = 'guest.two'
-        WHERE id = $1`,
+      `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
+       VALUES ($1, 2, 'Guest Two', 'guest.two')`,
       [reservationId],
     );
     const guestTwoContact = await createContact(`55${Date.now()}`);

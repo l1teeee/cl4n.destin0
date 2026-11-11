@@ -94,8 +94,6 @@ describe("groups on PostgreSQL", () => {
     expect(reservation).toMatchObject({
       full_name: guests[0]!.name,
       party_size: 4,
-      guest2_full_name: null,
-      guest2_instagram_handle: null,
     });
     expect(await companions(reservation.id)).toEqual(
       guests.slice(1).map((guest, index) => ({

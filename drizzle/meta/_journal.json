@@ -169,6 +169,13 @@
       "when": 1794360777551,
       "tag": "0023_relax_guest2_party_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794366193815,
+      "tag": "0024_drop_legacy_guest2",
+      "breakpoints": true
     }
   ]
 }

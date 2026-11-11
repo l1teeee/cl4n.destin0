@@ -462,13 +462,20 @@ async function recordEventCreated(
 }
 
 function guestColumns(guest: DemoGuest, guest2: DemoGuest | undefined): unknown[] {
-  return [
-    guest.fullName,
-    guest.instagramHandle,
-    guest2?.fullName ?? null,
-    guest2?.instagramHandle ?? null,
-    guest2 ? 2 : 1,
-  ];
+  return [guest.fullName, guest.instagramHandle, guest2 ? 2 : 1];
+}
+
+async function insertDemoCompanion(
+  client: PoolClient,
+  owner: { column: "reservation_id" | "waitlist_entry_id"; id: string },
+  guest2: DemoGuest | undefined,
+): Promise<void> {
+  if (!guest2) return;
+  await client.query(
+    `INSERT INTO request_guests (${owner.column}, slot, full_name, instagram_handle)
+     VALUES ($1, 2, $2, $3)`,
+    [owner.id, guest2.fullName, guest2.instagramHandle],
+  );
 }
 
 async function insertDemoContacts(
@@ -523,8 +530,6 @@ async function insertDemoReservation(
        status,
        full_name,
        instagram_handle,
-       guest2_full_name,
-       guest2_instagram_handle,
        party_size,
        allergies,
        terms_accepted_at,
@@ -542,8 +547,8 @@ async function insertDemoReservation(
        cancelled_at
      )
      VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-       gen_random_uuid(), $10, $19, $20
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+       gen_random_uuid(), $8, $17, $18
      )
      RETURNING id`,
     [
@@ -565,7 +570,13 @@ async function insertDemoReservation(
       cancelledAt,
     ],
   );
-  return inserted.rows[0]!.id;
+  const reservationId = inserted.rows[0]!.id;
+  await insertDemoCompanion(
+    client,
+    { column: "reservation_id", id: reservationId },
+    reservation.guest2,
+  );
+  return reservationId;
 }
 
 async function insertDemoWaitlistEntry(
@@ -582,8 +593,6 @@ async function insertDemoWaitlistEntry(
        status,
        full_name,
        instagram_handle,
-       guest2_full_name,
-       guest2_instagram_handle,
        party_size,
        allergies,
        terms_accepted_at,
@@ -591,7 +600,7 @@ async function insertDemoWaitlistEntry(
        idempotency_key,
        submitted_at
      )
-     VALUES ($1, $2, 'WAITING', $3, $4, $5, $6, $7, $8, $9, $10, gen_random_uuid(), $9)
+     VALUES ($1, $2, 'WAITING', $3, $4, $5, $6, $7, $8, gen_random_uuid(), $7)
      RETURNING id`,
     [
       eventId,
@@ -602,7 +611,9 @@ async function insertDemoWaitlistEntry(
       entry.linkCode,
     ],
   );
-  return inserted.rows[0]!.id;
+  const entryId = inserted.rows[0]!.id;
+  await insertDemoCompanion(client, { column: "waitlist_entry_id", id: entryId }, entry.guest2);
+  return entryId;
 }
 
 async function insertDemoMessage(

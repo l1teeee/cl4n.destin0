@@ -72,15 +72,20 @@ async function waitlist(eventId: string, contactId: string): Promise<string> {
   const result = await pool.query<{ id: string }>(
     `INSERT INTO waitlist_entries (
        event_id, waitlist_number, status, full_name, instagram_handle,
-       guest2_full_name, guest2_instagram_handle, phone_e164, email, email_normalized,
+       phone_e164, email, email_normalized,
        party_size, notes, allergies, terms_accepted_at, link_code,
        contact_id, contact_linked_by, idempotency_key, submitted_at
      ) VALUES ($1, 1, 'WAITING', 'Nombre privado', 'private.waitlist',
-               'Acompañante privado', 'private.companion', '+50370000002',
+               '+50370000002',
                'private.waitlist@example.com', 'private.waitlist@example.com',
                2, 'Observaciones privadas', 'Alergias privadas', now(), $3,
                $2, 'MANUAL', gen_random_uuid(), now()) RETURNING id`,
     [eventId, contactId, generateLinkCode()],
+  );
+  await pool.query(
+    `INSERT INTO request_guests (waitlist_entry_id, slot, full_name, instagram_handle)
+     VALUES ($1, 2, 'Acompañante privado', 'private.companion')`,
+    [result.rows[0]!.id],
   );
   await pool.query(
     "UPDATE events SET waitlisted_count = 1, last_waitlist_number = 1 WHERE id = $1",
@@ -140,8 +145,6 @@ async function oldContact(lastInboundDaysAgo: number | null = null): Promise<str
 
 const erasedFields = {
   full_name: "eliminado",
-  guest2_full_name: null,
-  guest2_instagram_handle: null,
   phone_e164: null,
   email: null,
   email_normalized: null,

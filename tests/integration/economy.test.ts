@@ -442,9 +442,13 @@ describe("event economy", () => {
     const guestRow = await pool.query<{
       instagram_handle: string;
       guest2_instagram_handle: string;
-    }>("SELECT instagram_handle, guest2_instagram_handle FROM reservations WHERE id = $1", [
-      reservationId,
-    ]);
+    }>(
+      `SELECT r.instagram_handle, g.instagram_handle AS guest2_instagram_handle
+         FROM reservations r
+         JOIN request_guests g ON g.reservation_id = r.id AND g.slot = 2
+        WHERE r.id = $1`,
+      [reservationId],
+    );
     const extraId = await insertExtra("Pan", 300);
     const lineId = lineIdOf(await addCatalog(eventId, reservationId, 1, "EXTRA", extraId, 2));
     await voidConsumption(economy, { eventId, consumptionId: lineId, adminId });

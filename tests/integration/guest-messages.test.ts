@@ -68,12 +68,12 @@ async function createFixtures(client: PoolClient): Promise<Fixtures> {
   const reservations = await client.query<{ id: string; full_name: string }>(
     `INSERT INTO reservations (
        event_id, reservation_number, status, full_name, instagram_handle,
-       guest2_full_name, guest2_instagram_handle, party_size, terms_accepted_at,
+       party_size, terms_accepted_at,
        idempotency_key, submitted_at, accepted_at, contact_id, contact_linked_by
      ) VALUES
-       ($1, 1, 'CONFIRMED', 'Ana López', 'ana.lopez', 'Luis Pérez', 'luis.perez', 2,
+       ($1, 1, 'CONFIRMED', 'Ana López', 'ana.lopez', 2,
         now(), $2, now(), now(), $4, 'MANUAL'),
-       ($1, 2, 'CONFIRMED', 'Carlos Ruiz', 'carlos.ruiz', NULL, NULL, 1,
+       ($1, 2, 'CONFIRMED', 'Carlos Ruiz', 'carlos.ruiz', 1,
         now(), $3, now(), now(), NULL, NULL)
      RETURNING id, full_name`,
     [eventId, randomUUID(), randomUUID(), contacts.rows[0]!.id],
@@ -90,9 +90,8 @@ async function createFixtures(client: PoolClient): Promise<Fixtures> {
   );
   await client.query(
     `INSERT INTO request_guests (reservation_id, slot, full_name, instagram_handle)
-     SELECT id, 2, guest2_full_name, guest2_instagram_handle FROM reservations
-      WHERE event_id = $1 AND guest2_full_name IS NOT NULL`,
-    [eventId],
+     VALUES ($1, 2, 'Luis Pérez', 'luis.perez')`,
+    [reservations.rows.find((row) => row.full_name === "Ana López")!.id],
   );
 
   return {

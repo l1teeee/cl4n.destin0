@@ -104,14 +104,14 @@ async function insertWaitlistEntry(
   const result = await pool.query<{ id: string }>(
     `INSERT INTO waitlist_entries (
        event_id, waitlist_number, status, full_name, instagram_handle,
-       guest2_full_name, guest2_instagram_handle, phone_e164, email, email_normalized,
+       phone_e164, email, email_normalized,
        party_size, notes, allergies, terms_accepted_at, contact_id, contact_linked_by,
        idempotency_key, submitted_at, promoted_reservation_id, promoted_at, cancelled_at
-     ) VALUES ($1, $2, $3, 'Nombre privado', $4, 'Acompañante privado', $5,
+     ) VALUES ($1, $2, $3, 'Nombre privado', $4,
                '+50370000002', 'private.entry@example.com', 'private.entry@example.com',
                2, 'Observaciones privadas', 'Alergias privadas', now(),
-               $6::uuid, CASE WHEN $6::uuid IS NULL THEN NULL ELSE 'MANUAL' END,
-               $7, now(), $8::uuid,
+               $5::uuid, CASE WHEN $5::uuid IS NULL THEN NULL ELSE 'MANUAL' END,
+               $6, now(), $7::uuid,
                CASE WHEN $3 = 'PROMOTED' THEN now() ELSE NULL END,
                CASE WHEN $3 = 'CANCELLED' THEN now() ELSE NULL END)
      RETURNING id`,
@@ -120,11 +120,15 @@ async function insertWaitlistEntry(
       sequence,
       status,
       `private.entry.${sequence}`,
-      `private.entry.${sequence}.b`,
       options.contactId ?? null,
       randomUUID(),
       options.promotedReservationId ?? null,
     ],
+  );
+  await pool.query(
+    `INSERT INTO request_guests (waitlist_entry_id, slot, full_name, instagram_handle)
+     VALUES ($1, 2, 'Acompañante privado', $2)`,
+    [result.rows[0]!.id, `private.entry.${sequence}.b`],
   );
   return result.rows[0]!.id;
 }
@@ -194,9 +198,6 @@ describe("guest data erasure", () => {
     const after = await reservationRow(reservationId);
     expect(after).toMatchObject({
       full_name: "eliminado",
-      guest2_full_name: null,
-      guest2_instagram_handle: null,
-      guest2_contact_id: null,
       phone_e164: null,
       email: null,
       email_normalized: null,
@@ -215,7 +216,6 @@ describe("guest data erasure", () => {
     const entry = await pool.query("SELECT * FROM waitlist_entries WHERE id = $1", [entryId]);
     expect(entry.rows[0]).toMatchObject({
       full_name: "eliminado",
-      guest2_full_name: null,
       phone_e164: null,
       email: null,
       notes: null,
@@ -340,7 +340,6 @@ describe("guest data erasure", () => {
     const entry = await pool.query("SELECT * FROM waitlist_entries WHERE id = $1", [entryId]);
     expect(entry.rows[0]).toMatchObject({
       full_name: "eliminado",
-      guest2_full_name: null,
       email: null,
       contact_id: null,
       status: "CANCELLED",

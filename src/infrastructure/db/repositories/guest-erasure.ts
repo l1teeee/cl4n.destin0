@@ -96,7 +96,6 @@ async function collectContactIds(
 ): Promise<string[]> {
   const result = await client.query<{ contact_id: string | null }>(
     `SELECT contact_id FROM reservations WHERE id = ANY($1::uuid[])
-     UNION SELECT guest2_contact_id FROM reservations WHERE id = ANY($1::uuid[])
      UNION SELECT contact_id FROM waitlist_entries WHERE id = ANY($2::uuid[])
      UNION SELECT contact_id FROM request_guests
             WHERE reservation_id = ANY($1::uuid[]) OR waitlist_entry_id = ANY($2::uuid[])`,
@@ -167,7 +166,6 @@ async function anonymize(
     `UPDATE reservations
         SET full_name = 'eliminado',
             instagram_handle = 'eliminado_' || substr(id::text, 1, 8),
-            guest2_full_name = NULL, guest2_instagram_handle = NULL, guest2_contact_id = NULL,
             phone_e164 = NULL, email = NULL, email_normalized = NULL,
             notes = NULL, allergies = NULL, payment_note = NULL, link_code = NULL,
             contact_id = NULL, contact_linked_by = NULL, updated_at = clock_timestamp()
@@ -178,7 +176,6 @@ async function anonymize(
     `UPDATE waitlist_entries
         SET full_name = 'eliminado',
             instagram_handle = 'eliminado_' || substr(id::text, 1, 8),
-            guest2_full_name = NULL, guest2_instagram_handle = NULL,
             phone_e164 = NULL, email = NULL, email_normalized = NULL,
             notes = NULL, allergies = NULL, link_code = NULL,
             contact_id = NULL, contact_linked_by = NULL, updated_at = clock_timestamp()
@@ -193,7 +190,6 @@ async function deleteUnreferencedContacts(client: PoolClient, contactIds: string
     `DELETE FROM messaging_contacts c
       WHERE c.id = ANY($1::uuid[])
         AND NOT EXISTS (SELECT 1 FROM reservations WHERE contact_id = c.id)
-        AND NOT EXISTS (SELECT 1 FROM reservations WHERE guest2_contact_id = c.id)
         AND NOT EXISTS (SELECT 1 FROM waitlist_entries WHERE contact_id = c.id)
         AND NOT EXISTS (SELECT 1 FROM request_guests WHERE contact_id = c.id)`,
     [contactIds],

@@ -126,10 +126,10 @@ async function insertReservation(
   const result = await pool.query<{ id: string }>(
     `INSERT INTO reservations (
        event_id, reservation_number, status, stage, full_name, instagram_handle,
-       guest2_full_name, guest2_instagram_handle, party_size, terms_accepted_at,
+       party_size, terms_accepted_at,
        link_code, idempotency_key, submitted_at, accepted_at, on_list_at, paid_at
      )
-     VALUES ($1, $2, 'CONFIRMED', $3, $4, $5, $6, $7, $8, now(), $9, $10, now(), now(),
+     VALUES ($1, $2, 'CONFIRMED', $3, $4, $5, $6, now(), $7, $8, now(), now(),
              CASE WHEN $3 IN ('ON_LIST', 'PAID') THEN now() END,
              CASE WHEN $3 = 'PAID' THEN now() END)
      RETURNING id`,
@@ -139,8 +139,6 @@ async function insertReservation(
       stage,
       fields.guests[0]!.name,
       fields.guests[0]!.instagram,
-      fields.guests[1]?.name,
-      fields.guests[1]?.instagram,
       partySize,
       generateLinkCode(),
       randomUUID(),
@@ -175,10 +173,10 @@ async function insertWaitlistEntry(
   const result = await pool.query<{ id: string }>(
     `INSERT INTO waitlist_entries (
        event_id, waitlist_number, status, full_name, instagram_handle,
-       guest2_full_name, guest2_instagram_handle, party_size, terms_accepted_at,
+       party_size, terms_accepted_at,
        link_code, idempotency_key, submitted_at, cancelled_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, $10, now(),
+     VALUES ($1, $2, $3, $4, $5, $6, now(), $7, $8, now(),
              CASE WHEN $3 = 'CANCELLED' THEN now() END)
      RETURNING id`,
     [
@@ -187,8 +185,6 @@ async function insertWaitlistEntry(
       status,
       fields.guests[0]!.name,
       fields.guests[0]!.instagram,
-      fields.guests[1]?.name,
-      fields.guests[1]?.instagram,
       partySize,
       generateLinkCode(),
       randomUUID(),

@@ -107,7 +107,6 @@ export class PostgresPersonalDataRetentionRepository
       // Keep the affected contact ids before removing their event links.
       const contacts = await client.query<{ contact_id: string | null }>(
         `SELECT contact_id FROM reservations WHERE event_id = $1
-         UNION SELECT guest2_contact_id FROM reservations WHERE event_id = $1
          UNION SELECT contact_id FROM waitlist_entries WHERE event_id = $1
          UNION SELECT g.contact_id FROM request_guests g
           WHERE g.reservation_id IN (SELECT id FROM reservations WHERE event_id = $1)
@@ -133,7 +132,6 @@ export class PostgresPersonalDataRetentionRepository
         `UPDATE reservations
             SET full_name = 'eliminado',
                 instagram_handle = 'eliminado_' || substr(id::text, 1, 8),
-                guest2_full_name = NULL, guest2_instagram_handle = NULL, guest2_contact_id = NULL,
                 phone_e164 = NULL, email = NULL, email_normalized = NULL,
                 notes = NULL, allergies = NULL, payment_note = NULL, link_code = NULL,
                 contact_id = NULL, contact_linked_by = NULL, release_reason = NULL
@@ -144,7 +142,6 @@ export class PostgresPersonalDataRetentionRepository
         `UPDATE waitlist_entries
             SET full_name = 'eliminado',
                 instagram_handle = 'eliminado_' || substr(id::text, 1, 8),
-                guest2_full_name = NULL, guest2_instagram_handle = NULL,
                 phone_e164 = NULL, email = NULL, email_normalized = NULL,
                 notes = NULL, allergies = NULL, link_code = NULL,
                 contact_id = NULL, contact_linked_by = NULL
