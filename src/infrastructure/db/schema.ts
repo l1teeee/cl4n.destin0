@@ -815,6 +815,52 @@ export const waitlistEntries = pgTable(
   ],
 );
 
+export const requestGuests = pgTable(
+  "request_guests",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    reservationId: uuid("reservation_id"),
+    waitlistEntryId: uuid("waitlist_entry_id"),
+    slot: smallint("slot").notNull(),
+    fullName: text("full_name").notNull(),
+    instagramHandle: text("instagram_handle").notNull(),
+    contactId: uuid("contact_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "request_guests_pkey", columns: [table.id] }),
+    foreignKey({
+      name: "request_guests_reservation_fk",
+      columns: [table.reservationId],
+      foreignColumns: [reservations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "request_guests_waitlist_entry_fk",
+      columns: [table.waitlistEntryId],
+      foreignColumns: [waitlistEntries.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "request_guests_contact_fk",
+      columns: [table.contactId],
+      foreignColumns: [messagingContacts.id],
+    }).onDelete("set null"),
+    check(
+      "request_guests_subject_chk",
+      sql`num_nonnulls(${table.reservationId}, ${table.waitlistEntryId}) = 1`,
+    ),
+    check("request_guests_slot_chk", sql`${table.slot} >= 2`),
+    check(
+      "request_guests_full_name_chk",
+      sql`char_length(${table.fullName}) BETWEEN 1 AND 120`,
+    ),
+    check("request_guests_instagram_chk", sql`${table.instagramHandle} ~ '^[a-z0-9._]{1,30}$'`),
+    unique("request_guests_reservation_slot_uq").on(table.reservationId, table.slot),
+    unique("request_guests_waitlist_entry_slot_uq").on(table.waitlistEntryId, table.slot),
+    index("request_guests_contact_idx").on(table.contactId),
+    index("request_guests_instagram_idx").on(table.instagramHandle),
+  ],
+);
+
 export const messages = pgTable(
   "messages",
   {
@@ -884,7 +930,7 @@ export const messages = pgTable(
       columns: [table.handledBy],
       foreignColumns: [adminUsers.id],
     }).onDelete("no action"),
-    check("messages_guest_slot_chk", sql`${table.guestSlot} IN (1, 2)`),
+    check("messages_guest_slot_chk", sql`${table.guestSlot} >= 1`),
     check(
       "messages_guest_slot_subject_chk",
       sql`${table.guestSlot} = 1 OR ${table.reservationId} IS NOT NULL`,
@@ -1332,7 +1378,7 @@ export const guestConsumptions = pgTable(
       columns: [table.voidedBy],
       foreignColumns: [adminUsers.id],
     }).onDelete("set null"),
-    check("guest_consumptions_guest_slot_chk", sql`${table.guestSlot} IN (1, 2)`),
+    check("guest_consumptions_guest_slot_chk", sql`${table.guestSlot} >= 1`),
     check("guest_consumptions_source_chk", sql`${table.source} IN ('DRINK', 'EXTRA', 'CUSTOM')`),
     // The item reference is cleared when a drink is deleted, so only the opposite direction is enforced.
     check(
@@ -1376,6 +1422,6 @@ export const guestTabs = pgTable(
       columns: [table.settledBy],
       foreignColumns: [adminUsers.id],
     }).onDelete("set null"),
-    check("guest_tabs_guest_slot_chk", sql`${table.guestSlot} IN (1, 2)`),
+    check("guest_tabs_guest_slot_chk", sql`${table.guestSlot} >= 1`),
   ],
 );
