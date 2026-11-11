@@ -239,8 +239,7 @@ describe("admin guest import routes with PostgreSQL", () => {
       timestamp: 0,
       guest1Name: 1,
       guest1Instagram: 2,
-      guest2Name: 3,
-      guest2Instagram: 4,
+      companions: [{ name: 3, instagram: 4 }],
       allergies: 5,
       notes: 6,
     });

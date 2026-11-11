@@ -59,6 +59,7 @@ function rows(count = 1) {
       rows: Array.from({ length: count }, (_, index) => [`Guest ${index}`, `import.${index}`]),
     },
     { guest1Name: 0, guest1Instagram: 1 },
+    2,
   );
 }
 
@@ -149,7 +150,8 @@ describe("reservation import on PostgreSQL", () => {
         headers: ["Nombre", "Instagram", "Acompañante", "Instagram 2"],
         rows: [["Eva", "eva", "Luis", "luis"]],
       },
-      { guest1Name: 0, guest1Instagram: 1, guest2Name: 2, guest2Instagram: 3 },
+      { guest1Name: 0, guest1Instagram: 1, companions: [{ name: 2, instagram: 3 }] },
+      2,
     );
     expect(
       (
@@ -167,6 +169,46 @@ describe("reservation import on PostgreSQL", () => {
       event.id,
     ]);
     expect(entry.rows[0]!.party_size).toBe(2);
+  });
+
+  it("imports a group of four as one request with three companion rows", async () => {
+    const event = await insertTestEvent(pool, { capacity: 6, maxPartySize: 4 });
+    const group = buildImportRows(
+      {
+        headers: ["Nombre", "Instagram", "N1", "I1", "N2", "I2", "N3", "I3"],
+        rows: [["Eva", "grp.eva", "Luis", "grp.luis", "Marta", "grp.marta", "Raul", "grp.raul"]],
+      },
+      {
+        guest1Name: 0,
+        guest1Instagram: 1,
+        companions: [
+          { name: 2, instagram: 3 },
+          { name: 4, instagram: 5 },
+          { name: 6, instagram: 7 },
+        ],
+      },
+      4,
+    );
+    expect(group[0]).toMatchObject({ partySize: 4, error: null });
+    expect(
+      (
+        await importReservations({
+          eventId: event.id,
+          adminId,
+          importId: randomUUID(),
+          rows: group,
+        })
+      )[0]!.result,
+    ).toBe("RECEIVED");
+    const companions = await pool.query(
+      `SELECT rg.slot FROM request_guests rg
+         JOIN reservations r ON r.id = rg.reservation_id
+        WHERE r.event_id = $1 ORDER BY rg.slot`,
+      [event.id],
+    );
+    expect(companions.rows.map((row) => row.slot)).toEqual([2, 3, 4]);
+    const state = await pool.query("SELECT reserved_seats FROM events WHERE id = $1", [event.id]);
+    expect(state.rows[0]!.reserved_seats).toBe(4);
   });
 
   it("detects a duplicate of an existing public request and leaves the public path unchanged", async () => {

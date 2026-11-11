@@ -79,11 +79,12 @@ export async function POST(
   try {
     const table = await readImportFile(file.name, new Uint8Array(await file.arrayBuffer()));
     const selectedMapping = mapping ?? guessMapping(table.headers);
-    const rows = buildImportRows(table, selectedMapping);
+    const rows = buildImportRows(table, selectedMapping, event.maxPartySize);
     const valid = rows.filter((row) => !row.error).length;
     const response: ImportPreviewResponse = {
       headers: table.headers,
       mapping: selectedMapping,
+      maxPartySize: event.maxPartySize,
       rows,
       summary: {
         valid,

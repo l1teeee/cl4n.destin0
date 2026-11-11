@@ -94,7 +94,7 @@ export async function POST(
   }
   try {
     const table = await readImportFile(file.name, new Uint8Array(await file.arrayBuffer()));
-    const rows = buildImportRows(table, mapping);
+    const rows = buildImportRows(table, mapping, event.maxPartySize);
     const outcomes = await importReservations({
       eventId: event.id,
       adminId: authorization.session.admin.id,

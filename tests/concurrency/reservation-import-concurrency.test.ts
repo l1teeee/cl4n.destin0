@@ -64,7 +64,7 @@ function importRows(mixed: boolean) {
         mixed && index % 2 ? `import.${index}.companion` : "",
       ]),
     },
-    { guest1Name: 0, guest1Instagram: 1, guest2Name: 2, guest2Instagram: 3 },
+    { guest1Name: 0, guest1Instagram: 1, companions: [{ name: 2, instagram: 3 }] },
   );
 }
 

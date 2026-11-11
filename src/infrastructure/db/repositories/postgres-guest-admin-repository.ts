@@ -18,13 +18,12 @@ import type {
   VerifyPaymentCommand,
   WaitlistEntryCommand,
 } from "@/application/guests/guest-admin-repository";
-import type { StatusMessageKind } from "@/domain/messaging/message-types";
 import type { RequestGuest } from "@/domain/reservation/request-guests";
 import { generateLinkCode as defaultGenerateLinkCode } from "@/infrastructure/crypto/link-code-generator";
 
 import { pool as applicationPool } from "../client";
-import { enqueueGuestMessage, loadGuestMessageValues, renderGuestMessage } from "./guest-messages";
 import { queueLocationMessage } from "./postgres-location-message-repository";
+import { enqueueStatusMessage } from "./status-messages";
 import {
   promoteSpecificWaitlistEntry,
   promoteWaitlistDetailed,
@@ -283,28 +282,6 @@ async function isPaymentMissing(client: PoolClient, eventId: string): Promise<bo
     [eventId],
   );
   return result.rows[0]!.missing;
-}
-
-async function enqueueStatusMessage(
-  client: PoolClient,
-  input: {
-    kind: StatusMessageKind;
-    eventId: string;
-    subject: { reservationId: string } | { waitlistEntryId: string };
-    actorAdminId: string;
-  },
-): Promise<string> {
-  const values = await loadGuestMessageValues(client, input.subject);
-  const body = await renderGuestMessage(client, input.kind, values);
-  const message = await enqueueGuestMessage(client, {
-    kind: input.kind,
-    subject: input.subject,
-    eventId: input.eventId,
-    body,
-    source: "ADMIN",
-    createdBy: input.actorAdminId,
-  });
-  return message.id;
 }
 
 async function duplicateHandle(

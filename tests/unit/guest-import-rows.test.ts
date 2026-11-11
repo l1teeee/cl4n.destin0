@@ -10,14 +10,13 @@ const headers = ["Nombre", "Instagram", "Acompañante", "Instagram 2", "Alergias
 const mapping: ColumnMapping = {
   guest1Name: 0,
   guest1Instagram: 1,
-  guest2Name: 2,
-  guest2Instagram: 3,
+  companions: [{ name: 2, instagram: 3 }],
   allergies: 4,
   notes: 5,
 };
 
-function rows(data: string[][], selectedMapping = mapping) {
-  return buildImportRows({ headers, rows: data }, selectedMapping);
+function rows(data: string[][], selectedMapping = mapping, maxPartySize = 2) {
+  return buildImportRows({ headers, rows: data }, selectedMapping, maxPartySize);
 }
 
 describe("buildImportRows", () => {
@@ -56,8 +55,7 @@ describe("buildImportRows", () => {
     [["a".repeat(121), "ana"], "El nombre completo no puede superar 120 caracteres."],
     [["Ana", ""], "El usuario de Instagram es obligatorio."],
     [["Ana", "not a handle"], "Ingresa un usuario de Instagram válido."],
-    [["Ana", "ana", "", "luis"], "El nombre del invitado 2 es obligatorio."],
-    [["Ana", "ana", "Luis"], "El usuario de Instagram del invitado 2 es obligatorio."],
+
     [["Ana", "ana", "Luis", "bad!"], "Ingresa un usuario de Instagram válido."],
     [
       ["Ana", "ana", "a".repeat(121), "luis"],
@@ -93,13 +91,42 @@ describe("buildImportRows", () => {
     });
     expect(publicResult.success).toBe(false);
     if (!publicResult.success)
-      expect(publicResult.error.issues.map((issue) => issue.message)).toContain(
-        message === "El nombre del invitado 2 es obligatorio."
-          ? "El nombre completo es obligatorio."
-          : message === "El usuario de Instagram del invitado 2 es obligatorio."
-            ? "El usuario de Instagram es obligatorio."
-            : message,
-      );
+      expect(publicResult.error.issues.map((issue) => issue.message)).toContain(message);
+  });
+
+  it("builds a row with three companions as four guests", () => {
+    const groupMapping: ColumnMapping = {
+      guest1Name: 0,
+      guest1Instagram: 1,
+      companions: [
+        { name: 2, instagram: 3 },
+        { name: 4, instagram: 5 },
+        { name: 6, instagram: 7 },
+      ],
+    };
+    const [row] = buildImportRows(
+      {
+        headers: ["N", "I", "N1", "I1", "N2", "I2", "N3", "I3"],
+        rows: [["Ana", "ana", "Luis", "@LUIS", "Eva", "eva", "Leo", "leo"]],
+      },
+      groupMapping,
+      4,
+    );
+    expect(row).toMatchObject({ partySize: 4, error: null });
+    expect(row!.guests.map((guest) => guest.instagram)).toEqual(["ana", "luis", "eva", "leo"]);
+  });
+
+  it.each([
+    [["Ana", "ana", "Luis"], "Completa nombre e Instagram del acompañante 1."],
+    [["Ana", "ana", "", "luis"], "Completa nombre e Instagram del acompañante 1."],
+  ] as [string[], string][])("flags half companion pairs in %j", (data, message) => {
+    expect(rows([data])[0]).toMatchObject({ order: null, error: message });
+  });
+
+  it("flags rows over the event max party size", () => {
+    expect(rows([["Ana", "ana", "Luis", "luis"]], mapping, 1)[0]!.error).toBe(
+      "Esta experiencia acepta hasta 1 personas por solicitud.",
+    );
   });
 
   it("allows boundary lengths and newlines in allergies and notes", () => {
@@ -219,11 +246,11 @@ describe("buildImportRows", () => {
   });
 
   it("enforces table limits without counting empty data rows", () => {
-    expect(() => buildImportRows({ headers: [], rows: [] }, mapping)).toThrow(ImportTableError);
+    expect(() => buildImportRows({ headers: [], rows: [] }, mapping, 2)).toThrow(ImportTableError);
     expect(() => rows([[" "]])).toThrow("El archivo no tiene respuestas.");
-    expect(() => buildImportRows({ headers: Array(41).fill("h"), rows: [["x"]] }, mapping)).toThrow(
-      "El archivo tiene más de 40 columnas.",
-    );
+    expect(() =>
+      buildImportRows({ headers: Array(41).fill("h"), rows: [["x"]] }, mapping, 2),
+    ).toThrow("El archivo tiene más de 40 columnas.");
     expect(() => rows([Array(41).fill("x")])).toThrow("El archivo tiene más de 40 columnas.");
     expect(() => rows(Array.from({ length: 201 }, () => ["Ana", "ana"]))).toThrow(
       "El archivo tiene más de 200 filas.",

@@ -7,7 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   IMPORT_FIELDS,
   IMPORT_FIELD_LABELS,
+  companionLabel,
   type ColumnMapping,
+  type CompanionMapping,
   type ImportErrorResponse,
   type ImportField,
   type ImportPreviewResponse,
@@ -44,12 +46,18 @@ function formatInstagramHandle(handle: string): string {
   return handle.startsWith("@") ? handle : `@${handle}`;
 }
 
-function formatCompanion(row: ImportPreviewRow): string {
-  const parts = [
-    row.guest2Name,
-    row.guest2Instagram ? formatInstagramHandle(row.guest2Instagram) : null,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" ") : "-";
+function formatGuest(guest: ImportPreviewRow["guests"][number]): string {
+  return `${guest.name || "-"} (${formatInstagramHandle(guest.instagram)})`;
+}
+
+function formatCompanions(row: ImportPreviewRow): string {
+  const companions = row.guests.slice(1);
+  return companions.length > 0 ? companions.map(formatGuest).join(", ") : "-";
+}
+
+function formatRowGuests(rows: ImportPreviewRow[] | undefined, rowNumber: number): string {
+  const row = rows?.find((candidate) => candidate.rowNumber === rowNumber);
+  return row ? row.guests.map(formatGuest).join(", ") : "-";
 }
 
 const REQUIRED_FIELDS: readonly ImportField[] = ["guest1Name", "guest1Instagram"];
@@ -76,9 +84,91 @@ function OutcomeBadge({ outcome }: { outcome: ImportRowOutcome }) {
   return <span className="text-destructive">{formatOutcomeText(outcome)}</span>;
 }
 
+function fieldValue(row: ImportPreviewRow, field: ImportField): string | null {
+  if (field === "timestamp") return row.timestamp;
+  if (field === "guest1Name") return row.guests[0]?.name || null;
+  if (field === "guest1Instagram") return row.guests[0]?.instagram || null;
+  if (field === "allergies") return row.allergies;
+  return row.notes;
+}
+
 function exampleValue(rows: ImportPreviewRow[], field: ImportField): string | null {
-  const row = rows.find((candidate) => Boolean(candidate[field]));
-  return row ? String(row[field]) : null;
+  for (const row of rows) {
+    const value = fieldValue(row, field);
+    if (value) return value;
+  }
+  return null;
+}
+
+function companionExample(
+  rows: ImportPreviewRow[],
+  position: number,
+  part: keyof CompanionMapping,
+): string | null {
+  for (const row of rows) {
+    const guest = row.guests[position];
+    const value = part === "name" ? guest?.name : guest?.instagram;
+    if (value) return value;
+  }
+  return null;
+}
+
+function MappingCard({
+  id,
+  label,
+  headers,
+  selectedIndex,
+  required,
+  example,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  headers: string[];
+  selectedIndex: number | undefined;
+  required: boolean;
+  example: string | null;
+  disabled: boolean;
+  onChange: (rawValue: string) => void;
+}) {
+  const isMissing = required && selectedIndex === undefined;
+  return (
+    <div
+      className={cn(
+        "space-y-2 rounded-lg border border-border p-4",
+        isMissing && "border-destructive",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={id}>{label}</Label>
+        {required ? <Badge>Obligatorio</Badge> : null}
+      </div>
+      <select
+        id={id}
+        className={selectClassName}
+        value={selectedIndex !== undefined ? String(selectedIndex) : ""}
+        disabled={disabled}
+        aria-invalid={isMissing}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="" className="bg-background text-foreground">
+          Sin columna
+        </option>
+        {headers.map((header, index) => (
+          <option
+            key={`${index}-${header}`}
+            value={String(index)}
+            className="bg-background text-foreground"
+          >
+            {header}
+          </option>
+        ))}
+      </select>
+      {isMissing ? <p className="text-sm text-destructive">Elige la columna de {label}.</p> : null}
+      {example ? <p className="admin-muted truncate text-sm">Ejemplo: {example}</p> : null}
+    </div>
+  );
 }
 
 function formatFileSize(bytes: number): string {
@@ -162,17 +252,43 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
     }
   }
 
-  async function handleMappingChange(field: ImportField, rawValue: string) {
+  async function applyMapping(nextMapping: ColumnMapping) {
     if (!file) return;
+    setMapping(nextMapping);
+    setImportId(crypto.randomUUID());
+    await requestPreview(file, nextMapping);
+  }
+
+  async function handleMappingChange(field: ImportField, rawValue: string) {
     const nextMapping: ColumnMapping = { ...mapping };
     if (rawValue === "") {
       delete nextMapping[field];
     } else {
       nextMapping[field] = Number(rawValue);
     }
-    setMapping(nextMapping);
-    setImportId(crypto.randomUUID());
-    await requestPreview(file, nextMapping);
+    await applyMapping(nextMapping);
+  }
+
+  async function handleCompanionChange(
+    index: number,
+    part: keyof CompanionMapping,
+    rawValue: string,
+  ) {
+    const nextCompanions = companions.map((pair) => ({ ...pair }));
+    if (rawValue === "") {
+      delete nextCompanions[index]![part];
+    } else {
+      nextCompanions[index]![part] = Number(rawValue);
+    }
+    await applyMapping({ ...mapping, companions: nextCompanions });
+  }
+
+  function handleAddCompanion() {
+    setMapping({ ...mapping, companions: [...companions, {}] });
+  }
+
+  async function handleRemoveCompanion() {
+    await applyMapping({ ...mapping, companions: companions.slice(0, -1) });
   }
 
   async function handleRunImport() {
@@ -208,6 +324,8 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
     }
   }
 
+  const companions = mapping.companions ?? [];
+  const canAddCompanion = preview ? companions.length < preview.maxPartySize - 1 : false;
   const missingRequired = preview
     ? REQUIRED_FIELDS.some((field) => mapping[field] === undefined)
     : false;
@@ -283,59 +401,67 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
             </h2>
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {IMPORT_FIELDS.map((field) => {
-                const selectId = `mapping-${field}`;
-                const selectedIndex = mapping[field];
-                const isRequired = REQUIRED_FIELDS.includes(field);
-                const isMissing = isRequired && selectedIndex === undefined;
-                const example =
-                  selectedIndex !== undefined ? exampleValue(preview.rows, field) : null;
-                return (
-                  <div
-                    key={field}
-                    className={cn(
-                      "space-y-2 rounded-lg border border-border p-4",
-                      isMissing && "border-destructive",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor={selectId}>{IMPORT_FIELD_LABELS[field]}</Label>
-                      {isRequired ? <Badge>Obligatorio</Badge> : null}
-                    </div>
-                    <select
-                      id={selectId}
-                      className={selectClassName}
-                      value={selectedIndex !== undefined ? String(selectedIndex) : ""}
-                      disabled={pending !== null}
-                      aria-invalid={isMissing}
-                      onChange={(event) => {
-                        void handleMappingChange(field, event.target.value);
-                      }}
-                    >
-                      <option value="" className="bg-background text-foreground">
-                        Sin columna
-                      </option>
-                      {preview.headers.map((header, index) => (
-                        <option
-                          key={`${index}-${header}`}
-                          value={String(index)}
-                          className="bg-background text-foreground"
-                        >
-                          {header}
-                        </option>
-                      ))}
-                    </select>
-                    {isMissing ? (
-                      <p className="text-sm text-destructive">
-                        Elige la columna de {IMPORT_FIELD_LABELS[field]}.
-                      </p>
-                    ) : null}
-                    {example ? (
-                      <p className="admin-muted truncate text-sm">Ejemplo: {example}</p>
-                    ) : null}
-                  </div>
-                );
-              })}
+              {IMPORT_FIELDS.map((field) => (
+                <MappingCard
+                  key={field}
+                  id={`mapping-${field}`}
+                  label={IMPORT_FIELD_LABELS[field]}
+                  headers={preview.headers}
+                  selectedIndex={mapping[field]}
+                  required={REQUIRED_FIELDS.includes(field)}
+                  example={mapping[field] !== undefined ? exampleValue(preview.rows, field) : null}
+                  disabled={pending !== null}
+                  onChange={(rawValue) => {
+                    void handleMappingChange(field, rawValue);
+                  }}
+                />
+              ))}
+              {companions.flatMap((pair, index) =>
+                (["name", "instagram"] as const).map((part) => (
+                  <MappingCard
+                    key={`companion-${index}-${part}`}
+                    id={`mapping-companion-${index}-${part}`}
+                    label={companionLabel(index + 1, part)}
+                    headers={preview.headers}
+                    selectedIndex={pair[part]}
+                    required={false}
+                    example={
+                      pair[part] !== undefined
+                        ? companionExample(preview.rows, index + 1, part)
+                        : null
+                    }
+                    disabled={pending !== null}
+                    onChange={(rawValue) => {
+                      void handleCompanionChange(index, part, rawValue);
+                    }}
+                  />
+                )),
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                disabled={pending !== null || !canAddCompanion}
+                onClick={handleAddCompanion}
+              >
+                Agregar acompañante
+              </Button>
+              {companions.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="min-h-11 text-sm underline"
+                  disabled={pending !== null}
+                  onClick={() => {
+                    void handleRemoveCompanion();
+                  }}
+                >
+                  Quitar
+                </Button>
+              ) : null}
             </div>
 
             {!missingRequired ? (
@@ -379,7 +505,7 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
                         <TableHead>Marca temporal</TableHead>
                         <TableHead>Nombre</TableHead>
                         <TableHead>Instagram</TableHead>
-                        <TableHead>Acompañante</TableHead>
+                        <TableHead>Acompañantes</TableHead>
                         <TableHead>Alergias</TableHead>
                         <TableHead>Estado</TableHead>
                       </TableRow>
@@ -392,9 +518,11 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
                           <TableCell>
                             {row.timestamp ? formatAdminDate(new Date(row.timestamp)) : "-"}
                           </TableCell>
-                          <TableCell>{row.guest1Name || "-"}</TableCell>
-                          <TableCell>{formatInstagramHandle(row.guest1Instagram)}</TableCell>
-                          <TableCell>{formatCompanion(row)}</TableCell>
+                          <TableCell>{row.guests[0]?.name || "-"}</TableCell>
+                          <TableCell>
+                            {formatInstagramHandle(row.guests[0]?.instagram ?? "")}
+                          </TableCell>
+                          <TableCell>{formatCompanions(row)}</TableCell>
                           <TableCell>{row.allergies ?? "-"}</TableCell>
                           <TableCell>
                             {row.error ? (
@@ -458,6 +586,7 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fila</TableHead>
+                    <TableHead>Personas</TableHead>
                     <TableHead>Resultado</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -465,6 +594,7 @@ export function GuestImportFlow({ eventId }: { eventId: string }) {
                   {result.outcomes.map((outcome) => (
                     <TableRow key={outcome.rowNumber}>
                       <TableCell>{outcome.rowNumber}</TableCell>
+                      <TableCell>{formatRowGuests(preview?.rows, outcome.rowNumber)}</TableCell>
                       <TableCell>
                         <OutcomeBadge outcome={outcome} />
                       </TableCell>

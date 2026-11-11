@@ -40,11 +40,12 @@ async function addRequest(eventId: string, partySize: 1 | 2 = 1) {
     actorAdminId: adminId,
     idempotencyKey,
     fields: {
-      partySize,
-      guest1Name: `Invitado ${sequence}`,
-      guest1Instagram: `event.cancel.${sequence}`,
-      guest2Name: partySize === 2 ? `Acompañante ${sequence}` : null,
-      guest2Instagram: partySize === 2 ? `event.cancel.${sequence}.dos` : null,
+      guests: [
+        { name: `Invitado ${sequence}`, instagram: `event.cancel.${sequence}` },
+        ...(partySize === 2
+          ? [{ name: `Acompañante ${sequence}`, instagram: `event.cancel.${sequence}.dos` }]
+          : []),
+      ],
       hasAllergies: false,
       allergies: null,
       notes: null,

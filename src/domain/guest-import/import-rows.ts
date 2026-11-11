@@ -1,5 +1,6 @@
 import {
   MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_COMPANIONS,
   MAX_IMPORT_ROWS,
   type ColumnMapping,
   type ImportField,
@@ -42,7 +43,11 @@ function parseTimestamp(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function validateRow(row: ImportPreviewRow): string | null {
+function validateRow(
+  row: ImportPreviewRow,
+  companionNumbers: number[],
+  maxPartySize: number,
+): string | null {
   const control = /[\u0000-\u001f\u007f]/;
   const noteControl = /[\u0000-\u0008\u000b-\u001f\u007f]/;
   if (
@@ -56,18 +61,24 @@ function validateRow(row: ImportPreviewRow): string | null {
     return "El nombre completo no puede superar 120 caracteres.";
   }
   if (!row.guests[0]!.instagram) return "El usuario de Instagram es obligatorio.";
-  const guest1 = normalizeInstagram(row.guests[0]!.instagram);
-  const companion = row.guests[1];
-  const guest2 = companion?.instagram ? normalizeInstagram(companion.instagram) : null;
-  if (!guest1.ok || (guest2 && !guest2.ok)) return "Ingresa un usuario de Instagram válido.";
-  row.guests[0]!.instagram = guest1.value;
-  if (companion) {
-    companion.instagram = guest2?.value ?? "";
-    if (!companion.name) return "El nombre del invitado 2 es obligatorio.";
-    if (!companion.instagram) return "El usuario de Instagram del invitado 2 es obligatorio.";
-    if (guest1.value === companion.instagram) {
+  for (const [index, number] of companionNumbers.entries()) {
+    const companion = row.guests[index + 1]!;
+    if (!companion.name || !companion.instagram) {
+      return `Completa nombre e Instagram del acompañante ${number}.`;
+    }
+  }
+  const handles = new Set<string>();
+  for (const guest of row.guests) {
+    const normalized = normalizeInstagram(guest.instagram);
+    if (!normalized.ok) return "Ingresa un usuario de Instagram válido.";
+    guest.instagram = normalized.value;
+    if (handles.has(normalized.value)) {
       return "Cada invitado necesita su propio usuario de Instagram.";
     }
+    handles.add(normalized.value);
+  }
+  if (row.partySize > maxPartySize) {
+    return `Esta experiencia acepta hasta ${maxPartySize} personas por solicitud.`;
   }
   if ((row.allergies?.length ?? 0) > 300) {
     return "La descripción de alergias no puede superar 300 caracteres.";
@@ -79,6 +90,7 @@ function validateRow(row: ImportPreviewRow): string | null {
 export function buildImportRows(
   table: { headers: string[]; rows: string[][] },
   mapping: ColumnMapping,
+  maxPartySize = MAX_IMPORT_COMPANIONS + 1,
 ): ImportPreviewRow[] {
   if (!table.headers.length) throw new ImportTableError("El archivo no tiene encabezados.");
   if (
@@ -95,15 +107,21 @@ export function buildImportRows(
   if (!nonEmpty.length) throw new ImportTableError("El archivo no tiene respuestas.");
   const seen = new Map<string, number>();
   const rows = nonEmpty.map(({ cells, rowNumber }): ImportPreviewRow => {
-    const cell = (field: ImportField) => cells[mapping[field] ?? -1] ?? "";
+    const cellAt = (column: number | undefined) => cells[column ?? -1] ?? "";
+    const cell = (field: ImportField) => cellAt(mapping[field]);
     const allergies = cell("allergies");
     const normalizedAllergies = allergies
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "");
     const guests = [{ name: cell("guest1Name"), instagram: cell("guest1Instagram") }];
-    if (cell("guest2Name") || cell("guest2Instagram")) {
-      guests.push({ name: cell("guest2Name"), instagram: cell("guest2Instagram") });
+    const companionNumbers: number[] = [];
+    for (const [index, pair] of (mapping.companions ?? []).entries()) {
+      const name = cellAt(pair.name);
+      const instagram = cellAt(pair.instagram);
+      if (!name && !instagram) continue;
+      guests.push({ name, instagram });
+      companionNumbers.push(index + 1);
     }
     const row: ImportPreviewRow = {
       rowNumber,
@@ -120,7 +138,7 @@ export function buildImportRows(
     if (mapping.guest1Name === undefined || mapping.guest1Instagram === undefined) {
       row.error = "Elige las columnas de nombre e Instagram.";
     } else {
-      row.error = validateRow(row);
+      row.error = validateRow(row, companionNumbers, maxPartySize);
       if (!row.error && mapping.timestamp !== undefined && !row.timestamp) {
         row.error = "No se pudo leer la marca temporal.";
       }

@@ -19,8 +19,7 @@ describe("guest import column mapping", () => {
       timestamp: 0,
       guest1Name: 1,
       guest1Instagram: 2,
-      guest2Name: 3,
-      guest2Instagram: 4,
+      companions: [{ name: 3, instagram: 4 }],
       allergies: 5,
       notes: 6,
     });
@@ -39,8 +38,7 @@ describe("guest import column mapping", () => {
           "Timestamp",
         ]),
       ).toEqual({
-        guest2Instagram: 0,
-        guest2Name: 1,
+        companions: [{ instagram: 0, name: 1 }],
         guest1Instagram: 2,
         guest1Name: 3,
         notes: 4,
@@ -48,6 +46,52 @@ describe("guest import column mapping", () => {
       });
     },
   );
+
+  it("detects numbered companion columns", () => {
+    expect(
+      guessMapping([
+        "Nombre",
+        "Instagram",
+        "Nombre del acompañante 1",
+        "Instagram del acompañante 1",
+        "Nombre del acompañante 2",
+        "Instagram del acompañante 2",
+        "Nombre del acompañante 3",
+        "Instagram del acompañante 3",
+      ]),
+    ).toEqual({
+      guest1Name: 0,
+      guest1Instagram: 1,
+      companions: [
+        { name: 2, instagram: 3 },
+        { name: 4, instagram: 5 },
+        { name: 6, instagram: 7 },
+      ],
+    });
+  });
+
+  it("counts the titular as person 1 in persona headers", () => {
+    expect(
+      guessMapping([
+        "Nombre",
+        "Instagram",
+        "Nombre persona 2",
+        "Instagram persona 2",
+        "Nombre persona 3",
+        "Instagram persona 3",
+        "Nombre persona 4",
+        "Instagram persona 4",
+      ]),
+    ).toEqual({
+      guest1Name: 0,
+      guest1Instagram: 1,
+      companions: [
+        { name: 2, instagram: 3 },
+        { name: 4, instagram: 5 },
+        { name: 6, instagram: 7 },
+      ],
+    });
+  });
 
   it("takes the first match once and leaves missing fields unmapped", () => {
     expect(guessMapping(["Nombre Instagram", "Nombre", "Nombre", "irrelevante"])).toEqual({
@@ -61,7 +105,17 @@ describe("guest import column mapping", () => {
     expect(columnMappingSchema.safeParse({ guest1Name: 0, guest1Instagram: 39 }).success).toBe(
       true,
     );
+    expect(
+      columnMappingSchema.safeParse({
+        guest1Name: 0,
+        guest1Instagram: 1,
+        companions: [{ name: 2, instagram: 3 }, { name: 4 }],
+      }).success,
+    ).toBe(true);
     for (const mapping of [
+      { guest1Name: 0, guest1Instagram: 1, companions: [{ name: 1 }] },
+      { guest1Name: 0, guest1Instagram: 1, companions: [{ name: 2 }, { instagram: 2 }] },
+      { guest1Name: 0, guest1Instagram: 1, companions: Array(100).fill({}) },
       {},
       { guest1Name: 0 },
       { guest1Name: 0, guest1Instagram: 0 },

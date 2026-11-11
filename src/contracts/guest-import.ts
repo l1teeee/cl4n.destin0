@@ -4,8 +4,6 @@ export const IMPORT_FIELDS = [
   "timestamp",
   "guest1Name",
   "guest1Instagram",
-  "guest2Name",
-  "guest2Instagram",
   "allergies",
   "notes",
 ] as const;
@@ -14,8 +12,6 @@ export const IMPORT_FIELD_LABELS: Record<ImportField, string> = {
   timestamp: "Marca temporal",
   guest1Name: "Nombre",
   guest1Instagram: "Instagram",
-  guest2Name: "Nombre del acompañante",
-  guest2Instagram: "Instagram del acompañante",
   allergies: "Alergias",
   notes: "Notas",
 };
@@ -23,7 +19,18 @@ export const MAX_IMPORT_FILE_BYTES = 1_048_576;
 export const MAX_IMPORT_ROWS = 200;
 export const MAX_IMPORT_COLUMNS = 40;
 export const IMPORT_FILE_EXTENSIONS = [".csv", ".xlsx", ".json"] as const;
-export type ColumnMapping = Partial<Record<ImportField, number>>;
+export const MAX_IMPORT_COMPANIONS = 99;
+export interface CompanionMapping {
+  name?: number;
+  instagram?: number;
+}
+export type ColumnMapping = Partial<Record<ImportField, number>> & {
+  companions?: CompanionMapping[];
+};
+
+export function companionLabel(position: number, part: "name" | "instagram"): string {
+  return `Acompañante ${position} · ${part === "name" ? "Nombre" : "Instagram"}`;
+}
 
 const columnIndex = z
   .number()
@@ -35,15 +42,25 @@ export const columnMappingSchema: z.ZodType<ColumnMapping> = z
     timestamp: columnIndex.optional(),
     guest1Name: columnIndex,
     guest1Instagram: columnIndex,
-    guest2Name: columnIndex.optional(),
-    guest2Instagram: columnIndex.optional(),
     allergies: columnIndex.optional(),
     notes: columnIndex.optional(),
+    companions: z
+      .array(z.object({ name: columnIndex.optional(), instagram: columnIndex.optional() }).strict())
+      .max(MAX_IMPORT_COMPANIONS)
+      .optional(),
   })
   .strict()
-  .refine((mapping) => new Set(Object.values(mapping)).size === Object.values(mapping).length, {
-    message: "Cada columna solo puede usarse una vez.",
-  });
+  .refine(
+    (mapping) => {
+      const { companions = [], ...base } = mapping;
+      const columns = [
+        ...Object.values(base),
+        ...companions.flatMap((pair) => [pair.name, pair.instagram]),
+      ].filter((column) => column !== undefined);
+      return new Set(columns).size === columns.length;
+    },
+    { message: "Cada columna solo puede usarse una vez." },
+  );
 
 export interface ImportPreviewRow {
   rowNumber: number;
@@ -59,6 +76,7 @@ export interface ImportPreviewRow {
 export interface ImportPreviewResponse {
   headers: string[];
   mapping: ColumnMapping;
+  maxPartySize: number;
   rows: ImportPreviewRow[];
   summary: { valid: number; invalid: number; availableSeats: number; waitlistAvailable: number };
 }
