@@ -3,12 +3,7 @@ import {
   type InstagramOAuthClient,
 } from "@/application/messaging/instagram-connection";
 
-function record(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new InstagramOAuthError("Invalid Instagram response");
-  }
-  return value as Record<string, unknown>;
-}
+import { graphJsonRequest, record } from "./graph-json-request";
 
 function tokenResult(body: Record<string, unknown>) {
   if (
@@ -33,23 +28,6 @@ export class GraphInstagramOAuthClient implements InstagramOAuthClient {
     },
   ) {}
 
-  private async request(url: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
-    let response: Response;
-    let body: unknown;
-    try {
-      response = await fetch(url, {
-        ...init,
-        signal: AbortSignal.timeout(8_000),
-        cache: "no-store",
-      });
-      if (!response.ok) throw new InstagramOAuthError("Instagram request rejected");
-      body = await response.json();
-    } catch {
-      throw new InstagramOAuthError("Instagram request failed");
-    }
-    return record(body);
-  }
-
   authorizationUrl(state: string): string {
     const params = new URLSearchParams({
       client_id: this.options.appId,
@@ -63,7 +41,7 @@ export class GraphInstagramOAuthClient implements InstagramOAuthClient {
   }
 
   async exchangeCode(code: string): Promise<{ shortLivedToken: string; permissions: string[] }> {
-    const body = await this.request("https://api.instagram.com/oauth/access_token", {
+    const body = await graphJsonRequest("https://api.instagram.com/oauth/access_token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -98,7 +76,9 @@ export class GraphInstagramOAuthClient implements InstagramOAuthClient {
       client_secret: this.options.appSecret,
       access_token: shortLivedToken,
     });
-    return tokenResult(await this.request(`https://graph.instagram.com/access_token?${params}`));
+    return tokenResult(
+      await graphJsonRequest(`https://graph.instagram.com/access_token?${params}`),
+    );
   }
 
   async refreshToken(accessToken: string) {
@@ -107,12 +87,12 @@ export class GraphInstagramOAuthClient implements InstagramOAuthClient {
       access_token: accessToken,
     });
     return tokenResult(
-      await this.request(`https://graph.instagram.com/refresh_access_token?${params}`),
+      await graphJsonRequest(`https://graph.instagram.com/refresh_access_token?${params}`),
     );
   }
 
   async fetchAccount(accessToken: string): Promise<{ accountId: string; username: string }> {
-    const body = await this.request(`${this.options.graphBaseUrl}/me?fields=user_id,username`, {
+    const body = await graphJsonRequest(`${this.options.graphBaseUrl}/me?fields=user_id,username`, {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     const accountId = body.user_id;
@@ -132,10 +112,13 @@ export class GraphInstagramOAuthClient implements InstagramOAuthClient {
       subscribed_fields:
         "messages,messaging_seen,messaging_referral,message_reactions,messaging_postbacks,message_edit",
     });
-    const body = await this.request(`${this.options.graphBaseUrl}/me/subscribed_apps?${params}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
+    const body = await graphJsonRequest(
+      `${this.options.graphBaseUrl}/me/subscribed_apps?${params}`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${accessToken}` },
+      },
+    );
     if (body.success !== true) throw new InstagramOAuthError("Instagram subscription failed");
   }
 }

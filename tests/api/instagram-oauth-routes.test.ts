@@ -122,6 +122,8 @@ describe("Instagram OAuth routes", () => {
     ["MISSING_PERMISSION", "missing_permission"],
     ["WRONG_ACCOUNT", "wrong_account"],
     ["SUBSCRIBE_FAILED", "subscribe_failed"],
+    ["NO_ACCOUNT", "no_account"],
+    ["MULTIPLE_ACCOUNTS", "multiple_accounts"],
   ])("maps %s without logging the code", async (reason, notice) => {
     mocks.complete.mockResolvedValue({ ok: false, error: reason });
     expectCallback(await callback(callbackRequest()), notice);

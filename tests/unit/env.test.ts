@@ -138,7 +138,7 @@ describe("parseServerEnv", () => {
 
   it("requires Instagram credentials in instagram mode", () => {
     expect(() => parseServerEnv({ ...validEnvironment, MESSAGING_MODE: "instagram" })).toThrow(
-      /INSTAGRAM_APP_SECRET[\s\S]*META_WEBHOOK_VERIFY_TOKEN[\s\S]*INSTAGRAM_APP_ID[\s\S]*INSTAGRAM_TOKEN_ENCRYPTION_KEY/,
+      /META_WEBHOOK_VERIFY_TOKEN[\s\S]*META_APP_ID[\s\S]*INSTAGRAM_TOKEN_ENCRYPTION_KEY/,
     );
   });
 
@@ -161,6 +161,78 @@ describe("parseServerEnv", () => {
     expect(() =>
       parseServerEnv({ ...validProductionEnvironment, NEXT_PUBLIC_INSTAGRAM_USERNAME: "" }),
     ).toThrow(/NEXT_PUBLIC_INSTAGRAM_USERNAME/);
+  });
+
+  it.each(["unified", "legacy", "both"])("accepts %s login credentials", (flow) => {
+    const parsed = parseServerEnv({
+      ...validProductionEnvironment,
+      INSTAGRAM_APP_ID: flow === "unified" ? "" : "123456",
+      INSTAGRAM_APP_SECRET: flow === "unified" ? "" : "legacy-app-secret",
+      META_APP_ID: flow === "legacy" ? "" : "654321",
+      META_APP_SECRET: flow === "legacy" ? "" : "unified-app-secret",
+      INSTAGRAM_LOGIN_CONFIG_ID: flow === "legacy" ? "" : "987654",
+    });
+    expect(parsed.MESSAGING_MODE).toBe("instagram");
+  });
+
+  it.each(["META_APP_ID", "META_APP_SECRET", "INSTAGRAM_LOGIN_CONFIG_ID"])(
+    "rejects a partial unified group missing %s even with legacy configured",
+    (missing) => {
+      expect(() =>
+        parseServerEnv({
+          ...validProductionEnvironment,
+          META_APP_ID: "654321",
+          META_APP_SECRET: "unified-app-secret",
+          INSTAGRAM_LOGIN_CONFIG_ID: "987654",
+          [missing]: "",
+        }),
+      ).toThrow(new RegExp(`${missing}: is required together with`));
+    },
+  );
+
+  it.each(["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"])(
+    "rejects a partial legacy group missing %s even with unified configured",
+    (missing) => {
+      expect(() =>
+        parseServerEnv({
+          ...validProductionEnvironment,
+          META_APP_ID: "654321",
+          META_APP_SECRET: "unified-app-secret",
+          INSTAGRAM_LOGIN_CONFIG_ID: "987654",
+          [missing]: "",
+        }),
+      ).toThrow(new RegExp(`${missing}: is required together with`));
+    },
+  );
+
+  it("rejects instagram mode without either complete login group", () => {
+    expect(() =>
+      parseServerEnv({
+        ...validProductionEnvironment,
+        INSTAGRAM_APP_ID: "",
+        INSTAGRAM_APP_SECRET: "",
+      }),
+    ).toThrow(
+      "META_APP_ID: set META_APP_ID, META_APP_SECRET and INSTAGRAM_LOGIN_CONFIG_ID (or the legacy INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET) when MESSAGING_MODE is instagram",
+    );
+  });
+
+  it("defaults and normalizes the unified Graph API URL", () => {
+    expect(parseServerEnv(validEnvironment).META_UNIFIED_GRAPH_API_BASE_URL).toBe(
+      "https://graph.facebook.com/v27.0",
+    );
+    expect(
+      parseServerEnv({
+        ...validEnvironment,
+        META_UNIFIED_GRAPH_API_BASE_URL: "https://graph.facebook.com/v27.0/",
+      }).META_UNIFIED_GRAPH_API_BASE_URL,
+    ).toBe("https://graph.facebook.com/v27.0");
+    expect(() =>
+      parseServerEnv({
+        ...validEnvironment,
+        META_UNIFIED_GRAPH_API_BASE_URL: "http://graph.facebook.com/v27.0",
+      }),
+    ).toThrow(/META_UNIFIED_GRAPH_API_BASE_URL/);
   });
 
   it("defaults the Graph API base URL", () => {

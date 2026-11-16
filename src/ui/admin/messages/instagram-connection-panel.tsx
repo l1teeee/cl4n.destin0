@@ -23,7 +23,7 @@ export interface InstagramConnectionPanelProps {
   connection: {
     username: string;
     connectedAtLabel: string;
-    tokenExpiresAtLabel: string;
+    tokenExpiresAtLabel: string | null;
     expiresSoon: boolean;
   } | null;
   allowAnyAccount: boolean;
@@ -70,6 +70,17 @@ function noticeAlert(
         variant: "destructive",
         message:
           "La cuenta se conectó, pero no se activaron los mensajes entrantes. Intenta de nuevo.",
+      };
+    case "no_account":
+      return {
+        variant: "destructive",
+        message:
+          "No elegiste ninguna cuenta de Instagram. Vincula de nuevo y elige una cuenta profesional.",
+      };
+    case "multiple_accounts":
+      return {
+        variant: "destructive",
+        message: "Elegiste varias cuentas de Instagram. Vincula de nuevo y elige solo una.",
       };
     case "forbidden":
       return {
@@ -136,7 +147,9 @@ export function InstagramConnectionPanel({
             ) : null}
             <p className="admin-muted">Vinculada el {connection.connectedAtLabel}</p>
             <p className="admin-muted">
-              El permiso se renueva solo. Vence el {connection.tokenExpiresAtLabel}.
+              {connection.tokenExpiresAtLabel === null
+                ? "El permiso no caduca."
+                : `El permiso se renueva solo. Vence el ${connection.tokenExpiresAtLabel}.`}
             </p>
             {connection.expiresSoon ? (
               <Alert variant="destructive">

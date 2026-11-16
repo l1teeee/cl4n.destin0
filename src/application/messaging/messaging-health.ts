@@ -41,8 +41,8 @@ export interface MessagingHealth {
 }
 
 export interface MessagingHealthDependencies {
-  // Token expiry of the stored connection, null when not connected. Must not read or decrypt the token.
-  findConnectionExpiry(): Promise<Date | null>;
+  // Null means no connection; a null expiresAt means no expiry. Must not read or decrypt the token.
+  findConnectionExpiry(): Promise<{ expiresAt: Date | null } | null>;
   messages: MessagingHealthRepository;
   // In "log" mode nothing goes through Instagram, so the connection does not matter.
   usesInstagram: boolean;
@@ -51,12 +51,13 @@ export interface MessagingHealthDependencies {
 
 function connectionState(
   usesInstagram: boolean,
-  expiresAt: Date | null,
+  connection: { expiresAt: Date | null } | null,
   now: Date,
 ): InstagramConnectionState {
   if (!usesInstagram) return "NOT_USED";
-  if (expiresAt === null) return "MISSING";
-  return expiresAt.getTime() <= now.getTime() ? "EXPIRED" : "CONNECTED";
+  if (connection === null) return "MISSING";
+  if (connection.expiresAt === null) return "CONNECTED";
+  return connection.expiresAt.getTime() <= now.getTime() ? "EXPIRED" : "CONNECTED";
 }
 
 export async function getMessagingHealth(

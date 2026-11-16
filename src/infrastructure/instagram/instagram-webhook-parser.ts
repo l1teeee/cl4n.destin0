@@ -61,6 +61,7 @@ const payloadSchema = z
         .object({
           id: idSchema,
           messaging: z.array(z.unknown()).optional(),
+          changes: z.array(z.object({ field: z.string() }).passthrough()).optional(),
         })
         .passthrough(),
     ),
@@ -71,6 +72,7 @@ export interface ParsedInstagramWebhook {
   events: InstagramWebhookEvent[];
   skipped: number;
   foreignEntries: number;
+  unhandledFields: string[];
 }
 
 function eventDate(value: number): Date {
@@ -164,16 +166,19 @@ function normalizeItem(
 
 export function parseInstagramWebhook(payload: unknown, accountId: string): ParsedInstagramWebhook {
   const parsed = payloadSchema.safeParse(payload);
-  if (!parsed.success) return { events: [], skipped: 1, foreignEntries: 0 };
+  if (!parsed.success) return { events: [], skipped: 1, foreignEntries: 0, unhandledFields: [] };
 
   const events: InstagramWebhookEvent[] = [];
   let skipped = 0;
   let foreignEntries = 0;
+  const unhandledFields = new Set<string>();
   for (const entry of parsed.data.entry) {
     if (entry.id !== accountId) {
       foreignEntries += 1;
       continue;
     }
+    skipped += entry.changes?.length ?? 0;
+    for (const change of entry.changes ?? []) unhandledFields.add(change.field);
     for (const candidate of entry.messaging ?? []) {
       const item = messagingItemSchema.safeParse(candidate);
       if (!item.success) {
@@ -185,5 +190,5 @@ export function parseInstagramWebhook(payload: unknown, accountId: string): Pars
       else skipped += 1;
     }
   }
-  return { events, skipped, foreignEntries };
+  return { events, skipped, foreignEntries, unhandledFields: [...unhandledFields].sort() };
 }

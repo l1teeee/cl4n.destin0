@@ -1,18 +1,18 @@
 import { createHmac } from "node:crypto";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { encryptSecret } from "@/infrastructure/crypto/secret-box";
-
-import { resetTestDatabase } from "../helpers/test-db";
+import type { InstagramConnection } from "@/application/messaging/instagram-connection";
 
 const after = vi.fn((callback: () => unknown) => callback());
 const followup = vi.fn();
 const ingest = vi.fn();
 const log = vi.fn();
+const findConnection = vi.fn<() => Promise<InstagramConnection | null>>();
 const mockedEnv = vi.hoisted(() => ({
   MESSAGING_MODE: "instagram" as "instagram" | "log",
   INSTAGRAM_APP_SECRET: "meta-app-secret-123456",
+  META_APP_SECRET: "unified-app-secret-123456",
   META_WEBHOOK_VERIFY_TOKEN: "meta-verify-token-123456",
   INSTAGRAM_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
   DATABASE_URL: process.env.DATABASE_URL,
@@ -22,21 +22,15 @@ const mockedEnv = vi.hoisted(() => ({
 
 vi.mock("next/server", () => ({ after }));
 vi.mock("@/infrastructure/config/env", () => ({ env: mockedEnv }));
+vi.mock("@/infrastructure/db/repositories/postgres-instagram-connection-repository", () => ({
+  postgresInstagramConnectionRepository: { find: findConnection },
+}));
 vi.mock("@/infrastructure/messaging/ingest-instagram-events", () => ({
   ingestConfiguredInstagramEvents: ingest,
 }));
 vi.mock("@/infrastructure/observability/logger", () => ({ log }));
 
 const { GET, POST } = await import("@/app/api/webhooks/instagram/route");
-const { pool } = await import("@/infrastructure/db/client");
-
-beforeAll(async () => {
-  await resetTestDatabase();
-});
-
-afterAll(async () => {
-  await pool.end();
-});
 
 function signedRequest(body: string, signature?: string): Request {
   const valid = createHmac("sha256", "meta-app-secret-123456").update(body).digest("hex");
@@ -47,13 +41,18 @@ function signedRequest(body: string, signature?: string): Request {
   });
 }
 
-beforeEach(async () => {
-  await pool.query("DELETE FROM instagram_connection");
-  await pool.query(
-    `INSERT INTO instagram_connection (account_id, username, access_token_ciphertext, token_expires_at)
-     VALUES ('1000', 'clandestino.sv', $1, now() + interval '60 days')`,
-    [encryptSecret("private-test-token", Buffer.alloc(32, 7), "instagram_connection.access_token")],
-  );
+beforeEach(() => {
+  findConnection.mockReset().mockResolvedValue({
+    accountId: "1000",
+    username: "clandestino.sv",
+    accessToken: "private-test-token",
+    tokenExpiresAt: new Date("2027-01-01"),
+    kind: "INSTAGRAM_LOGIN",
+    tokenVersion: 1,
+    connectedAt: new Date(),
+    tokenRefreshedAt: new Date(),
+    connectedByAdminId: null,
+  });
   mockedEnv.MESSAGING_MODE = "instagram";
   followup.mockReset().mockResolvedValue(undefined);
   ingest
@@ -137,7 +136,98 @@ describe("Instagram webhook route", () => {
       events: 1,
       skipped: 0,
       foreignEntries: 0,
+      unhandledFields: "",
     });
+  });
+
+  it("ingests a unified connection signed by the Meta app", async () => {
+    const connection = await findConnection();
+    findConnection.mockResolvedValue({
+      ...connection!,
+      kind: "UNIFIED_LOGIN",
+      tokenExpiresAt: null,
+    });
+    const body = JSON.stringify({
+      object: "instagram",
+      entry: [
+        {
+          id: "1000",
+          messaging: [
+            {
+              sender: { id: "2000" },
+              recipient: { id: "1000" },
+              timestamp: 1_700_000_000_000,
+              message: { mid: "unified-mid", text: "hola" },
+            },
+          ],
+          changes: [{ field: "unknown_field", value: "private-content" }],
+        },
+      ],
+    });
+    const signature = createHmac("sha256", mockedEnv.META_APP_SECRET).update(body).digest("hex");
+    const response = await POST(signedRequest(body, `sha256=${signature}`));
+    expect(response.status).toBe(200);
+    expect(ingest).toHaveBeenCalledWith(
+      [expect.objectContaining({ type: "inbound_message", externalMessageId: "unified-mid" })],
+      { ownAccountId: "1000", deadline: expect.any(Number) },
+    );
+    expect(log).toHaveBeenCalledWith("info", "instagram_webhook_received", {
+      events: 1,
+      skipped: 1,
+      foreignEntries: 0,
+      unhandledFields: "unknown_field",
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain("private-content");
+    expect(after).toHaveBeenCalledOnce();
+  });
+
+  it("acknowledges the old app without parsing or ingesting after a unified relink", async () => {
+    const connection = await findConnection();
+    findConnection.mockResolvedValue({
+      ...connection!,
+      kind: "UNIFIED_LOGIN",
+      tokenExpiresAt: null,
+    });
+    const response = await POST(signedRequest("not-json"));
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("EVENT_RECEIVED");
+    expect(ingest).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("info", "instagram_webhook_other_app", {
+      signedBy: "INSTAGRAM_LOGIN",
+    });
+    expect(log).not.toHaveBeenCalledWith("warn", "instagram_webhook_invalid_json");
+  });
+
+  it("ignores unified webhooks until the legacy connection is replaced", async () => {
+    const body = '{"object":"instagram","entry":[]}';
+    const signature = createHmac("sha256", mockedEnv.META_APP_SECRET).update(body).digest("hex");
+    const response = await POST(signedRequest(body, `sha256=${signature}`));
+    expect(response.status).toBe(200);
+    expect(ingest).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("info", "instagram_webhook_other_app", {
+      signedBy: "UNIFIED_LOGIN",
+    });
+  });
+
+  it("accepts the unified signature when no legacy secret is configured", async () => {
+    const connection = await findConnection();
+    findConnection.mockResolvedValue({
+      ...connection!,
+      kind: "UNIFIED_LOGIN",
+      tokenExpiresAt: null,
+    });
+    const legacySecret = mockedEnv.INSTAGRAM_APP_SECRET;
+    mockedEnv.INSTAGRAM_APP_SECRET = "";
+    try {
+      const body = '{"object":"instagram","entry":[]}';
+      const signature = createHmac("sha256", mockedEnv.META_APP_SECRET).update(body).digest("hex");
+      expect((await POST(signedRequest(body, `sha256=${signature}`))).status).toBe(200);
+      expect(ingest).toHaveBeenCalledOnce();
+    } finally {
+      mockedEnv.INSTAGRAM_APP_SECRET = legacySecret;
+    }
   });
 
   it("logs invalid JSON without exposing its body", async () => {
@@ -147,7 +237,7 @@ describe("Instagram webhook route", () => {
   });
 
   it("acknowledges without ingestion when no connection exists", async () => {
-    await pool.query("DELETE FROM instagram_connection");
+    findConnection.mockResolvedValue(null);
     const response = await POST(signedRequest('{"object":"instagram"}'));
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe("EVENT_RECEIVED");

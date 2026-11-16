@@ -12,7 +12,10 @@ export async function loadInstagramMessenger(): Promise<InstagramMessenger | nul
   const connection = await postgresInstagramConnectionRepository.find();
   if (!connection) return null;
   return new GraphInstagramMessenger({
-    baseUrl: env.META_GRAPH_API_BASE_URL,
+    baseUrl:
+      connection.kind === "UNIFIED_LOGIN"
+        ? env.META_UNIFIED_GRAPH_API_BASE_URL
+        : env.META_GRAPH_API_BASE_URL,
     accountId: connection.accountId,
     accessToken: connection.accessToken,
   });

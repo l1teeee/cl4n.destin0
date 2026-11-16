@@ -6,5 +6,7 @@ describe("instagramConnectionNotices", () => {
   it("is an array containing wrong_account", () => {
     expect(Array.isArray(instagramConnectionNotices)).toBe(true);
     expect(instagramConnectionNotices).toContain("wrong_account");
+    expect(instagramConnectionNotices).toContain("no_account");
+    expect(instagramConnectionNotices).toContain("multiple_accounts");
   });
 });

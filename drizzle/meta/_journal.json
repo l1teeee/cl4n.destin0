@@ -176,6 +176,13 @@
       "when": 1794366193815,
       "tag": "0024_drop_legacy_guest2",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794452593815,
+      "tag": "0025_instagram_unified_login",
+      "breakpoints": true
     }
   ]
 }

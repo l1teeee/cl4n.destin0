@@ -42,6 +42,18 @@ const serverEnvSchema = z
       .optional()
       .transform((value) => value === "true"),
     META_WEBHOOK_VERIFY_TOKEN: optionalString,
+    META_APP_ID: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().regex(/^\d+$/).optional(),
+    ),
+    META_APP_SECRET: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().min(16).optional(),
+    ),
+    INSTAGRAM_LOGIN_CONFIG_ID: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().regex(/^\d+$/).optional(),
+    ),
     INSTAGRAM_APP_ID: z.preprocess(
       (value) => (value === "" ? undefined : value),
       z.string().regex(/^\d+$/).optional(),
@@ -67,6 +79,11 @@ const serverEnvSchema = z
       .refine((value) => new URL(value).protocol === "https:", "must use https")
       .transform((value) => value.replace(/\/$/, ""))
       .default("https://graph.instagram.com/v26.0"),
+    META_UNIFIED_GRAPH_API_BASE_URL: z
+      .url()
+      .refine((value) => new URL(value).protocol === "https:", "must use https")
+      .transform((value) => value.replace(/\/$/, ""))
+      .default("https://graph.facebook.com/v27.0"),
     NEXT_PUBLIC_INSTAGRAM_USERNAME: optionalInstagramUsername,
     BREVO_API_KEY: optionalString,
     EMAIL_FROM_ADDRESS: optionalEmail,
@@ -235,7 +252,6 @@ const serverEnvSchema = z
 
     if (value.MESSAGING_MODE === "instagram") {
       const requiredSecrets = [
-        ["INSTAGRAM_APP_SECRET", value.INSTAGRAM_APP_SECRET, 16],
         ["META_WEBHOOK_VERIFY_TOKEN", value.META_WEBHOOK_VERIFY_TOKEN, 16],
       ] as const;
       for (const [field, secret, minimum] of requiredSecrets) {
@@ -247,11 +263,29 @@ const serverEnvSchema = z
           });
         }
       }
-      if (!value.INSTAGRAM_APP_ID) {
+      const groups = [
+        ["META_APP_ID", "META_APP_SECRET", "INSTAGRAM_LOGIN_CONFIG_ID"],
+        ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
+      ] as const;
+      for (const group of groups) {
+        if (group.some((field) => value[field]) && !group.every((field) => value[field])) {
+          for (const field of group) {
+            if (!value[field]) {
+              context.addIssue({
+                code: "custom",
+                path: [field],
+                message: `is required together with ${group.filter((other) => other !== field).join(", ")}`,
+              });
+            }
+          }
+        }
+      }
+      if (!groups.some((group) => group.every((field) => value[field]))) {
         context.addIssue({
           code: "custom",
-          path: ["INSTAGRAM_APP_ID"],
-          message: "is required when MESSAGING_MODE is instagram",
+          path: ["META_APP_ID"],
+          message:
+            "set META_APP_ID, META_APP_SECRET and INSTAGRAM_LOGIN_CONFIG_ID (or the legacy INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET) when MESSAGING_MODE is instagram",
         });
       }
       if (!value.INSTAGRAM_TOKEN_ENCRYPTION_KEY) {

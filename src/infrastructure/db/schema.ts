@@ -132,7 +132,8 @@ export const instagramConnection = pgTable(
     accountId: text("account_id").notNull(),
     username: text("username").notNull(),
     accessTokenCiphertext: text("access_token_ciphertext").notNull(),
-    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    kind: text("kind").default("INSTAGRAM_LOGIN").notNull(),
     tokenVersion: integer("token_version").default(1).notNull(),
     connectedByAdminId: uuid("connected_by_admin_id"),
     connectedAt: timestamp("connected_at", { withTimezone: true }).defaultNow().notNull(),
@@ -148,6 +149,14 @@ export const instagramConnection = pgTable(
     }).onDelete("set null"),
     check("instagram_connection_singleton", sql`${table.id} = 1`),
     check("instagram_connection_account_id_digits", sql`${table.accountId} ~ '^[0-9]+$'`),
+    check(
+      "instagram_connection_kind_chk",
+      sql`${table.kind} IN ('INSTAGRAM_LOGIN', 'UNIFIED_LOGIN')`,
+    ),
+    check(
+      "instagram_connection_legacy_expiry_chk",
+      sql`${table.kind} <> 'INSTAGRAM_LOGIN' OR ${table.tokenExpiresAt} IS NOT NULL`,
+    ),
   ],
 );
 

@@ -167,3 +167,15 @@ Guest email kinds are no longer written. Their templates and composer branches a
 - One shared send dialog (all or chosen, people grouped by reservation with one color per group) is used for clues, location and tabs.
 - Deploy note: migration 0020 drops and re-creates the CLUE and LOCATION unique indexes. Run it right before pushing the code that uses them, at a quiet time, because old code cannot queue clues or locations between the migration and the new deployment.
 - Superseded for party size by ADR-011.
+
+## Amendment 2026-11-15: unified login
+
+New Meta apps cannot use Instagram Login ("Invalid platform app"). New links use Instagram API with unified login: Facebook Login for Business with a configuration ID, `instagram_basic` and `instagram_manage_messages` permissions, and a system-user token. Code exchange, token inspection, assigned-account listing, webhook subscription and messaging use `graph.facebook.com/v27.0`. Instagram user tokens cannot send through that API.
+
+The singleton connection row stores `kind`: `INSTAGRAM_LOGIN` (the default for existing rows) or `UNIFIED_LOGIN`. Sending follows the stored kind; enabling the new variables changes only the next linking flow. An existing legacy row keeps sending, refreshing and receiving webhooks until an admin successfully relinks. Both sets of app credentials remain configured during cutover. Migration 0025 adds the kind and nullable expiry while requiring an expiry for legacy connections.
+
+Webhook verification checks the legacy app secret first, then the unified Meta app secret, with constant-time signature comparisons. A valid signature identifies the app; a webhook whose app differs from the stored connection kind is acknowledged without parsing or ingestion. Unhandled `changes` are counted and only their unique sorted field names are logged.
+
+Unified tokens may never expire (`expires_at=0`); the row stores a null expiry, health reports CONNECTED and Mi cuenta displays "El permiso no caduca." Unified connections are not refreshed by the daily cron. Legacy token refresh retains its version fence and continues to require the legacy client.
+
+`INSTAGRAM_ALLOW_ANY_ACCOUNT` is unchanged: `true` permits any professional Instagram account; empty restricts linking to `NEXT_PUBLIC_INSTAGRAM_USERNAME` (case-insensitive). Unified allow-any linking requires exactly one assigned account and reports separate notices for no account and multiple accounts. Restricted mode selects the matching account. Disconnecting needs only the repository and works with either connection kind.

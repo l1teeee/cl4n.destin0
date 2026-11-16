@@ -63,6 +63,8 @@ export async function GET(request: Request): Promise<Response> {
     MISSING_PERMISSION: "missing_permission",
     WRONG_ACCOUNT: "wrong_account",
     SUBSCRIBE_FAILED: "subscribe_failed",
+    NO_ACCOUNT: "no_account",
+    MULTIPLE_ACCOUNTS: "multiple_accounts",
   } as const;
   return notice(notices[result.error]);
 }

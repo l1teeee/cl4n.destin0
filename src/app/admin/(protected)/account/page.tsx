@@ -51,8 +51,12 @@ export default async function AccountPage({
         ? {
             username: status.connection.username,
             connectedAtLabel: formatAdminDate(status.connection.connectedAt),
-            tokenExpiresAtLabel: formatAdminDate(status.connection.tokenExpiresAt),
+            tokenExpiresAtLabel:
+              status.connection.tokenExpiresAt === null
+                ? null
+                : formatAdminDate(status.connection.tokenExpiresAt),
             expiresSoon:
+              status.connection.tokenExpiresAt !== null &&
               status.connection.tokenExpiresAt.getTime() - new Date().getTime() < SEVEN_DAYS_MS,
           }
         : null;

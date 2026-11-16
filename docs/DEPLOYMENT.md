@@ -115,12 +115,16 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 | `TURNSTILE_ALLOWED_HOSTNAMES` | production hostname(s) |
 | `RATE_LIMIT_MODE` | `enforce` |
 | `MESSAGING_MODE` | `instagram` (`log` is rejected in production) |
-| `INSTAGRAM_APP_ID` | Meta app ID, from section 5.1 |
-| `INSTAGRAM_APP_SECRET` | Meta app secret, from section 5.1 (also verifies webhook signatures) |
+| `META_APP_ID` | Meta app ID for unified login, from section 5.1 |
+| `META_APP_SECRET` | Meta app secret for unified login; also verifies unified webhook signatures |
+| `INSTAGRAM_LOGIN_CONFIG_ID` | Facebook Login for Business configuration ID (not a secret), with a system-user token |
+| `META_UNIFIED_GRAPH_API_BASE_URL` | `https://graph.facebook.com/v27.0` (HTTPS only) |
+| `INSTAGRAM_APP_ID` | App ID for legacy Instagram Login (old apps only); keep during cutover |
+| `INSTAGRAM_APP_SECRET` | App secret for legacy Instagram Login (old apps only); verifies legacy webhook signatures |
 | `META_WEBHOOK_VERIFY_TOKEN` | new random value of 16 characters or more, also typed in the Meta webhook form |
 | `INSTAGRAM_TOKEN_ENCRYPTION_KEY` | 32 random bytes base64 that encrypt the stored token (if it changes, link again) |
-| `INSTAGRAM_ALLOW_ANY_ACCOUNT` | test only, leave empty in normal use |
-| `META_GRAPH_API_BASE_URL` | `https://graph.instagram.com/v26.0` |
+| `INSTAGRAM_ALLOW_ANY_ACCOUNT` | `true` lets any professional Instagram account link; empty restricts linking to `NEXT_PUBLIC_INSTAGRAM_USERNAME` |
+| `META_GRAPH_API_BASE_URL` | `https://graph.instagram.com/v26.0`, legacy Instagram Login (old apps only) |
 | `NEXT_PUBLIC_INSTAGRAM_USERNAME` | business username without `@`, used for the `ig.me` links |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | optional |
 
@@ -133,29 +137,27 @@ node --env-file=.env.production.local scripts/create-admin.ts     # owner types 
 Guests are contacted only by Instagram DM (ADR-009). Do this section after the owner approves the deployment, because Meta needs a public HTTPS URL for the webhook. Never write a real secret in a file in the repository; set them only in the Vercel Production environment.
 
 1. **Instagram account.** Use a professional account (Business or Creator). In the Instagram app go to Settings > Messages and story replies > Message controls and turn on "Allow access to messages" for connected tools.
-2. **Meta app.** At developers.facebook.com create an app of type Business. Add the Instagram product and choose "API setup with Instagram business login". Record the app ID as `INSTAGRAM_APP_ID` and the app secret (App settings > Basic) as `INSTAGRAM_APP_SECRET`. Register the redirect URL `https://<host>/api/instagram/callback` in the Instagram product settings.
-3. **Environment variables.** In Vercel (Production only) set `MESSAGING_MODE=instagram`, `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` (a new random value, at least 16 characters), `INSTAGRAM_TOKEN_ENCRYPTION_KEY` (32 random bytes base64, e.g. `openssl rand -base64 32`), `META_GRAPH_API_BASE_URL=https://graph.instagram.com/v26.0`, and `NEXT_PUBLIC_INSTAGRAM_USERNAME`. If `INSTAGRAM_TOKEN_ENCRYPTION_KEY` changes later, link again. Leave `INSTAGRAM_ALLOW_ANY_ACCOUNT` empty in normal use (`true` is for test only). The app refuses to start in production with `MESSAGING_MODE=log`.
-4. **Webhook.** In the Instagram product, Webhooks:
+2. **Meta app and configuration.** At developers.facebook.com create an app owned by a business portfolio with the use case "Manage messaging and content on Instagram". Open "API setup with Unified login" > Create configuration. In the Facebook Login for Business configuration select permissions `instagram_basic` and `instagram_manage_messages` and a system-user token. Record the Meta app ID as `META_APP_ID`, the app secret as `META_APP_SECRET`, and the configuration ID as `INSTAGRAM_LOGIN_CONFIG_ID` (the configuration ID is not a secret). Register the redirect URL `https://<host>/api/instagram/callback`.
+3. **Environment variables.** In Vercel (Production only) set `MESSAGING_MODE=instagram`, `META_APP_ID`, `META_APP_SECRET`, `INSTAGRAM_LOGIN_CONFIG_ID`, `META_UNIFIED_GRAPH_API_BASE_URL=https://graph.facebook.com/v27.0`, `META_WEBHOOK_VERIFY_TOKEN` (a new random value, at least 16 characters), `INSTAGRAM_TOKEN_ENCRYPTION_KEY` (32 random bytes base64, e.g. `openssl rand -base64 32`), and `NEXT_PUBLIC_INSTAGRAM_USERNAME`. Keep the existing encryption key during cutover; changing it requires linking again. `INSTAGRAM_ALLOW_ANY_ACCOUNT=true` lets any professional account link; empty restricts linking to `NEXT_PUBLIC_INSTAGRAM_USERNAME`. The app refuses to start in production with `MESSAGING_MODE=log`. Set each login group completely; partial groups are rejected even when the other group is complete.
+4. **Webhook.** Use Configure webhooks on the "API setup with Unified login" tab:
    - Callback URL: `https://<host>/api/webhooks/instagram`.
    - Verify token: the exact `META_WEBHOOK_VERIFY_TOKEN`. Meta calls the URL with `hub.mode=subscribe`; the app answers only when the token matches, so the environment variable must be deployed first.
-   - Subscribe to these fields: `messages`, `messaging_seen`, `messaging_referral`, `message_reactions`, `messaging_postbacks` and `message_edit`.
+   - Subscribe to these fields: `messages`, `messaging_seen`, `messaging_referral`, `message_reactions` and `messaging_postbacks`. Unified login does not offer `message_edit`.
 5. **Link the account.** A super admin opens Mi cuenta and clicks "Vincular Instagram".
-   - This runs Instagram Business Login with scopes `instagram_business_basic` and `instagram_business_manage_messages`.
-   - The app stores the account ID, username and encrypted long-lived token in the database, and subscribes the account to the app's webhooks (`subscribed_apps`). There is no manual token step.
-   - The daily cron `/api/cron/messages` refreshes the token when fewer than 30 days remain.
+   - This runs Facebook Login for Business with the configuration above. Choose one professional Instagram account. Restricted mode picks the account matching `NEXT_PUBLIC_INSTAGRAM_USERNAME`; allow-any mode requires exactly one account.
+   - The app checks the token, lists assigned Instagram accounts, subscribes the chosen account to webhooks and stores its account ID, username, connection kind and encrypted system-user token. Requests use `graph.facebook.com`; Instagram user tokens do not work there.
+   - A token may never expire. The app stores that as a null expiry and displays "El permiso no caduca." The daily cron refreshes only legacy Instagram Login tokens when 30 days or fewer remain.
    - "Desvincular" in Mi cuenta deletes the stored account ID, username and token. Messages wait until an account is linked again. "Volver a vincular" replaces it.
-6. **Going live.** While the app is in Development mode only people with a role on the app (testers) can talk to the account.
-   - Add a privacy policy URL in App settings > Basic: `https://<host>/privacidad`. Have the owner finish the wording of that page first.
-   - Switch the app to Live mode.
-   - Request App Review for `instagram_business_manage_messages` with advanced access, with a screencast of the flow (guest writes the code, admin replies). Meta will probably also ask for Business Verification of the owner's business.
-   - Until both are approved, the app only works with testers. Add the owner and the test guests as Instagram testers (App roles) and have them accept the invitation in Instagram.
+6. **Publish and access.** Configure the privacy policy (`https://<host>/privacidad`), terms (`https://<host>/terminos`) and data-deletion URLs in the app settings. Have the owner finish their wording, then Publish the app.
+   - With Standard Access, Meta may limit messaging to people with a role on the app.
+   - App Review for access beyond app roles needs a verified business. Include a screencast of the guest writing the code and an admin replying.
 7. **Cron.** `vercel.json` schedules `/api/cron/messages` once a day (`0 13 * * *`), the Hobby limit. It retries failed deliveries, releases messages waiting for the 24 h window when possible and finishes image downloads. Normal delivery happens right after each request and each webhook. It uses the same `CRON_SECRET` as the email cron.
-8. **Production order.** Do all of this outside any reservation window.
-   1. Run migrations 0013 and 0014 against production (section 4), and check the grants.
-   2. Set every environment variable, including section 5.1 step 3.
-   3. Push `main`. It auto-deploys.
-   4. Configure the webhook (step 4), after the deploy is live.
-   5. Link the account from Mi cuenta (step 5).
+8. **Cutover order.** With the owner's deployment approval, do this outside any reservation window.
+   1. Set the new unified variables in Vercel and keep `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` and `META_GRAPH_API_BASE_URL` for the existing connection.
+   2. Run migration 0025 (section 4). It preserves existing rows as `INSTAGRAM_LOGIN` and permits null expiry for `UNIFIED_LOGIN`.
+   3. Deploy the new code, then configure the new app's webhook (step 4).
+   4. Relink from Mi cuenta (step 5). The legacy row keeps sending, refreshing and receiving its webhooks until this succeeds. After relinking, webhooks signed by the old app are acknowledged and ignored.
+   5. Later remove the legacy app ID, secret and Graph URL variables together. Without a legacy client a remaining legacy row cannot refresh, so remove them only after relinking.
 9. **Check it works.**
    - Webhook handshake: `curl "https://<host>/api/webhooks/instagram?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=123"` must print `123`, and a wrong token must answer 403.
    - Meta's "Verify and save" button in the webhook form succeeds.
@@ -167,7 +169,7 @@ Guests are contacted only by Instagram DM (ADR-009). Do this section after the o
 
 - Each brand runs its own deployment with its own Vercel project and database.
 - It sets its own `NEXT_PUBLIC_INSTAGRAM_USERNAME` and links its own account in its Mi cuenta.
-- It can reuse the same Meta app (same `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET`, adding its redirect URL) or use its own Meta app.
+- It can reuse the same Meta app (same `META_APP_ID`, `META_APP_SECRET` and `INSTAGRAM_LOGIN_CONFIG_ID`, adding its redirect URL) or use its own Meta app.
 - While the Meta app is in Development mode, only accounts with a role on the app (testers) can link.
 
 ## 6. Deploy and verify technical health

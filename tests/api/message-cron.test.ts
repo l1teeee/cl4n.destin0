@@ -66,6 +66,19 @@ describe("message cron route", () => {
     );
   });
 
+  it("continues delivery for a token that never expires", async () => {
+    refresh.mockResolvedValue("NOT_EXPIRING");
+    const response = await GET(
+      new Request("http://localhost/api/cron/messages", {
+        headers: { authorization: `Bearer ${secret}` },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(log).toHaveBeenCalledWith("info", "instagram_token_refresh", { result: "NOT_EXPIRING" });
+    expect(retryImages).toHaveBeenCalledOnce();
+    expect(drain).toHaveBeenCalledOnce();
+  });
+
   it("continues delivery when refresh fails without logging secret details", async () => {
     refresh.mockRejectedValue(new Error("private-token"));
     const response = await GET(

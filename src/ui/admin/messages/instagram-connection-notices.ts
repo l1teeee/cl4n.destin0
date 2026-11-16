@@ -6,6 +6,8 @@ export const instagramConnectionNotices = [
   "wrong_account",
   "missing_permission",
   "subscribe_failed",
+  "no_account",
+  "multiple_accounts",
   "forbidden",
 ] as const;
 

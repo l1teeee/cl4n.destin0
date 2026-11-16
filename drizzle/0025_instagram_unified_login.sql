@@ -1,0 +1,4 @@
+ALTER TABLE "instagram_connection" ALTER COLUMN "token_expires_at" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "instagram_connection" ADD COLUMN "kind" text DEFAULT 'INSTAGRAM_LOGIN' NOT NULL;--> statement-breakpoint
+ALTER TABLE "instagram_connection" ADD CONSTRAINT "instagram_connection_kind_chk" CHECK ("instagram_connection"."kind" IN ('INSTAGRAM_LOGIN', 'UNIFIED_LOGIN'));--> statement-breakpoint
+ALTER TABLE "instagram_connection" ADD CONSTRAINT "instagram_connection_legacy_expiry_chk" CHECK ("instagram_connection"."kind" <> 'INSTAGRAM_LOGIN' OR "instagram_connection"."token_expires_at" IS NOT NULL);

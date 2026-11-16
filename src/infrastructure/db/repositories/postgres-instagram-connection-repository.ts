@@ -2,6 +2,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import type {
   InstagramConnection,
+  InstagramConnectionKind,
   InstagramConnectionRepository,
 } from "@/application/messaging/instagram-connection";
 import { env } from "@/infrastructure/config/env";
@@ -35,7 +36,8 @@ interface ConnectionRow extends QueryResultRow {
   account_id: string;
   username: string;
   access_token_ciphertext: string;
-  token_expires_at: Date;
+  token_expires_at: Date | null;
+  kind: InstagramConnectionKind;
   token_version: number;
   connected_by_admin_id: string | null;
   connected_at: Date;
@@ -60,7 +62,7 @@ export class PostgresInstagramConnectionRepository implements InstagramConnectio
 
   async find(): Promise<InstagramConnection | null> {
     const result = await this.pool.query<ConnectionRow>(
-      `SELECT account_id, username, access_token_ciphertext, token_expires_at, token_version,
+      `SELECT account_id, username, access_token_ciphertext, token_expires_at, kind, token_version,
               connected_by_admin_id, connected_at, token_refreshed_at
          FROM instagram_connection WHERE id = 1`,
     );
@@ -71,6 +73,7 @@ export class PostgresInstagramConnectionRepository implements InstagramConnectio
       username: row.username,
       accessToken: decryptSecret(row.access_token_ciphertext, tokenKey(), TOKEN_CONTEXT),
       tokenExpiresAt: row.token_expires_at,
+      kind: row.kind,
       tokenVersion: row.token_version,
       connectedByAdminId: row.connected_by_admin_id,
       connectedAt: row.connected_at,
@@ -79,11 +82,12 @@ export class PostgresInstagramConnectionRepository implements InstagramConnectio
   }
 
   // Health checks must keep working even when the token cannot be decrypted.
-  async findTokenExpiry(): Promise<Date | null> {
-    const result = await this.pool.query<{ token_expires_at: Date }>(
+  async findTokenExpiry(): Promise<{ expiresAt: Date | null } | null> {
+    const result = await this.pool.query<{ token_expires_at: Date | null }>(
       "SELECT token_expires_at FROM instagram_connection WHERE id = 1",
     );
-    return result.rows[0]?.token_expires_at ?? null;
+    const row = result.rows[0];
+    return row ? { expiresAt: row.token_expires_at } : null;
   }
 
   async save(input: Parameters<InstagramConnectionRepository["save"]>[0]): Promise<void> {
@@ -91,20 +95,29 @@ export class PostgresInstagramConnectionRepository implements InstagramConnectio
     await inTransaction(this.pool, transactionSettings, async (client) => {
       await client.query(
         `INSERT INTO instagram_connection
-           (id, account_id, username, access_token_ciphertext, token_expires_at, connected_by_admin_id)
-         VALUES (1, $1, $2, $3, $4, $5)
+           (id, account_id, username, access_token_ciphertext, token_expires_at, kind, connected_by_admin_id)
+         VALUES (1, $1, $2, $3, $4, $5, $6)
          ON CONFLICT (id) DO UPDATE SET
            account_id = EXCLUDED.account_id, username = EXCLUDED.username,
            access_token_ciphertext = EXCLUDED.access_token_ciphertext,
            token_expires_at = EXCLUDED.token_expires_at,
+           kind = EXCLUDED.kind,
            connected_by_admin_id = EXCLUDED.connected_by_admin_id,
            token_version = instagram_connection.token_version + 1,
            connected_at = now(), token_refreshed_at = now()`,
-        [input.accountId, input.username, ciphertext, input.tokenExpiresAt, input.adminId],
+        [
+          input.accountId,
+          input.username,
+          ciphertext,
+          input.tokenExpiresAt,
+          input.kind,
+          input.adminId,
+        ],
       );
       await insertAudit(client, input.adminId, "INSTAGRAM_CONNECTED", {
         username: input.username,
         accountId: input.accountId,
+        kind: input.kind,
       });
     });
   }
@@ -125,12 +138,13 @@ export class PostgresInstagramConnectionRepository implements InstagramConnectio
 
   delete(adminId: string): Promise<boolean> {
     return inTransaction(this.pool, transactionSettings, async (client) => {
-      const result = await client.query<{ username: string }>(
-        "DELETE FROM instagram_connection WHERE id = 1 RETURNING username",
+      const result = await client.query<{ username: string; kind: InstagramConnectionKind }>(
+        "DELETE FROM instagram_connection WHERE id = 1 RETURNING username, kind",
       );
       if (!result.rows[0]) return false;
       await insertAudit(client, adminId, "INSTAGRAM_DISCONNECTED", {
         username: result.rows[0].username,
+        kind: result.rows[0].kind,
       });
       return true;
     });

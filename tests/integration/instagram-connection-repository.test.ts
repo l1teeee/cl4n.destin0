@@ -63,6 +63,7 @@ function input() {
     username: `account.${randomUUID()}`,
     accessToken: "private-test-token",
     tokenExpiresAt: expires,
+    kind: "INSTAGRAM_LOGIN" as const,
     adminId,
   };
 }
@@ -82,6 +83,7 @@ describe("PostgresInstagramConnectionRepository", () => {
       username: saved.username,
       accessToken: saved.accessToken,
       tokenExpiresAt: expires,
+      kind: "INSTAGRAM_LOGIN",
       tokenVersion: 1,
       connectedByAdminId: adminId,
       connectedAt: expect.any(Date),
@@ -97,7 +99,7 @@ describe("PostgresInstagramConnectionRepository", () => {
         actor_admin_id: adminId,
         entity_type: "INSTAGRAM_CONNECTION",
         entity_id: INSTAGRAM_CONNECTION_AUDIT_ID,
-        metadata: { username: saved.username, accountId: saved.accountId },
+        metadata: { username: saved.username, accountId: saved.accountId, kind: "INSTAGRAM_LOGIN" },
       },
     ]);
   });
@@ -137,6 +139,32 @@ describe("PostgresInstagramConnectionRepository", () => {
     ).toBe(1);
   });
 
+  it("upserts a unified connection with no expiry and reports expiry without decryption", async () => {
+    expect(await repository.findTokenExpiry()).toBeNull();
+    const saved = input();
+    await repository.save(saved);
+    expect(await repository.findTokenExpiry()).toEqual({ expiresAt: expires });
+    await repository.save({ ...saved, kind: "UNIFIED_LOGIN", tokenExpiresAt: null });
+    expect(await repository.find()).toMatchObject({
+      accountId: saved.accountId,
+      username: saved.username,
+      accessToken: saved.accessToken,
+      kind: "UNIFIED_LOGIN",
+      tokenExpiresAt: null,
+      tokenVersion: 2,
+    });
+    expect(await repository.findTokenExpiry()).toEqual({ expiresAt: null });
+    await pool.query("UPDATE instagram_connection SET access_token_ciphertext = 'invalid'");
+    expect(await repository.findTokenExpiry()).toEqual({ expiresAt: null });
+    await repository.save(saved);
+    expect(await repository.find()).toMatchObject({
+      kind: "INSTAGRAM_LOGIN",
+      tokenExpiresAt: expires,
+      tokenVersion: 3,
+    });
+    expect(await repository.findTokenExpiry()).toEqual({ expiresAt: expires });
+  });
+
   it("deletes and audits exactly once", async () => {
     const saved = input();
     await repository.save(saved);
@@ -152,7 +180,7 @@ describe("PostgresInstagramConnectionRepository", () => {
         actor_admin_id: adminId,
         entity_type: "INSTAGRAM_CONNECTION",
         entity_id: INSTAGRAM_CONNECTION_AUDIT_ID,
-        metadata: { username: saved.username },
+        metadata: { username: saved.username, kind: "INSTAGRAM_LOGIN" },
       },
     ]);
   });

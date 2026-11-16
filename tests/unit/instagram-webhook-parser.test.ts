@@ -32,6 +32,7 @@ describe("Instagram webhook parser", () => {
     expect(result).toEqual({
       skipped: 0,
       foreignEntries: 0,
+      unhandledFields: [],
       events: [
         expect.objectContaining({
           type: "inbound_message",
@@ -165,7 +166,7 @@ describe("Instagram webhook parser", () => {
       },
       accountId,
     );
-    expect(result).toEqual({ events: [], skipped: 1, foreignEntries: 1 });
+    expect(result).toEqual({ events: [], skipped: 1, foreignEntries: 1, unhandledFields: [] });
   });
 
   it("tolerates a malformed payload", () => {
@@ -173,7 +174,34 @@ describe("Instagram webhook parser", () => {
       events: [],
       skipped: 1,
       foreignEntries: 0,
+      unhandledFields: [],
     });
+  });
+
+  it("counts own-account changes and collects unique sorted field names only", () => {
+    const result = parseInstagramWebhook(
+      {
+        object: "instagram",
+        entry: [
+          {
+            id: accountId,
+            changes: [
+              { field: "z_field", value: { private: "never log" } },
+              { field: "a_field" },
+              { field: "z_field" },
+            ],
+            messaging: [{ ...base, read: { mid: "seen" } }],
+          },
+          { id: accountId, changes: [{ field: "a_field" }] },
+          { id: "9999", changes: [{ field: "foreign_field" }] },
+        ],
+      },
+      accountId,
+    );
+    expect(result.skipped).toBe(4);
+    expect(result.unhandledFields).toEqual(["a_field", "z_field"]);
+    expect(result.foreignEntries).toBe(1);
+    expect(result.events).toEqual([expect.objectContaining({ type: "read" })]);
   });
 
   it("treats a referral without ref as a window signal and accepts only HTTPS attachments", () => {
