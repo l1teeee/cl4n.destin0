@@ -42,6 +42,13 @@ const serverEnvSchema = z
       .optional()
       .transform((value) => value === "true"),
     META_WEBHOOK_VERIFY_TOKEN: optionalString,
+    DRMR_WEBHOOK_FORWARD_URL: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z
+        .url()
+        .refine((value) => new URL(value).protocol === "https:", "must use https")
+        .optional(),
+    ),
     META_APP_ID: z.preprocess(
       (value) => (value === "" ? undefined : value),
       z.string().regex(/^\d+$/).optional(),

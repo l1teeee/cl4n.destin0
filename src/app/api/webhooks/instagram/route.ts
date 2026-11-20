@@ -5,6 +5,7 @@ import { after } from "next/server";
 import type { InstagramConnectionKind } from "@/application/messaging/instagram-connection";
 import { env } from "@/infrastructure/config/env";
 import { postgresInstagramConnectionRepository } from "@/infrastructure/db/repositories/postgres-instagram-connection-repository";
+import { forwardInstagramWebhook } from "@/infrastructure/instagram/forward-webhook";
 import { parseInstagramWebhook } from "@/infrastructure/instagram/instagram-webhook-parser";
 import { isValidSignature } from "@/infrastructure/instagram/webhook-signature";
 import { ingestConfiguredInstagramEvents } from "@/infrastructure/messaging/ingest-instagram-events";
@@ -79,6 +80,12 @@ export async function POST(request: Request): Promise<Response> {
   if (signedBy === null) {
     log("info", "instagram_webhook_received", { events: 0, skipped: 1, foreignEntries: 0 });
     return new Response(null, { status: 401 });
+  }
+
+  const forwardUrl = env.DRMR_WEBHOOK_FORWARD_URL;
+  if (forwardUrl && signature) {
+    const contentType = request.headers.get("content-type");
+    after(() => forwardInstagramWebhook(forwardUrl, rawBody, { signature, contentType }));
   }
 
   const connection = await postgresInstagramConnectionRepository.find();
